@@ -1,4 +1,7 @@
-"""Reads content files. Knows the file format, nothing about any particular world.
+"""Reads a game's content files. Knows the file format, nothing about any particular world.
+
+Each game is a folder in games/<id>/ (world.md, rooms/, characters/, items/, quests/, tables/, art/,
+plus look.json and balance.json). rpg.py picks the active game with use_game() before reading anything.
 
 A content file is Markdown with a front-matter block between two '---' lines.
 Front matter is a tiny YAML subset:
@@ -12,12 +15,74 @@ Front matter is a tiny YAML subset:
 Any value may end with a condition such as "(if bridge_clear)",
 "(if not grukk_defeated)" or "(if a or b and not c)". 'and' binds tighter than 'or'.
 """
+import json
 import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-CONTENT = ROOT / "content"
+GAMES = ROOT / "games"
 KINDS = ("rooms", "characters", "items", "quests", "tables")
+
+_GAME = None  # the active game's folder; set by use_game()
+
+
+def use_game(ident, folder=None):
+    """Make `ident` the game every other function reads. `folder` overrides games/<ident>/ (for drafts)."""
+    global _GAME
+    path = Path(folder) if folder else GAMES / ident
+    if not (path / "world.md").is_file():
+        raise KeyError("no game named %r (no world.md in %s)" % (ident, path))
+    _GAME = path
+
+
+def game_dir():
+    if _GAME is None:
+        raise KeyError("no game chosen")
+    return _GAME
+
+
+def game_id():
+    return game_dir().name
+
+
+def list_games():
+    """Every installed game's id, sorted."""
+    return sorted(p.name for p in GAMES.glob("*") if (p / "world.md").is_file()) if GAMES.is_dir() else []
+
+
+def deep_merge(base, over):
+    """`over` laid on `base`: dicts merge key by key, anything else (lists included) replaces."""
+    out = dict(base)
+    for k, v in over.items():
+        out[k] = deep_merge(out[k], v) if isinstance(v, dict) and isinstance(out.get(k), dict) else v
+    return out
+
+
+def _json(path):
+    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+
+
+def kit_balance():
+    return _json(ROOT / "rules" / "balance.json")
+
+
+def kit_look():
+    return _json(ROOT / "rules" / "look.default.json")
+
+
+def balance():
+    """The kit's rule numbers with the game's balance.json laid over them."""
+    return deep_merge(kit_balance(), _json(game_dir() / "balance.json"))
+
+
+def look():
+    """The kit's default look with the game's look.json laid over it: colors, labels, tabs, phrases."""
+    return deep_merge(kit_look(), _json(game_dir() / "look.json"))
+
+
+def game_json(name):
+    """One of the game's own JSON files, unmerged (for validation)."""
+    return _json(game_dir() / name)
 
 _COND = re.compile(r"^(.*?)\s*\(if\s+(.+)\)\s*$")
 
@@ -117,7 +182,7 @@ def section_condition(heading):
 
 
 def path_of(kind, ident):
-    return CONTENT / kind / ("%s.md" % ident)
+    return game_dir() / kind / ("%s.md" % ident)
 
 
 def exists(kind, ident):
@@ -127,7 +192,7 @@ def exists(kind, ident):
 def load(kind, ident):
     p = path_of(kind, ident)
     if not p.is_file():
-        raise KeyError("no %s named %r in content/%s/" % (kind[:-1], ident, kind))
+        raise KeyError("no %s named %r in %s/%s/" % (kind[:-1], ident, game_id(), kind))
     meta, body = parse(p.read_text(encoding="utf-8"))
     meta["id"] = ident
     meta["body"] = body
@@ -135,11 +200,11 @@ def load(kind, ident):
 
 
 def load_world():
-    meta, body = parse((CONTENT / "world.md").read_text(encoding="utf-8"))
+    meta, body = parse((game_dir() / "world.md").read_text(encoding="utf-8"))
     meta["body"] = body
     return meta
 
 
 def ids(kind):
-    d = CONTENT / kind
+    d = game_dir() / kind
     return sorted(p.stem for p in d.glob("*.md")) if d.is_dir() else []

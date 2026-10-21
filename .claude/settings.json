@@ -5,7 +5,7 @@
   "permissions": {
     "allow": [
       "Bash(python3 rules/rpg.py *)",
-      "Read(content/**)",
+      "Read(games/**)",
       "Read(rules/**)",
       "Read(state/**)",
       "Edit(proposals/**)"

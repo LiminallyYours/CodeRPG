@@ -1,6 +1,8 @@
 /** The parts of state/save.json the mod reads. The save file is the source of truth; this is a read-only copy. */
 export type CoderpgSave = {
   version: number
+  /** Which game in games/ this save belongs to (version 7+). */
+  game?: string
   adventure: string
   status: string
   location: string
@@ -17,6 +19,9 @@ export type CoderpgSave = {
   met?: string[]
   /** Display-ready values recomputed on every save (version 3+; people, foes, quests, art from 4). */
   view?: {
+    /** The game being played and its look, copied from games/<id>/ (version 7+). */
+    game?: { id: string; title: string }
+    look?: CoderpgLook
     location_name: string
     items: { id: string; name: string; equipped: boolean }[]
     weight: number
@@ -33,6 +38,19 @@ export type CoderpgSave = {
     chronicle?: string[]
     rumors?: string[]
   }
+}
+
+/** A game's look: the kit's rules/look.default.json with the game's look.json laid over it. */
+export type CoderpgLook = {
+  palette: { accent: string; good: string; bad: string; warn: string; heal: string }
+  stat_labels: { might: string; agility: string; wits: string }
+  stat_short: { might: string; agility: string; wits: string }
+  currency: string
+  tagline: string
+  tabs: CoderpgTab[]
+  tab_labels: Record<CoderpgTab, string>
+  tab_keys: Record<CoderpgTab, string>
+  phrases: { idle: string[]; by_command: Record<string, string[]> }
 }
 
 export type CoderpgPerson = { id: string; name: string; role: string; generated?: boolean }

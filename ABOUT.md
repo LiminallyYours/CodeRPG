@@ -155,7 +155,7 @@ claude --plugin-dir ./mod
 CLAUDE.md                         the game master's standing orders (procedure only)
 .claude/skills/gm-turn/           the turn-by-turn procedure
 .claude/agents/npc.md, world.md   the NPC and world subagents
-content/                          the adventure: rooms, characters, items, quests, tables, art
+games/<id>/                       each game: rooms, characters, items, quests, tables, art, look
 rules/                            RULES.md, balance.json, rpg.py (the rules engine), generate.py
 state/save.json                   the single source of truth
 mod/                              the Claude Code mod: hooks, tests, sounds

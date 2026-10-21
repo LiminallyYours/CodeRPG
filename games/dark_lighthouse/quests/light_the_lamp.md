@@ -17,7 +17,7 @@ Someone has stolen the brass lens from the Saltmere lighthouse, and the fishing 
 ## Stages
 1. **Hear the problem.** Talk to Ysolde in the lighthouse. Sets `lamp_quest_started`. The player can do the rest before this flag is set, and the quest still completes.
 2. **Find the thief.** Clues point east: Ysolde's glimpse of a hunched shape, footprints on the coast road, and Pell's gossip about the troll. The lens is in Grukk's hollow beneath Greywater Bridge.
-3. **Get past Grukk.** There are three branches, each with its own flag (see `characters/grukk.md`):
+3. **Get past Grukk.** There are three branches, each with its own flag (see Grukk's character file):
    - `grukk_friend`: bribed with his favourite treat (a honey cake or a smoked fish; it differs each game)
    - `grukk_cowed`: frightened off with a Might check
    - `grukk_defeated`: beaten in combat

@@ -11,10 +11,10 @@ Follow these steps in order, every turn. If the player's message is out-of-chara
 Run `python3 rules/rpg.py look`. It reports your status, location, open and blocked exits, the items and characters here, your inventory, and flags. It has already applied flag conditions. If the status is `defeated`, tell the player the game is over and suggest `/newgame`. Then stop.
 
 ## 2. Read the content involved
-Read the current room every turn, and each character, item or quest the action touches.
-- **Authored** ones are files: `content/rooms/<id>.md`, `content/characters/<id>.md`, `content/items/<id>.md`, `content/quests/<id>.md`.
-- **Generated** ones, created earlier this run and marked `[generated]` by `look`, live in the save. Read them with `python3 rules/rpg.py show <rooms|characters|items|quests> <id>`. Once generated, they are as real as authored content for the rest of the run.
-- In a file body, use only the `## If <condition>` sections whose condition holds for the current flags. `and`, `or` and `not` work as usual. Conditions can also use the automatic names `look` lists under ALSO TRUE: `has_<item>` while carrying an item, and `met_<character>` once the player has seen that character. You never set these with `flag set`.
+Read the current room every turn, and each character, item or quest the action touches, with `python3 rules/rpg.py show <rooms|characters|items|quests> <id>`. Never open content files by path.
+- `show` reads authored content and content generated earlier this run (marked `[generated]` by `look`) alike. Once generated, things are as real as authored content for the rest of the run.
+- `show` already leaves out the `## If <condition>` sections that don't hold now. Deeper `### If` headings, such as a quest's endings, are still yours to match against the flags. Conditions can use the automatic names `look` lists under ALSO TRUE: `has_<item>` while carrying an item, and `met_<character>` once the player has seen that character. You never set these with `flag set`.
+- The game names its own stats and money: `look` prints them as e.g. `Grit (might)` and `Credits`. Use the game's names in narration, and the mechanical name (`might`) in commands.
 - Authored and generated content together are everything you know about the world. You never make up anything that matters to the game yourself, such as an item, exit, character, clue or price. When the player reaches a gap, follow **Filling gaps** below: either the world agent creates it through `rpg.py`, or it doesn't exist.
 - `ESTABLISHED HERE` lines in `look` are small details already narrated in this room. Keep them true.
 
@@ -66,7 +66,7 @@ Record anything the content says should change, in the same turn. Make these cal
 
 `take`, `move`, `attack`, `use` and `check` have already written their results. Don't repeat them.
 
-Never edit `state/save.json` or anything in `content/` directly.
+Never edit `state/save.json` or anything in `games/` directly.
 
 ---
 
@@ -79,7 +79,7 @@ Each time the character needs to respond, spawn a **fresh** `npc` subagent with 
 Its prompt has exactly these three parts:
 1. **Brief:** the verbatim output of `python3 rules/rpg.py npc-brief <id>`. Run it again for every spawn, since flags may have changed. Never add facts of your own to it.
 2. **The scene so far:** the last few lines of this scene, at most about 8, written as `Player: …` / `<Name>: …` / `(action)`. Write "(the scene just began)" if there are none. A scene ends when the player leaves the room.
-3. **What just happened:** the player's words, quoted as close to verbatim as you can, and anything they visibly did, such as "holds out a honey cake". If a roll has just been made, give its outcome in plain fiction, never as numbers.
+3. **What just happened:** the player's words, quoted as close to verbatim as you can, and anything they visibly did, such as "holds out a wrapped parcel". If a roll has just been made, give its outcome in plain fiction, never as numbers.
 
 ## Using the reply (SAY / INTENT / REMEMBER)
 - **SAY:** narrate it in your own prose around the character's words. You may trim it. Drop anything that contradicts state or content, or that names a thing that doesn't exist. **State wins.** If the NPC claims something false, such as having an item it doesn't have, leave it out or have the character correct themselves.
@@ -87,7 +87,7 @@ Its prompt has exactly these three parts:
   - If content allows it, make it happen with `rpg.py`: `flag set`, `lose`/`gain`, `coins`, or `check` when the content requires a roll.
   - If content doesn't allow it, it doesn't happen. Narrate the character hesitating, or simply not doing it.
   - An attack intent means combat begins, through `rpg.py attack` on the player's action or as the content directs.
-- **REMEMBER:** if it is true to what actually happened, record it with `python3 rules/rpg.py remember <id> "<line>"`. Keep it to one short line in the third person about the player, e.g. "Gave me a honey cake. Cake friend!" Skip it if it says none.
+- **REMEMBER:** if it is true to what actually happened, record it with `python3 rules/rpg.py remember <id> "<line>"`. Keep it to one short line in the third person about the player, e.g. "Brought me a gift. A friend, then!" Skip it if it says none.
 
 ## Two agent characters in one scene
 When two `[agent]` characters are present and the moment naturally involves both, they may exchange lines. That happens when the player addresses both, or when one reacts to the other.
@@ -98,7 +98,7 @@ When two `[agent]` characters are present and the moment naturally involves both
 ---
 
 # Filling gaps
-The adventure's `generation:` policy in `content/world.md` says what may be created during a run. When the player reaches for something the content doesn't have, use the matching case below. If that kind isn't allowed, it doesn't exist.
+The game's `generation:` policy (in `rpg.py show world`) says what may be created during a run. When the player reaches for something the content doesn't have, use the matching case below. If that kind isn't allowed, it doesn't exist.
 
 | The player… | Do this |
 |---|---|

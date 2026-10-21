@@ -1,5 +1,8 @@
 // Turns the rules script's output into dice-tray lines and picks a sound for them.
-// Pure functions: the script's printed format is the only thing they know.
+// Pure functions: the script's printed format is the only thing they know, plus the game's look for names.
+
+import type { CoderpgLook } from '../types'
+import { DEFAULT_LOOK, money } from './look'
 
 export type TrayTone = 'good' | 'bad' | 'neutral'
 export type TrayLine = { icon: string; text: string; result?: string; tone: TrayTone }
@@ -17,7 +20,7 @@ function title(id: string): string {
 }
 
 /** Parse rpg.py output into tray lines; empty when there's nothing to show (a refusal, an unknown line). */
-export function trayLines(stdout: string): TrayLine[] {
+export function trayLines(stdout: string, look: CoderpgLook = DEFAULT_LOOK): TrayLine[] {
   const out: TrayLine[] = []
   for (const raw of stdout.split('\n')) {
     const line = raw.trim().replace(/^effect: /, '')
@@ -26,7 +29,7 @@ export function trayLines(stdout: string): TrayLine[] {
       out.push({ icon: '⚑', text: m[1]!, tone: 'neutral' })
     } else if ((m = /^COINS ([+-]\d+) -> (\d+)$/.exec(line))) {
       const n = Number(m[1])
-      out.push({ icon: ' ', text: `${n > 0 ? '+' : ''}${n} coin${Math.abs(n) === 1 ? '' : 's'} · ${m[2]} left`, tone: n > 0 ? 'good' : 'bad' })
+      out.push({ icon: ' ', text: `${n > 0 ? '+' : '-'}${money(Math.abs(n), look)} · ${m[2]} left`, tone: n > 0 ? 'good' : 'bad' })
     } else if ((m = /^GAINED: (\w+)/.exec(line))) {
       out.push({ icon: ' ', text: `found ${title(m[1]!)}`, tone: 'good' })
     } else if ((m = /^CLOCK: (.+?) in (\d+ moves?)$/.exec(line))) {
@@ -38,7 +41,8 @@ export function trayLines(stdout: string): TrayLine[] {
       out.push({ icon: '✧', text: `The world grows: ${names.join(', ')}`, tone: 'neutral' })
     } else if ((m = /^CHECK (\w+) vs DC (\d+): d20 (\d+) ([+-]\d+) = (-?\d+)(.*?) -> (SUCCESS|FAILURE)$/.exec(line))) {
       const [, stat, dc, nat, mod, total, note, res] = m
-      out.push({ icon: '🎲', text: `${title(stat!)} check: d20 ${nat} ${mod} = ${total} vs DC ${dc}${note}`, result: res, tone: res === 'SUCCESS' ? 'good' : 'bad' })
+      const label = look.stat_labels[stat as keyof CoderpgLook['stat_labels']] ?? title(stat!)
+      out.push({ icon: '🎲', text: `${label} check: d20 ${nat} ${mod} = ${total} vs DC ${dc}${note}`, result: res, tone: res === 'SUCCESS' ? 'good' : 'bad' })
     } else if ((m = /^PLAYER ATTACKS (\w+) with (.+?): d20 (\d+) ([+-]\d+) = (-?\d+) vs defense (\d+)(.*?) -> (HIT|MISS)$/.exec(line))) {
       const [, foe, , nat, mod, total, def, note, res] = m
       out.push({ icon: '⚔', text: `You attack ${title(foe!)}: d20 ${nat} ${mod} = ${total} vs ${def}${note}`, result: res, tone: res === 'HIT' ? 'good' : 'bad' })

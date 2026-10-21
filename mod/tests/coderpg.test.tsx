@@ -3,7 +3,8 @@ import { expect, test } from 'claude-code/testing'
 import type { CoderpgSave } from '../types'
 import { exitsOf, keyText, mapText } from '../hooks/map'
 import { feedback, isReset } from '../hooks/feedback'
-import { commandPhrase, npcPhrase } from '../hooks/phrases'
+import { DEFAULT_LOOK, lookOf, money, tabsOf } from '../hooks/look'
+import { commandPhrase, idlePhrase, npcPhrase } from '../hooks/phrases'
 import { currentObjective, fitCells, isGmNote, isPendingPlumbing, isPlumbing, pipBar, smoothBar, spaced, storyKey, stripPreamble, trayFor } from '../hooks/register'
 import { trayLines, traySound } from '../hooks/tray'
 
@@ -49,6 +50,30 @@ const PANE_PROPS = {
   scroll: { offset: 0, bodyRows: 30 }, view: {},
 }
 
+
+/** The lighthouse's own phrases for fights, as its look.json gives them. */
+const LIGHTHOUSE_LOOK = { ...DEFAULT_LOOK, phrases: { ...DEFAULT_LOOK.phrases, by_command: { attack: ['Steel meets steel', 'Blows are traded', 'The fight is on'] } } }
+
+/** A second game's save: its own look travels in view.look. */
+const STATION: CoderpgSave = {
+  ...SAVE,
+  game: 'flooded_station',
+  adventure: 'The Flooded Station',
+  view: {
+    ...SAVE.view!,
+    look: {
+      ...DEFAULT_LOOK,
+      palette: { ...DEFAULT_LOOK.palette, accent: '#4fc3c7' },
+      stat_labels: { might: 'Grit', agility: 'Reflex', wits: 'Know-how' },
+      stat_short: { might: 'GRT', agility: 'RFX', wits: 'KNW' },
+      currency: 'credits',
+      tab_labels: { here: 'Deck', map: 'Plan', journal: 'Notes' },
+      tab_keys: { here: 'd', map: 'p', journal: 'n' },
+      phrases: { idle: ['Water drips somewhere below', 'The hull groans'], by_command: {} },
+    },
+  },
+}
+
 test('map draws boxes: double border for you, dashed ? for unexplored, links between', () => {
   const lines = mapText(MAP, 'greywater_bridge', 60)
   const all = lines.join('\n')
@@ -80,12 +105,13 @@ test('exits list names explored destinations and marks the rest unexplored', () 
 
 test('game plumbing is recognised and other tool calls are not', () => {
   expect(isPlumbing('Bash', { command: 'python3 rules/rpg.py look' })).toBe(true)
-  expect(isPlumbing('Bash', { command: 'cat content/rooms/lighthouse.md' })).toBe(true)
-  expect(isPlumbing('Read', { file_path: '/x/CodeRPG/content/characters/grukk.md' })).toBe(true)
+  expect(isPlumbing('Bash', { command: 'cat games/dark_lighthouse/rooms/lighthouse.md' })).toBe(true)
+  expect(isPlumbing('Read', { file_path: '/x/CodeRPG/games/dark_lighthouse/characters/grukk.md' })).toBe(true)
+  expect(isPlumbing('Skill', { skill: 'game' })).toBe(true)
   expect(isPlumbing('Skill', { skill: 'gm-turn' })).toBe(true)
   expect(isPlumbing('Agent', { subagent_type: 'npc', prompt: '', description: '' })).toBe(true)
   expect(isPlumbing('Bash', { command: 'ls -la' })).toBe(false)
-  expect(isPlumbing('Edit', { file_path: '/x/CodeRPG/content/rooms/lighthouse.md' })).toBe(false)
+  expect(isPlumbing('Edit', { file_path: '/x/CodeRPG/games/dark_lighthouse/rooms/lighthouse.md' })).toBe(false)
   expect(isPlumbing('Agent', { subagent_type: 'Explore', prompt: '', description: '' })).toBe(false)
   expect(isPlumbing('Agent', { subagent_type: 'world', prompt: '', description: '' })).toBe(true)
   expect(isPlumbing('Write', { file_path: '/x/CodeRPG/proposals/extra-tamsin.json', content: '{}' })).toBe(true)
@@ -246,8 +272,10 @@ test('changes between saves become one toast, sounds and an HP flash', () => {
 
 test('spinner phrases follow what the game master is doing', () => {
   expect(npcPhrase('You are Grukk, the troll who lives under Greywater Bridge.')).toBe('Grukk considers your words')
-  expect(['Steel meets steel', 'Blows are traded', 'The fight is on']).toContain(commandPhrase('attack', 3))
-  expect(commandPhrase('validate', 0)).toBeUndefined()
+  expect(['Steel meets steel', 'Blows are traded', 'The fight is on']).toContain(commandPhrase('attack', 3, LIGHTHOUSE_LOOK))
+  expect(commandPhrase('validate', 0, LIGHTHOUSE_LOOK)).toBeUndefined()
+  expect(commandPhrase('attack', 0, DEFAULT_LOOK)).toBeUndefined() // the default has no phrases of its own for it
+  expect(idlePhrase(0, lookOf(STATION))).toBe('Water drips somewhere below')
   expect(currentObjective(SAVE)).toBe('Get past the troll on Greywater Bridge.')
 })
 
@@ -393,8 +421,8 @@ test('an encounter fall held short of killing shows what was taken', () => {
 })
 
 test('searching the game files with Grep or Glob is plumbing too', () => {
-  expect(isPlumbing('Grep', { pattern: 'grukk', path: 'content/characters' })).toBe(true)
-  expect(isPlumbing('Glob', { pattern: 'content/rooms/*.md' })).toBe(true)
+  expect(isPlumbing('Grep', { pattern: 'grukk', path: 'games/dark_lighthouse/characters' })).toBe(true)
+  expect(isPlumbing('Glob', { pattern: 'games/*/rooms/*.md' })).toBe(true)
   expect(isPlumbing('Grep', { pattern: 'TODO', path: 'mod/hooks' })).toBe(false)
 })
 
@@ -431,4 +459,34 @@ test('the pane: vitals in a titled frame, a tab strip, and a footer of keys, wit
   const outer = (await ui.findAll({ type: 'Box' }))[0]
   expect(outer?.props.paddingLeft).toBe(2)
   await ui.unmount()
+})
+
+test("each game's look comes from the save: colors, stat and tab labels, currency, phrases", async ($, on) => {
+  on('state.get', { plugin: 'coderpg', key: 'save' }, () => ({ value: { value: STATION, version: 1 } }))
+  const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'Pane', requestId: 'coderpg-sheet', props: PANE_PROPS })
+  const pill = await ui.find({ type: 'Text', text: ' d: Deck ' })
+  expect(pill?.props.backgroundColor).toBe('#4fc3c7')
+  expect(await ui.find({ text: /^GRT $/ })).toBeDefined()
+  expect(await ui.find({ text: /^1 credit$/ })).toBeDefined()
+  expect(await ui.find({ text: /d p n tabs/ })).toBeDefined()
+  expect(await ui.find({ text: /^MIG $/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a save without a look falls back to the kit default, and partial looks are filled in', () => {
+  expect(lookOf(null)).toBe(DEFAULT_LOOK)
+  const partial = lookOf({ ...SAVE, view: { ...SAVE.view!, look: { palette: { accent: '#123456' } } as never } })
+  expect(partial.palette.accent).toBe('#123456')
+  expect(partial.palette.bad).toBe('red')
+  expect(partial.stat_short.might).toBe('MIG')
+  expect(tabsOf(partial).map(t => t.hotkey)).toEqual(['h', 'm', 'j'])
+  expect(money(1, DEFAULT_LOOK)).toBe('1 coin')
+  expect(money(3, lookOf(STATION))).toBe('3 credits')
+})
+
+test("the dice tray uses the game's names for stats and money", () => {
+  const look = lookOf(STATION)
+  expect(trayLines('CHECK might vs DC 12: d20 9 +0 = 9 -> FAILURE', look)[0]!.text).toBe('Grit check: d20 9 +0 = 9 vs DC 12')
+  expect(trayLines('COINS -2 -> 2', look)[0]!.text).toBe('-2 credits · 2 left')
+  expect(trayLines('CHECK might vs DC 12: d20 9 +0 = 9 -> FAILURE')[0]!.text).toBe('Might check: d20 9 +0 = 9 vs DC 12')
 })

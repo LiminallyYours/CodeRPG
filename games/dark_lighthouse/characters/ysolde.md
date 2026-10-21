@@ -40,4 +40,4 @@ The troll from the bridge is here in the village being fed treats, and it's the 
 
 ## GM only
 - When she agrees the player will help, `flag set lamp_quest_started`.
-- **If the player gives her the brass lens:** `lose brass_lens`, `coins +5` (but no coins if fleet_lost: she relights it "for the next ones" and has nothing to give), `flag set lamp_lit`. She climbs the stair, relights the lamp, and then goes down to the quay to watch for the fleet, which is why the room files move her to Harbor Square. Narrate the ending that matches the flags in `quests/light_the_lamp.md`.
+- **If the player gives her the brass lens:** `lose brass_lens`, `coins +5` (but no coins if fleet_lost: she relights it "for the next ones" and has nothing to give), `flag set lamp_lit`. She climbs the stair, relights the lamp, and then goes down to the quay to watch for the fleet, which is why the room files move her to Harbor Square. Narrate the ending that matches the flags in the quest file (`rpg.py show quests light_the_lamp`).

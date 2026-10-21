@@ -6,9 +6,12 @@ Usage: python3 rules/rpg.py <command> [args]   (run with no args for the command
 Output is plain text meant for the game master to narrate from.
 A refused action prints "REFUSED: <reason>" and exits with status 1; state is unchanged.
 
-The world is the authored content in content/ plus this run's generated content, kept in the
-save's `run` section. Both are looked up through ent(); generated entries win nothing over
-authored ones (their ids can't collide), they only add.
+The world is the active game's authored content (games/<id>/) plus this run's generated content,
+kept in the save's `run` section. Both are looked up through ent(); generated entries win nothing
+over authored ones (their ids can't collide), they only add.
+
+state/save.json is the active game's save. Other games' saves wait in state/shelf/<game>.json and
+are swapped in by `game switch`, so switching loses nothing.
 """
 import json
 import os
@@ -24,8 +27,11 @@ import generate  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 SAVE = ROOT / "state" / "save.json"
-BALANCE = json.loads((ROOT / "rules" / "balance.json").read_text())
-STATE_VERSION = 6
+SHELF = ROOT / "state" / "shelf"
+ACTIVE = ROOT / "state" / "active.json"
+BALANCE = {}  # the active game's rule numbers; set by choose_game()
+STATE_VERSION = 7
+OLDEST_VERSION = 7  # older saves are from before the game kit and aren't upgraded
 STATS = ("might", "agility", "wits")
 GEN_KINDS = ("extras", "rooms", "items", "characters", "side_quests")
 
@@ -37,40 +43,49 @@ def empty_run():
             "used_encounters": [], "world_turn_due": False, "generated": 0}
 
 
-def _v1_to_v2(state):
-    state.setdefault("npc_memory", {})
-    return state
-
-
-def _v2_to_v3(state):
-    state.setdefault("map", {})
-    return state
-
-
-def _v3_to_v4(state):
-    state.setdefault("met", [])
-    for ident, npc in state.get("npcs", {}).items():
-        if "max_hp" not in npc and content.exists("characters", ident):
-            npc["max_hp"] = int(content.load("characters", ident).get("hp", npc["hp"]))
-    return state
-
-
-def _v4_to_v5(state):
-    state.setdefault("run", empty_run())
-    return state
-
-
-def _v5_to_v6(state):
-    state["run"].setdefault("id", uuid.uuid4().hex[:12])
-    return state
-
-
-# Each entry upgrades a save from version N to N+1.
-MIGRATIONS = {1: _v1_to_v2, 2: _v2_to_v3, 3: _v3_to_v4, 4: _v4_to_v5, 5: _v5_to_v6}
+# Each entry upgrades a save from version N to N+1 (none yet since version 7).
+MIGRATIONS = {}
 
 
 class Refused(Exception):
     pass
+
+
+# ---------------------------------------------------------------- which game
+
+def read_json(path):
+    """A JSON file's contents, or None if it's missing or unreadable."""
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def write_json(path, data):
+    """Write atomically, so a reader never sees half a file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=2) + "\n")
+    os.replace(tmp, path)
+
+
+def active_game():
+    """Which game is being played: the save's, else state/active.json's, else the first installed."""
+    games = content.list_games()
+    if not games:
+        raise Refused("no games installed in games/")
+    save, active = read_json(SAVE), read_json(ACTIVE)
+    for data in (save, active):
+        ident = data.get("game") if isinstance(data, dict) else None
+        if ident in games:
+            return ident
+    return games[0]
+
+
+def choose_game(ident):
+    global BALANCE
+    content.use_game(ident)
+    BALANCE = content.balance()
 
 
 # ---------------------------------------------------------------- the world: content + this run
@@ -121,7 +136,10 @@ def load_state():
     global _RUN
     if not SAVE.is_file():
         raise Refused("no save file. Start a game with /newgame.")
-    state = migrate(json.loads(SAVE.read_text()))
+    state = json.loads(SAVE.read_text())
+    if state.get("version", 1) < OLDEST_VERSION:
+        raise Refused("this save is from an older version of CodeRPG and can't be continued. Start a new game with /newgame.")
+    state = migrate(state)
     _RUN = state["run"]
     return state
 
@@ -206,10 +224,12 @@ def refresh_view(state):
         ch = ent("characters", c)
         return {"id": c, "name": ch.get("name", c), "role": ch.get("role", ""), "generated": is_generated("characters", c)}
 
-    art = content.CONTENT / "art" / ("%s.txt" % room["id"])
+    art = content.game_dir() / "art" / ("%s.txt" % room["id"])
     run = state["run"]
     clock = run.get("clock")
     state["view"] = {
+        "game": {"id": state["game"], "title": state["adventure"]},
+        "look": content.look(),
         "location_name": room.get("name", room["id"]),
         "location_generated": is_generated("rooms", room["id"]),
         "items": [{"id": i, "name": item(i).get("name", i) if ent_exists("items", i) else i, "equipped": i == state["equipped"]}
@@ -233,10 +253,7 @@ def refresh_view(state):
 
 def save_state(state):
     refresh_view(state)
-    SAVE.parent.mkdir(exist_ok=True)
-    tmp = SAVE.with_suffix(".tmp")
-    tmp.write_text(json.dumps(state, indent=2) + "\n")
-    os.replace(tmp, SAVE)
+    write_json(SAVE, state)
 
 
 def require_playing(state):
@@ -279,6 +296,16 @@ def characters_here(state):
 
 def is_minor(ident):
     return str(ent("characters", ident).get("minor", "no")).lower() == "yes"
+
+
+def stat_label(stat):
+    """How this game names a stat: 'Might', or 'Grit (might)' when it renames one."""
+    label = content.look()["stat_labels"].get(stat, stat.capitalize())
+    return label if label.lower() == stat else "%s (%s)" % (label, stat)
+
+
+def currency():
+    return content.look().get("currency", "coins")
 
 
 def player_defense(state):
@@ -478,6 +505,7 @@ def cmd_newgame(args):
         run["weather"] = pick(w["weather"])
     state = {
         "version": STATE_VERSION,
+        "game": content.game_id(),
         "adventure": w.get("title", "Untitled"),
         "status": "playing",
         "location": w["start_room"],
@@ -493,6 +521,7 @@ def cmd_newgame(args):
         "run": run,
     }
     save_state(state)
+    write_json(ACTIVE, {"game": state["game"]})
     for stale in (ROOT / "proposals").glob("*.json"):
         stale.unlink()
     print("NEW GAME: %s" % state["adventure"])
@@ -510,8 +539,8 @@ def cmd_look(args):
     run = state["run"]
     room = room_here(state)
     flags = condition_flags(state)
-    print("STATUS: %s | %s | %s" % (state["status"], hp_line(state), " ".join(
-        "%s %+d" % (k.capitalize(), state["stats"][k]) for k in STATS)) + " | Coins %d" % state["stats"]["coins"])
+    print("STATUS: %s | %s | %s | %s %d" % (state["status"], hp_line(state), " ".join(
+        "%s %+d" % (stat_label(k), state["stats"][k]) for k in STATS), currency().capitalize(), state["stats"]["coins"]))
     print("LOCATION: %s (%s)%s" % (room.get("name", room["id"]), room["id"],
                                    " [generated: read it with `rpg.py show rooms %s`]" % room["id"] if room.get("generated") else ""))
     texture = [x for x in (time_of_day(state), run.get("weather")) if x]
@@ -834,17 +863,44 @@ def cmd_remember(args):
 
 # ---------------------------------------------------------------- run content: show, generate, notes, world turns
 
+def applicable(body, flags):
+    """A body with only the `## If` sections that hold now; every other section is kept."""
+    out = []
+    for heading, text in content.sections(body):
+        cond = content.section_condition(heading)
+        if cond is not None and not content.condition_holds(cond, flags):
+            continue
+        out.append(("## %s\n%s" % (heading, text)) if heading else text)
+    return "\n\n".join(out)
+
+
 def cmd_show(args):
-    """Print a room, character, item or quest as a content file would read, authored or generated."""
+    """show <kind> <id> [--all] | show world: a room, character, item, quest or table as it reads now.
+    Authored or generated alike; `## If` sections that don't hold are left out unless --all."""
     try:
-        load_state()
+        flags = condition_flags(load_state())
     except Refused:
-        pass  # no game yet: authored content can still be shown
+        flags = None  # no game yet: everything is shown
+    if "--all" in args:
+        flags = None
+        args = [a for a in args if a != "--all"]
+    if args[0] == "world":
+        w = content.load_world()
+        text = (content.game_dir() / "world.md").read_text(encoding="utf-8").strip()
+        meta, body = text.split("\n---", 1)[0], w["body"]
+        print(meta + "\n---\n" + (body if flags is None else applicable(body, flags)))
+        return
+    if len(args) < 2:
+        raise Refused("usage: show <rooms|characters|items|quests|tables> <id>, or show world")
     kind, ident = args[0], args[1]
     if kind not in content.KINDS:
-        raise Refused("kind must be one of %s" % ", ".join(content.KINDS))
+        raise Refused("kind must be one of %s, or world" % ", ".join(content.KINDS))
     if content.exists(kind, ident):
-        print(content.path_of(kind, ident).read_text(encoding="utf-8").strip())
+        text = content.path_of(kind, ident).read_text(encoding="utf-8").strip()
+        if text.startswith("---") and "\n---" in text[3:]:
+            head, body = text[3:].split("\n---", 1)
+            text = "---" + head + "\n---\n" + (body.strip() if flags is None else applicable(body.strip(), flags))
+        print(text)
         return
     e = ent(kind, ident)
     meta = {k: v for k, v in e.items() if k not in ("id", "body")}
@@ -861,7 +917,7 @@ def cmd_show(args):
         else:
             print("%s: %s" % (k, v))
     print("---")
-    print(e["body"])
+    print(e["body"] if flags is None else applicable(e["body"], flags))
 
 
 def gen_context(state):
@@ -1088,9 +1144,32 @@ def cmd_world_turn(args):
         print("  %s is now at %s" % (mv["id"], mv["room"]))
 
 
-def cmd_validate(args):
-    """Check that every reference in content points at a file that exists."""
+def unknown_keys(over, base, where, problems):
+    """Keys in a game's JSON that the kit's defaults don't have: almost always a typo."""
+    for k, v in over.items():
+        if k not in base:
+            problems.append("%s: unknown key %r (known: %s)" % (where, k, ", ".join(base)))
+        elif isinstance(v, dict) and isinstance(base[k], dict) and base[k]:
+            unknown_keys(v, base[k], "%s %s" % (where, k), problems)
+
+
+def validate_game():
+    """Every problem in the active game's content: references, formats, and its JSON settings."""
     problems = []
+    for name, base in (("look.json", content.kit_look()), ("balance.json", content.kit_balance())):
+        try:
+            data = content.game_json(name)
+        except ValueError as e:
+            problems.append("%s: not valid JSON (%s)" % (name, e))
+            continue
+        unknown_keys(data, base, name, problems)
+    look = content.look()
+    for t in look.get("tabs") or []:
+        if t not in ("here", "map", "journal"):
+            problems.append("look.json tabs: unknown tab %r (tabs: here, map, journal)" % t)
+    for stat in STATS:
+        if not str(look["stat_labels"].get(stat, "")).strip():
+            problems.append("look.json stat_labels: %s needs a label" % stat)
 
     def need(kind, ident, where):
         if not content.exists(kind, ident):
@@ -1160,7 +1239,7 @@ def cmd_validate(args):
         for line in content.load("quests", q).get("objectives") or []:
             if not _DONE.match(str(line)):
                 problems.append("quests/%s.md: objective needs '(done when <condition>)': %s" % (q, line))
-    art_dir = content.CONTENT / "art"
+    art_dir = content.game_dir() / "art"
     for a in (sorted(art_dir.glob("*.txt")) if art_dir.is_dir() else []):
         need("rooms", a.stem, "art/%s" % a.name)
     for c in content.ids("characters"):
@@ -1176,14 +1255,90 @@ def cmd_validate(args):
         for k in ("damage", "heal"):
             if it.get(k):
                 need_dice(it[k], "items/%s.md" % i)
-    print("\n".join(problems) if problems else "CONTENT OK: %d rooms, %d characters, %d items, %d quests, %d tables" % tuple(
-        len(content.ids(k)) for k in content.KINDS))
-    if problems:
+    return problems, "%d rooms, %d characters, %d items, %d quests, %d tables" % tuple(len(content.ids(k)) for k in content.KINDS)
+
+
+def cmd_validate(args):
+    """validate [--game <id>]: check every installed game (or one) for broken references and formats."""
+    games = content.list_games()
+    if "--game" in args:
+        want = args[args.index("--game") + 1:][:1]
+        if not want or want[0] not in games:
+            raise Refused("validate --game <id>, one of: %s" % ", ".join(games))
+        games = want
+    if not games:
+        raise Refused("no games installed in games/")
+    bad = False
+    for g in games:
+        choose_game(g)
+        problems, summary = validate_game()
+        if problems:
+            bad = True
+            print("\n".join("%s: %s" % (g, x) for x in problems))
+        else:
+            print("CONTENT OK: %s: %s" % (g, summary))
+    if bad:
         sys.exit(1)
 
 
+# ---------------------------------------------------------------- games: list, show, switch
+
+def shelved(ident):
+    return SHELF / ("%s.json" % ident)
+
+
+def save_summary(data):
+    if not isinstance(data, dict):
+        return "no game yet"
+    if data.get("version", 1) < OLDEST_VERSION:
+        return "an old save that can't be continued"
+    return "%s, %s in" % (data.get("status", "?"), moves_text((data.get("run") or {}).get("moves", 0)))
+
+
+def title_of(ident):
+    content.use_game(ident)
+    title = content.load_world().get("title", ident)
+    content.use_game(active_game())
+    return title
+
+
+def cmd_game(args):
+    """game [list | show | switch <id>]: the installed games, and which one is being played."""
+    current = active_game()
+    action = args[0] if args else "show"
+    if action == "list":
+        for g in content.list_games():
+            data = read_json(SAVE) if g == current else read_json(shelved(g))
+            print("%s %s: %s (%s)" % ("*" if g == current else " ", g, title_of(g), save_summary(data)))
+        return
+    if action == "show":
+        print("GAME: %s (%s), in games/%s/" % (title_of(current), current, current))
+        return
+    if action != "switch":
+        raise Refused("use: game list | game show | game switch <id>")
+    games = content.list_games()
+    if len(args) < 2 or args[1] not in games:
+        raise Refused("game switch <id>, one of: %s" % ", ".join(games))
+    target = args[1]
+    if target == current:
+        print("ALREADY PLAYING: %s" % title_of(target))
+        return
+    if SAVE.is_file():
+        SHELF.mkdir(parents=True, exist_ok=True)
+        os.replace(SAVE, shelved(current))
+    if shelved(target).is_file():
+        os.replace(shelved(target), SAVE)
+    write_json(ACTIVE, {"game": target})
+    choose_game(target)
+    if not SAVE.is_file():
+        print("SWITCHED to %s. No game yet: start one with /newgame." % title_of(target))
+        return
+    print("SWITCHED to %s. The saved game continues." % title_of(target))
+    cmd_look([])
+
+
 COMMANDS = {
-    "newgame": (cmd_newgame, 0, "reset the save from content/world.md (rolls stats, variants and the clock)"),
+    "newgame": (cmd_newgame, 0, "start the active game afresh from its world.md (rolls stats, variants and the clock)"),
     "look": (cmd_look, 0, "show state + current room (exits/items/characters filtered by flags)"),
     "move": (cmd_move, 1, "move <direction|room_id>   (also runs the clock and any encounter)"),
     "take": (cmd_take, 1, "take <item>   pick up from the current room"),
@@ -1201,13 +1356,14 @@ COMMANDS = {
     "flag": (cmd_flag, 2, "flag set|unset <name>"),
     "npc-brief": (cmd_npc_brief, 1, "npc-brief <character>   what an NPC agent may know (prompt for its subagent)"),
     "remember": (cmd_remember, 2, "remember <character> <text>   add a line to that NPC's memory of the player"),
-    "show": (cmd_show, 2, "show <rooms|characters|items|quests|tables> <id>   read authored or generated content"),
+    "show": (cmd_show, 1, "show <rooms|characters|items|quests|tables> <id> [--all] | show world   content as it reads now"),
     "world-brief": (cmd_world_brief, 1, "world-brief <extra|room|item|character|quest|turn>   prompt for the world agent"),
     "generate": (cmd_generate, 2, "generate <extra|room|item|character|quest> <file>   add a world-agent proposal (a JSON file)"),
     "world-turn": (cmd_world_turn, 1, "world-turn <file>   apply the world agent's off-screen turn (a JSON file)"),
     "note": (cmd_note, 1, "note <text>   keep a detail you established about this room"),
     "chronicle": (cmd_chronicle, 1, "chronicle <text>   add a line to the story so far"),
-    "validate": (cmd_validate, 0, "check content references"),
+    "validate": (cmd_validate, 0, "validate [--game <id>]   check every game's content references and settings"),
+    "game": (cmd_game, 0, "game [list | show | switch <id>]   the installed games; switching keeps each one's save"),
 }
 
 
@@ -1222,6 +1378,7 @@ def main(argv):
         print("usage: %s" % help_text)
         return 2
     try:
+        choose_game(active_game())
         fn(argv[1:])
     except (Refused, ValueError) as e:
         print("REFUSED: %s" % e)

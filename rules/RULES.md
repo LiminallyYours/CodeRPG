@@ -9,7 +9,7 @@ How the game works. The numbers live in `balance.json`, and the arithmetic lives
   - Agility: speed, stealth, balance, dodging (it raises your defense).
   - Wits: noticing, persuading, recalling, tricking.
 - **Coins**: money. Coins can't go below 0.
-- Starting values come from the adventure (`content/world.md`).
+- Starting values come from the game's world file (`games/<id>/world.md`).
 
 ## Skill checks: `check <stat> <dc>`
 Use a check when the player tries something whose outcome is uncertain and that matters.

@@ -7,12 +7,14 @@
 // - toasts, an HP flash and sound effects when things change
 // - instant /inventory, /map, /sheet and /sound commands
 // Everything it shows comes from state/save.json and the rules script's output. It never writes game files.
+// Nothing here knows a particular game: colors, labels, tabs and phrases come from the game's look in the save.
 
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { CoderpgSave, CoderpgStory, CoderpgTab } from '../types'
+import type { CoderpgLook, CoderpgSave, CoderpgStory } from '../types'
 import { feedback } from './feedback'
+import { lookOf, money, tabsOf } from './look'
 import { drawKey, drawMap, exitsOf, keyText, mapText, usesUpDown } from './map'
 import { commandPhrase, idlePhrase, npcPhrase } from './phrases'
 import { rpgCommand, TRAY_COMMANDS, trayLines, traySound } from './tray'
@@ -20,7 +22,6 @@ import type { TrayLine } from './tray'
 
 const SAVE_PATH = 'state/save.json'
 const PANE = 'coderpg-sheet'
-const AMBER = '#d7a640'
 const FLASH_MS = 1600
 
 const save = atom({ plugin: 'coderpg', key: 'save' } as const, null)
@@ -40,11 +41,11 @@ export function isPlumbing(tool: string, input: unknown): boolean {
   const s = (k: string) => (typeof i[k] === 'string' ? (i[k] as string) : '')
   switch (tool) {
     case 'Bash':
-      return /rules\/rpg\.py|(^|[\s/])(content|state|rules)\//.test(s('command'))
+      return /rules\/rpg\.py|(^|[\s/])(games|state|rules)\//.test(s('command'))
     case 'Read':
-      return /\/(content|state|rules)\//.test(s('file_path'))
+      return /\/(games|state|rules)\//.test(s('file_path'))
     case 'Skill':
-      return ['gm-turn', 'newgame'].includes(s('skill'))
+      return ['gm-turn', 'newgame', 'game'].includes(s('skill'))
     case 'Agent':
       return ['npc', 'world'].includes(s('subagent_type'))
     case 'Write':
@@ -52,7 +53,7 @@ export function isPlumbing(tool: string, input: unknown): boolean {
       return /(^|\/)proposals\//.test(s('file_path'))
     case 'Grep':
     case 'Glob':
-      return /(^|\/)(content|state|rules)(\/|$)/.test(s('path')) || /(^|\/)(content|state|rules)\//.test(s('pattern'))
+      return /(^|\/)(games|state|rules)(\/|$)/.test(s('path')) || /(^|\/)(games|state|rules)\//.test(s('pattern'))
     default:
       return false
   }
@@ -119,12 +120,12 @@ export function stripPreamble(text: string): string {
 const WRITE_COMMANDS = ['chronicle', 'remember', 'note', 'flag', 'coins', 'gain', 'lose', 'equip']
 
 /** Dice-tray lines for a finished rules-script call, or none. */
-export function trayFor(tool: string, input: unknown, output: unknown): TrayLine[] {
+export function trayFor(tool: string, input: unknown, output: unknown, look?: CoderpgLook): TrayLine[] {
   if (tool !== 'Bash' || output === undefined) return []
   const command = String((input as { command?: unknown } | null)?.command ?? '')
   const sub = rpgCommand(command)
   if (!sub || !TRAY_COMMANDS.includes(sub)) return []
-  return trayLines(String((output as { stdout?: unknown } | null)?.stdout ?? ''))
+  return trayLines(String((output as { stdout?: unknown } | null)?.stdout ?? ''), look)
 }
 
 /** The objective the player is working on, if any: the main quest's first, then side quests'. */
@@ -147,8 +148,9 @@ function signed(n: number): string {
   return n >= 0 ? `+${n}` : `${n}`
 }
 
-function hpColor(hp: number, max: number): string {
-  return hp * 3 <= max ? 'red' : hp * 3 <= max * 2 ? 'yellow' : 'green'
+function hpColor(hp: number, max: number, look: CoderpgLook): string {
+  const p = look.palette
+  return hp * 3 <= max ? p.bad : hp * 3 <= max * 2 ? p.warn : p.good
 }
 
 const EIGHTHS = ['', '▏', '▎', '▍', '▌', '▋', '▊', '▉']
@@ -192,7 +194,9 @@ function itemsOf(s: CoderpgSave): { id: string; name: string; equipped: boolean 
 function inventoryText(s: CoderpgSave): string {
   const lines = itemsOf(s).map(it => `- ${it.name}${it.equipped ? ' *(equipped)*' : ''}`)
   const weight = s.view ? ` (weight ${s.view.weight}/${s.view.carry_limit})` : ''
-  return [`**Inventory**${weight}`, ...(lines.length ? lines : ['- nothing']), `**Coins:** ${s.stats.coins}`].join('\n')
+  const currency = lookOf(s).currency
+  return [`**Inventory**${weight}`, ...(lines.length ? lines : ['- nothing']),
+    `**${currency.charAt(0).toUpperCase() + currency.slice(1)}:** ${s.stats.coins}`].join('\n')
 }
 
 // ---------------------------------------------------------------- engine-facing helpers
@@ -292,7 +296,7 @@ export const register: Register = on => {
     usedOtherTools = false
     if (isGame) {
       turnStart = await read($, save)
-      await update($, activity, () => (isOoc ? null : idlePhrase(seed++)))
+      await update($, activity, () => (isOoc ? null : idlePhrase(seed++, lookOf(turnStart))))
       // anything a cut-off turn left pending is shown as it stands
       await update($, story, list => list.map(x => (x.pending ? { ...x, pending: false } : x)))
       await update($, running, () => !isOoc)
@@ -362,7 +366,7 @@ export const register: Register = on => {
       if (sub === 'newgame') isNewGame = true
       const agentType = String((e as { subagent_type?: unknown }).subagent_type ?? '')
       const phrase = e.tool === 'Agent' ? (agentType === 'world' ? 'The world takes shape' : npcPhrase(String((e as { prompt?: unknown }).prompt ?? '')))
-        : sub ? commandPhrase(sub, seed++)
+        : sub ? commandPhrase(sub, seed++, lookOf(await read($, save)))
         : e.tool === 'Read' ? 'Recalling the place' : undefined
       if (phrase) await update($, activity, () => phrase)
     }
@@ -373,7 +377,7 @@ export const register: Register = on => {
     if (e.tool === 'Bash' && /rules\/rpg\.py/.test(String((e as { command?: unknown }).command))) {
       await refresh($)
       if (isPlay && ran.result !== undefined) {
-        const s = traySound(trayFor('Bash', e, ran.result))
+        const s = traySound(trayFor('Bash', e, ran.result, lookOf(await read($, save))))
         if (s) void sound($, s)
       }
     }
@@ -402,6 +406,8 @@ export const register: Register = on => {
     const key = storyKey(e.props.text)
     const entry = (await read($, story)).find(s => s.key === key)
     const { Box, Text, Markdown } = $.ui.resolve(e)
+    const look = lookOf(await read($, save))
+    const accent = look.palette.accent
     if (!entry) {
       // still streaming in a play turn: say nothing until the turn is done
       return isGame && !isOoc && (await read($, running)) ? <Box display="none" /> : next(e)
@@ -420,18 +426,18 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column" marginTop={e.props.isFirstOfReply ? 1 : 0}>
         {entry.title && (
-          <Box flexDirection="column" alignItems="center" borderStyle="double" borderColor={AMBER} paddingX={2} marginBottom={1}>
-            <Text color={AMBER} bold>{spaced(entry.title)}</Text>
-            <Text dimColor>a CodeRPG adventure</Text>
+          <Box flexDirection="column" alignItems="center" borderStyle="double" borderColor={accent} paddingX={2} marginBottom={1}>
+            <Text color={accent} bold>{spaced(entry.title)}</Text>
+            <Text dimColor>{look.tagline}</Text>
           </Box>
         )}
-        <Box flexDirection="column" borderStyle="round" borderColor={AMBER} paddingX={1}>
-          {entry.banner && <Text color={AMBER} bold>── {entry.banner.toUpperCase()} ──</Text>}
+        <Box flexDirection="column" borderStyle="round" borderColor={accent} paddingX={1}>
+          {entry.banner && <Text color={accent} bold>── {entry.banner.toUpperCase()} ──</Text>}
           <Markdown text={stripPreamble(e.props.text)} />
         </Box>
         {entry.ending === 'victory' && (
-          <Box flexDirection="column" alignItems="center" borderStyle="double" borderColor={AMBER} paddingX={2} marginTop={1}>
-            <Text color={AMBER} bold>✦  {spaced('The End')}  ✦</Text>
+          <Box flexDirection="column" alignItems="center" borderStyle="double" borderColor={accent} paddingX={2} marginTop={1}>
+            <Text color={accent} bold>✦  {spaced('The End')}  ✦</Text>
             {entry.endingQuest && <Text>Quest complete: {entry.endingQuest}</Text>}
             <Text dimColor>Keep exploring, or type /newgame to play again.</Text>
           </Box>
@@ -444,8 +450,8 @@ export const register: Register = on => {
           </Box>
         )}
         {entry.ending === 'defeat' && (
-          <Box flexDirection="column" alignItems="center" borderStyle="double" borderColor="red" paddingX={2} marginTop={1}>
-            <Text color="red" bold>✦  {spaced('You have fallen')}  ✦</Text>
+          <Box flexDirection="column" alignItems="center" borderStyle="double" borderColor={look.palette.bad} paddingX={2} marginTop={1}>
+            <Text color={look.palette.bad} bold>✦  {spaced('You have fallen')}  ✦</Text>
             <Text dimColor>Type /newgame to try again.</Text>
           </Box>
         )}
@@ -460,7 +466,8 @@ export const register: Register = on => {
     // can draw before that record lands, so it is judged from its input while the turn isn't ooc:.
     const isLivePlumbing = isGame && !isOoc && isPendingPlumbing(e.props.tool, e.props.input, e.props.output)
     if (!isLivePlumbing && !(await read($, hidden)).includes(e.props.tool_use_id)) return next(e)
-    return drawTray($, e, trayFor(e.props.tool, e.props.input, e.props.output))
+    const look = lookOf(await read($, save))
+    return drawTray($, e, trayFor(e.props.tool, e.props.input, e.props.output, look), look)
   })
 
   on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
@@ -475,7 +482,8 @@ export const register: Register = on => {
     const isHidden = (c: (typeof e.props.calls)[number]) =>
       (c.tool_use_id !== undefined && ids.includes(c.tool_use_id)) || (isGame && !isOoc && isPendingPlumbing(c.tool, c.input, c.output))
     if (!e.props.calls.every(isHidden)) return next(e)
-    return drawTray($, e, e.props.calls.flatMap(c => trayFor(c.tool, c.input, c.output)))
+    const look = lookOf(await read($, save))
+    return drawTray($, e, e.props.calls.flatMap(c => trayFor(c.tool, c.input, c.output, look)), look)
   })
 
   // ---- Claude's chrome, in-world
@@ -511,9 +519,10 @@ export const register: Register = on => {
     const kind = e.props.origin.kind
     if (!isGame || e.props.isExpanded || (kind !== 'composer' && kind !== 'plugin') || /^\s*(ooc:|\/)/i.test(e.props.text)) return next(e)
     const { Box, Text } = $.ui.resolve(e)
+    const accent = lookOf(await read($, save)).palette.accent
     return (
       <Box flexDirection="row" marginTop={1}>
-        <Text color={AMBER} bold>» </Text>
+        <Text color={accent} bold>» </Text>
         <Text italic>{e.props.text}</Text>
       </Box>
     )
@@ -524,18 +533,20 @@ export const register: Register = on => {
     const s = await read($, save)
     if (!s) return next(e)
     const { Box, Text } = $.ui.resolve(e)
+    const look = lookOf(s)
+    const accent = look.palette.accent
     const objective = currentObjective(s)
     const clock = s.view?.clock ?? null
     const sep = <Text dimColor>{'  │  '}</Text>
     return (
       <Box flexDirection="row">
-        <Text color={AMBER} bold wrap="truncate">◆ {s.view?.location_name ?? s.location}</Text>
+        <Text color={accent} bold wrap="truncate">◆ {s.view?.location_name ?? s.location}</Text>
         {sep}
-        <Text color={hpColor(s.stats.hp, s.stats.max_hp)}>♥ {s.stats.hp}/{s.stats.max_hp}</Text>
+        <Text color={hpColor(s.stats.hp, s.stats.max_hp, look)}>♥ {s.stats.hp}/{s.stats.max_hp}</Text>
         {sep}
-        <Text>{s.stats.coins} coins</Text>
+        <Text>{money(s.stats.coins, look)}</Text>
         {clock ? sep : null}
-        {clock ? <Text color={clock.left <= 3 ? 'red' : undefined}>⧗ {clock.left > 0 ? clock.left : '!'}</Text> : null}
+        {clock ? <Text color={clock.left <= 3 ? look.palette.bad : undefined}>⧗ {clock.left > 0 ? clock.left : '!'}</Text> : null}
         {s.view?.time ? sep : null}
         {s.view?.time ? <Text dimColor>{s.view.time}</Text> : null}
         {objective ? sep : null}
@@ -591,18 +602,22 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const s = await read($, save)
+    const look = lookOf(s)
+    const accent = look.palette.accent
     // a little room between the pane's divider and its text
     const PAD = 2
     const width = Math.max(26, (e.props.bodyColumns ?? 36) - PAD - 1)
     if (!s) {
       return (
         <Box flexDirection="column" paddingLeft={PAD}>
-          <Text color={AMBER} bold>CodeRPG</Text>
+          <Text color={accent} bold>CodeRPG</Text>
           <Text dimColor>No game yet. Type /newgame to start.</Text>
         </Box>
       )
     }
-    const open = await read($, tab)
+    const tabs = tabsOf(look)
+    const stored = await read($, tab)
+    const open = tabs.some(t => t.id === stored) ? stored : tabs[0]!.id
     const flashing = await read($, flash)
     const { hp, max_hp, might, agility, wits, coins } = s.stats
     const objective = currentObjective(s)
@@ -638,9 +653,9 @@ export const register: Register = on => {
       const [full, empty] = smoothBar(value, max, Math.max(4, inner - icon.text.length - tail.length))
       return frameRow([icon, { text: full, color, bold }, { text: empty, dim: true }, { text: tail, bold }])
     }
-    const hpBarColor = flashing === 'hurt' ? 'red' : flashing === 'heal' ? 'cyan' : hpColor(hp, max_hp)
+    const hpBarColor = flashing === 'hurt' ? look.palette.bad : flashing === 'heal' ? look.palette.heal : hpColor(hp, max_hp, look)
     const clock = s.view?.clock ?? null
-    const clockColor = clock && clock.left <= 3 ? 'red' : AMBER
+    const clockColor = clock && clock.left <= 3 ? look.palette.bad : accent
     const clockRows = !clock ? [] : clock.left > 0
       ? (() => {
           const tail = `  ${clock.left} move${clock.left === 1 ? '' : 's'} left`
@@ -650,44 +665,41 @@ export const register: Register = on => {
             frameRow([{ text: '  ' }, { text: lit, color: clockColor }, { text: spent, dim: true }, { text: tail, dim: true }]),
           ]
         })()
-      : [frameRow([{ text: '⧗ ', color: 'red' }, { text: `${clock.name}: it has happened`, color: 'red' }])]
+      : [frameRow([{ text: '⧗ ', color: look.palette.bad }, { text: `${clock.name}: it has happened`, color: look.palette.bad }])]
 
     const vitals = (
       <Box flexDirection="column">
         <Box flexDirection="row">
           <Text dimColor>╭─ </Text>
-          <Text color={AMBER} bold>VITALS</Text>
+          <Text color={accent} bold>VITALS</Text>
           <Text dimColor>{' ' + '─'.repeat(Math.max(0, frameW - 11)) + '╮'}</Text>
         </Box>
         {barRow({ text: '♥ ', color: hpBarColor }, hp, max_hp, hpBarColor, flashing !== null)}
-        {(s.view?.foes ?? []).map(f => barRow({ text: `⚔ ${f.name} `, color: 'red', bold: true }, f.hp, f.max_hp, 'red', false))}
+        {(s.view?.foes ?? []).map(f => barRow({ text: `⚔ ${f.name} `, color: look.palette.bad, bold: true }, f.hp, f.max_hp, look.palette.bad, false))}
         {frameRow([
-          { text: 'MIG ', dim: true }, { text: signed(might) },
-          { text: '    AGI ', dim: true }, { text: signed(agility) },
-          { text: '    WIT ', dim: true }, { text: signed(wits) },
+          { text: `${look.stat_short.might} `, dim: true }, { text: signed(might) },
+          { text: `    ${look.stat_short.agility} `, dim: true }, { text: signed(agility) },
+          { text: `    ${look.stat_short.wits} `, dim: true }, { text: signed(wits) },
         ])}
-        {frameRow([{ text: '◎ ', color: AMBER }, { text: `${coins} coin${coins === 1 ? '' : 's'}` }])}
+        {frameRow([{ text: '◎ ', color: accent }, { text: money(coins, look) }])}
         {clockRows}
         <Text dimColor>{'╰' + '─'.repeat(Math.max(0, frameW - 2)) + '╯'}</Text>
       </Box>
     )
 
-    // ---- tabs: the active one a solid amber pill, the others dim buttons; they head the tab frame
-    const tabs: { id: CoderpgTab; label: string; hotkey: string }[] = [
-      { id: 'here', label: 'Here', hotkey: 'h' }, { id: 'map', label: 'Map', hotkey: 'm' }, { id: 'journal', label: 'Journal', hotkey: 'j' },
-    ]
+    // ---- tabs: the active one a solid pill in the accent color, the others dim buttons; they head the tab frame
     const tabStrip = (
       <Box flexDirection="row" gap={2} paddingX={1}>
         {tabs.map(t => open === t.id
-          ? <Text key={`tab-${t.id}`} backgroundColor={AMBER} color="black" bold>{` ${t.hotkey}: ${t.label} `}</Text>
+          ? <Text key={`tab-${t.id}`} backgroundColor={accent} color="black" bold>{` ${t.hotkey}: ${t.label} `}</Text>
           : <Button key={`tab-${t.id}`} label={t.label} hotkey={t.hotkey} plain dimColor onPress={() => update($, tab, () => t.id)} />)}
       </Box>
     )
 
     const hereTab = (
       <Box flexDirection="column">
-        {(s.view?.art ?? '').split('\n').filter(l => l.length > 0).map(l => <Text color={AMBER} dimColor wrap="truncate">{l}</Text>)}
-        <Text color={AMBER} bold wrap="truncate">{s.view?.location_name ?? s.location}</Text>
+        {(s.view?.art ?? '').split('\n').filter(l => l.length > 0).map(l => <Text color={accent} dimColor wrap="truncate">{l}</Text>)}
+        <Text color={accent} bold wrap="truncate">{s.view?.location_name ?? s.location}</Text>
         <Text> </Text>
         <Text bold>Go</Text>
         {!s.map?.[s.location] && <Text dimColor>  exits appear after your next move</Text>}
@@ -723,7 +735,7 @@ export const register: Register = on => {
         {mapRows.map(row => (
           <Box flexDirection="row">
             {row.map(seg =>
-              seg.kind === 'here' ? <Text color={AMBER} bold>{seg.text}</Text>
+              seg.kind === 'here' ? <Text color={accent} bold>{seg.text}</Text>
               : seg.kind === 'room' ? <Text>{seg.text}</Text>
               : <Text dimColor>{seg.text}</Text>,
             )}
@@ -734,7 +746,7 @@ export const register: Register = on => {
         {mapRows.length > 0 && keyRows.map(row => (
           <Box flexDirection="row">
             {row.map(seg =>
-              seg.kind === 'here' ? <Text color={AMBER} bold>{seg.text}</Text>
+              seg.kind === 'here' ? <Text color={accent} bold>{seg.text}</Text>
               : seg.kind === 'room' ? <Text>{seg.text}</Text>
               : <Text dimColor>{seg.text}</Text>,
             )}
@@ -749,7 +761,7 @@ export const register: Register = on => {
         {quests.length === 0 && <Text dimColor>  none yet</Text>}
         {quests.map(q => (
           <Box flexDirection="column">
-            <Text color={q.failed ? 'red' : AMBER} bold>
+            <Text color={q.failed ? look.palette.bad : accent} bold>
               {q.complete ? '★' : q.failed ? '✗' : '◆'} {q.name}{q.side ? ' (side)' : ''}{q.complete ? ' (complete)' : q.failed ? ' (failed)' : ''}
             </Text>
             {q.objectives.map(o => (
@@ -780,14 +792,14 @@ export const register: Register = on => {
 
     return (
       <Box flexDirection="column" paddingLeft={PAD} minHeight={e.props.scroll?.bodyRows ?? 0}>
-        <Text color={AMBER} bold wrap="truncate">{s.adventure}</Text>
-        {s.status !== 'playing' && <Text color="red" bold>{s.status.toUpperCase()}: type /newgame</Text>}
+        <Text color={accent} bold wrap="truncate">{s.adventure}</Text>
+        {s.status !== 'playing' && <Text color={look.palette.bad} bold>{s.status.toUpperCase()}: type /newgame</Text>}
         {(s.view?.time || s.view?.weather) && (
           <Text dimColor wrap="truncate">{[s.view?.time, s.view?.weather].filter(Boolean).join(' · ')}</Text>
         )}
         <Text> </Text>
         {vitals}
-        {objective && <Text color={AMBER} wrap="truncate">▸ {objective}</Text>}
+        {objective && <Text color={accent} wrap="truncate">▸ {objective}</Text>}
         <Text> </Text>
         <Box flexDirection="column" width={frameW} flexGrow={1} borderStyle="round" borderDimColor>
           {tabStrip}
@@ -796,23 +808,23 @@ export const register: Register = on => {
             {open === 'here' ? hereTab : open === 'map' ? mapTab : journalTab}
           </Box>
         </Box>
-        <Text dimColor wrap="truncate">1–9 go  ·  l look  ·  h m j tabs</Text>
+        <Text dimColor wrap="truncate">1–9 go  ·  l look  ·  {tabs.map(t => t.hotkey).join(' ')} tabs</Text>
       </Box>
     )
   })
 }
 
 /** A dice tray in place of a hidden tool row, or nothing when the row has nothing to show. */
-function drawTray($: EngineInterface, e: Parameters<EngineInterface['ui']['resolve']>[0], lines: TrayLine[]) {
+function drawTray($: EngineInterface, e: Parameters<EngineInterface['ui']['resolve']>[0], lines: TrayLine[], look: CoderpgLook) {
   const { Box, Text } = $.ui.resolve(e)
   if (lines.length === 0) return <Box display="none" />
   return (
     <Box flexDirection="column" paddingLeft={2}>
       {lines.map(l => (
         <Box flexDirection="row">
-          <Text color={AMBER}>{l.icon} </Text>
+          <Text color={look.palette.accent}>{l.icon} </Text>
           <Text dimColor={l.tone === 'neutral'}>{l.text}</Text>
-          {l.result && <Text color={l.tone === 'good' ? 'green' : 'red'} bold>{` ${l.result}`}</Text>}
+          {l.result && <Text color={l.tone === 'good' ? look.palette.good : look.palette.bad} bold>{` ${l.result}`}</Text>}
         </Box>
       ))}
     </Box>

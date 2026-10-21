@@ -1,0 +1,48 @@
+{
+  "palette": {
+    "accent": "#4fc3c7",
+    "warn": "#e0b84f",
+    "heal": "#7fdc9a"
+  },
+  "stat_labels": {
+    "might": "Grit",
+    "agility": "Reflex",
+    "wits": "Know-how"
+  },
+  "stat_short": {
+    "might": "GRT",
+    "agility": "RFX",
+    "wits": "KNW"
+  },
+  "currency": "credits",
+  "tagline": "a CodeRPG expedition",
+  "tab_labels": {
+    "here": "Deck",
+    "map": "Plan",
+    "journal": "Notes"
+  },
+  "tab_keys": {
+    "here": "d",
+    "map": "p",
+    "journal": "n"
+  },
+  "phrases": {
+    "idle": [
+      "Water drips somewhere below", "The hull groans", "Static hisses on a dead speaker",
+      "The stilts creak in the swell", "A warning light pulses", "Rain drums on the roof plates"
+    ],
+    "by_command": {
+      "look": ["Sweeping a torch beam around", "Taking stock"],
+      "move": ["Boots splash on steel grating", "Ducking through a hatch", "Wading on"],
+      "take": ["Fishing it out of the water"],
+      "use": ["Peeling back the foil"],
+      "check": ["The odds shift like the tide"],
+      "attack": ["Claws and steel", "The water churns"],
+      "hurt": ["Cold pain"],
+      "coins": ["Counting credits"],
+      "world-brief": ["Something shifts in the dark water"],
+      "world-turn": ["Elsewhere, the station creaks", "The tide keeps rising"],
+      "show": ["Checking the station plans"]
+    }
+  }
+}

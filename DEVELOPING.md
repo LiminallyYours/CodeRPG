@@ -18,13 +18,14 @@ Break these and the design falls apart:
 4. **The mod is presentation only.** It reads the save and `rpg.py`'s printed output, and never writes game files. The game must work without it.
 5. **Narration is the last text of a turn.** The mod relies on this to tell story from notes (see *How the mod classifies text*).
 6. **NPC and world agents have no tools** (`tools: []`, `omitClaudeMd: true`). They propose; the GM checks and applies through `rpg.py`.
+7. **The kit knows no game.** `rules/`, `mod/`, `CLAUDE.md` and the skills never name a room, character, item or flag of a particular game. Anything particular to a game lives in `games/<id>/`: its content, its `look.json` and its `balance.json`. Both shipped games must keep passing every check, so the second one proves nothing slipped through.
 
 ## Checks
 
 ```
 sh tools/check.sh
 ```
-It runs `rpg.py validate` (content references and formats), a compile of the Python, `claude plugin validate mod`, `claude plugin test mod` (the mod's tests, `mod/tests/`), and a TypeScript type-check of the mod.
+It runs `rpg.py validate` (every game's content references, formats, and look/balance keys), a compile of the Python, `tools/test_rules.py` (the engine tests, in a temp copy), `claude plugin validate mod`, `claude plugin test mod` (the mod's tests, `mod/tests/`), and a TypeScript type-check of the mod.
 - **Type-check:** it needs `mod/tsconfig.json`, which Claude Code writes the first time it loads the mod; open one `claude --plugin-dir ./mod` session if it's missing. TypeScript comes through `npx`.
 - **"✘ … the plugin directory refuses a submission for":** this is about submitting to Claude Code's public plugin catalog, which wants a README and a LICENSE inside `mod/`. It doesn't affect local use.
 
@@ -37,7 +38,7 @@ RPG_SEED=3 python3 rules/rpg.py newgame
 python3 rules/rpg.py move east
 RPG_SEED=7 python3 rules/rpg.py attack grukk
 ```
-`RPG_SEED` makes rolls repeatable. Proposals for `generate` and `world-turn` are JSON files: write one to `proposals/x.json`, then run `rpg.py generate extra proposals/x.json`. Also test malformed shapes; the script must refuse them, never crash.
+`RPG_SEED` makes rolls repeatable. `rpg.py game switch <id>` picks the game; each keeps its own save in the scratch copy's `state/`. Proposals for `generate` and `world-turn` are JSON files: write one to `proposals/x.json`, then run `rpg.py generate extra proposals/x.json`. Also test malformed shapes; the script must refuse them, never crash. Behaviour worth keeping belongs in `tools/test_rules.py`, which drives the CLI the same way.
 
 ## Testing live
 
@@ -93,8 +94,10 @@ This is the subtlest part of `mod/hooks/register.tsx`. If narration goes missing
 ## Changing things
 
 - **New `rpg.py` command:** add it to `COMMANDS`. If its output should show in the dice tray, add it to `TRAY_COMMANDS` and teach `trayLines` (`mod/hooks/tray.ts`) its format. If it only records something, add it to `WRITE_COMMANDS`.
-- **New save field:** bump `STATE_VERSION`, add a migration to `MIGRATIONS` (old saves upgrade on load), extend `refresh_view` if the mod needs it, and mirror it in `mod/types/index.d.ts`.
-- **New content field:** document it in the README, and teach `rpg.py validate` to check it.
+- **New save field:** bump `STATE_VERSION`, add a migration to `MIGRATIONS` (saves from version 7 on upgrade on load; older ones are refused), extend `refresh_view` if the mod needs it, and mirror it in `mod/types/index.d.ts`.
+- **New content field:** document it in the README, teach `rpg.py validate` to check it, and use it in both shipped games.
+- **New look or balance setting:** add it with a default to `rules/look.default.json` or `rules/balance.json` (validate rejects keys the defaults don't have), mirror look keys in `CoderpgLook` and `DEFAULT_LOOK` (`mod/hooks/look.ts`), and read it from the save's `view.look`, never from a game folder.
+- **New game:** a folder in `games/` with a `world.md`; everything else is optional. `validate` and `test_rules.py` pick it up automatically.
 - **The GM's behaviour:** `CLAUDE.md` holds standing orders (keep it short), `.claude/skills/gm-turn/SKILL.md` the procedure, and `.claude/hooks/turn_reminder.py` the per-message reminder. Sonnet at medium effort cuts corners on short turns, so test procedure changes with it.
 
 ## Known limits

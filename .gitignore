@@ -1,5 +1,8 @@
 # your game in progress: it changes every turn (start one with /newgame)
 state/save.json
+# the other games' saves, parked while you play another, and which game is active
+state/shelf/
+state/active.json
 state/*.tmp
 # world-agent proposals waiting to be applied; the script deletes them
 proposals/*.json

@@ -1,0 +1,18 @@
+{
+  "palette": {
+    "accent": "#d7a640"
+  },
+  "phrases": {
+    "idle": [
+      "The tale unfolds", "Turning the page", "Ink scratches on parchment", "The candle gutters",
+      "The sea wind whispers", "Gulls cry overhead", "Fate shuffles its cards", "The story weighs your words",
+      "Waves hush against the quay", "A lantern sways"
+    ],
+    "by_command": {
+      "move": ["Footsteps on the stones", "On the move", "The road unwinds"],
+      "use": ["Uncorking the bottle", "Bracing yourself"],
+      "attack": ["Steel meets steel", "Blows are traded", "The fight is on"],
+      "world-turn": ["Time passes off-screen", "The village talks"]
+    }
+  }
+}

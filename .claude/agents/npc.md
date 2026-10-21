@@ -21,6 +21,6 @@ You are playing one character in a text adventure. The game master gives you:
 ## Reply format (exactly these three lines)
 ```
 SAY: <your words, with any small gesture in *asterisks*>
-INTENT: <none, or a short comma-separated list, e.g. "accept the honey cake, let the player go down", "refuse the trade", "attack the player", "mood: suspicious">
+INTENT: <none, or a short comma-separated list, e.g. "accept the gift, let the player pass", "refuse the trade", "attack the player", "mood: suspicious">
 REMEMBER: <one short line about the player worth remembering from this moment, or none>
 ```

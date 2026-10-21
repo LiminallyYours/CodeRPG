@@ -4,41 +4,51 @@ A text RPG that runs inside Claude Code. Claude is the game master, and you type
 
 ## How to play
 1. Open Claude Code in this folder with the interface mod: `cd CodeRPG && claude --plugin-dir ./mod`. Plain `claude` works too, without the game look.
-2. Type `/newgame`.
+2. Type `/newgame`. Type `/game` to see the installed games, and `/game <id>` to switch; each game keeps its own save.
 3. Type actions in plain English, for example "look around", "go to the tavern", "ask Pell about the troll", "attack the troll".
 4. To talk to Claude as a developer instead of the GM, start your message with `ooc:`. Without it, a hook reminds the GM that the message is an in-game action.
 5. Instant commands (no Claude turn, no cost): `/inventory`, `/map`, `/sheet` (reopens the character pane) and `/sound` (turns sound effects on or off).
 
-Starter adventure: **The Dark Lighthouse.** It has six rooms, three characters, five items and one quest with three branches.
+Two games ship on the kit:
+- **The Dark Lighthouse** (`dark_lighthouse`): a fishing village with a stolen lamp lens. Six rooms, three characters, six items and one quest with three branches.
+- **The Flooded Station** (`flooded_station`): a half-flooded research station and a rising tide. Six rooms, three characters, five items and one quest with two branches. It's deliberately different: its own colors, stat names (Grit, Reflex, Know-how), currency (credits), tab names and a faster world clock, with no time of day.
 
 ## Layout
 ```
 CLAUDE.md                     GM role + standing orders (procedure only, no world facts)
 .claude/skills/gm-turn/       the turn-by-turn procedure
 .claude/skills/newgame/       /newgame
+.claude/skills/game/          /game: list the installed games or switch between them
 .claude/agents/npc.md         the NPC subagent: no tools, sees only the brief it's given
 .claude/agents/world.md       the world subagent: proposes new people/places/items/side quests as JSON
 .claude/hooks/turn_reminder.py  reminds the GM of the turn procedure on every in-game message
 .claude/settings.json         lets the GM run rules/rpg.py without permission prompts;
                               makes the GM wait for NPC replies (CLAUDE_CODE_FORK_SUBAGENT=0)
-content/                      THE WORLD: one file per room, character, item, quest
+games/<id>/                   ONE GAME: everything particular to it lives here
   world.md                    title, start room, starting stats/kit, opening
-rules/
+  rooms/ characters/ items/ quests/ tables/ art/   one file per room, character, item, quest...
+  look.json                   its look: colors, stat and tab names, currency, spinner phrases
+  balance.json                its rule numbers, laid over the kit's rules/balance.json (optional)
+rules/                        THE KIT: knows nothing about any particular game
   RULES.md                    the mechanics in plain language
-  balance.json                every tunable number
+  balance.json                every tunable number (the defaults)
+  look.default.json           the default look, which each game's look.json changes
   dice.py  content.py  rpg.py the code that rolls dice and does the arithmetic
   generate.py                 checks world-agent proposals and turns them into run content
 proposals/                    world-agent JSON waiting to be applied (emptied automatically)
-state/save.json               what has happened (created by /newgame)
+state/save.json               what has happened in the game being played (created by /newgame)
+state/shelf/<id>.json         the other games' saves, waiting while you play another
+state/active.json             which game is being played
 mod/                          the Claude Code interface mod (Phase 3), loaded with --plugin-dir
-tools/                        check.sh (every automated check) and play.py (drive a live session for testing)
+tools/                        check.sh (every automated check), test_rules.py (engine tests) and play.py (drive a live session)
 DEVELOPING.md                 how to work on the game safely: checks, testing, invariants, gotchas
 ```
 
 ## Technical choices
 - **Python 3 with the standard library only**, compatible with 3.9. There's nothing to install, and macOS already ships it.
 - **Content is Markdown with a small front-matter block.** The front matter holds the data the scripts need, such as exits, items, weights, damage and combat stats. The body holds prose the GM reads, such as descriptions, personality, voice, knowledge, and trades. The front matter is a tiny YAML subset (`key: value`, `- list`, one level of `sub: value`), so it's parsed by about 40 lines of code with no PyYAML dependency.
-- **State is one JSON file**, `state/save.json`, now at `"version": 6`. Version 2 added NPC memory. Version 3 added `map` (the rooms you've visited and their open exits) and `view` (display-ready values recomputed on every save) for the interface. Version 4 added `met` (characters you've seen), each foe's `max_hp`, and people, foes, quests and room art in `view`. Version 5 added `run`: everything about this particular playthrough (rolls, variants, the clock, generated content, notes, the chronicle and rumors). Version 6 gave each run an `id`, so the interface can tell a new game from a continuing one. Only `rpg.py` writes it, and it writes atomically. If the format changes later, add an upgrade function to `MIGRATIONS` in `rpg.py` and old saves will upgrade on load.
+- **The kit and the games are separate.** `rules/` and `mod/` never name a room, character or item. Each game is a folder in `games/` with its content, its look and its rule numbers. The rules script copies the game's look into the save (`view.look`), so the mod draws each game differently with no code change. The game master reads content only through `rpg.py show`, which applies the current flags, so the procedure doesn't depend on where files are.
+- **State is one JSON file per game**, `state/save.json` for the one being played, now at `"version": 7`. Version 7 added `game` (which game the save belongs to) and `view.game` / `view.look`; older saves can't be continued and are replaced by `/newgame`. Earlier versions: version 2 added NPC memory. Version 3 added `map` (the rooms you've visited and their open exits) and `view` (display-ready values recomputed on every save) for the interface. Version 4 added `met` (characters you've seen), each foe's `max_hp`, and people, foes, quests and room art in `view`. Version 5 added `run`: everything about this particular playthrough (rolls, variants, the clock, generated content, notes, the chronicle and rumors). Version 6 gave each run an `id`, so the interface can tell a new game from a continuing one. Only `rpg.py` writes it, and it writes atomically. Switching games moves the current save to `state/shelf/` and brings the other game's back. If the format changes later, add an upgrade function to `MIGRATIONS` in `rpg.py` and saves from version 7 on will upgrade on load.
 - **The rules engine is one CLI**, `python3 rules/rpg.py <command>`. Every roll and every change to state goes through it, so outcomes can't be fudged. It prints plain text for the GM to narrate. A `REFUSED:` result means the action didn't happen and state is unchanged.
 - **The GM prompt is split.** `CLAUDE.md` holds the short standing orders. The `gm-turn` skill holds the longer procedure. Neither contains any world facts.
 
@@ -57,7 +67,7 @@ The authored world is fixed, but each run varies within limits the content sets,
 |---|---|---|---|
 | **Rolled character:** stats rolled at `/newgame` | dice | `world.md` `rolls:` | `run.rolls` |
 | **Variants:** e.g. what Grukk craves (honey cake or smoked fish), where the cutlass and the spare tonic are | dice pick one flag per line; content branches on the flags | `world.md` `variants:` plus `## If` sections | flags, `run.variants` |
-| **Encounters:** a gull steals a coin, a fall, a found tonic | dice, on arriving in a room | `content/tables/*.md`, linked from rooms by `encounters:` | effects applied; `(once)` entries remembered |
+| **Encounters:** a gull steals a coin, a fall, a found tonic | dice, on arriving in a room | `games/<id>/tables/*.md`, linked from rooms by `encounters:` | effects applied; `(once)` entries remembered |
 | **The clock:** the fleet comes home after 2d6+12 moves. If the lamp is still dark, `fleet_lost` is set and the quest fails | dice, counting moves | `world.md` `clock:` | `run.clock` |
 | **Time and weather:** time follows the clock; the weather changes every few moves | dice | `world.md` `times:` and `weather:` | `run.weather` |
 | **Extras:** the unnamed dockhand you try to talk to becomes a real, minor person | world agent proposes, `generate.py` checks | `world.md` `generation:` and `## Public knowledge` | `run.characters` and `run.placements` |
@@ -87,7 +97,7 @@ Generated things are then as real as authored ones for the rest of the run: `loo
 | **Feedback.** One toast per change (`-3 HP · +5 coins · gained Brass Lens · ✓ objective`), the HP bar flashes red or cyan, and sound effects play for dice, hits, misses, coins, healing, footsteps, the quest fanfare and defeat. | `/sound` toggles sound, and the setting is remembered. Sounds play through macOS `afplay`. `mod/sounds/generate.py` rebuilds them. |
 | **Instant commands:** `/inventory`, `/map`, `/sheet`, `/sound`. | No Claude turn, no cost. |
 
-Checks: `claude plugin validate mod` and `claude plugin test mod` (34 tests).
+Checks: `sh tools/check.sh` runs everything, including `claude plugin test mod` (37 tests) and `python3 tools/test_rules.py`.
 
 ## Content format
 ```markdown
@@ -111,15 +121,17 @@ Extra prose shown only when that flag is set.
 - **Items** have a `weight`, plus `damage` (for weapons) or `heal` (for consumables).
 - **Flags** are set by the GM only when a content file says so. All branching is written in the content files. Conditions can also use two automatic names: `has_<item>` (carrying it) and `met_<character>` (have seen them).
 - **Quests** list their `objectives:` in front matter, each ending `(done when <condition>)`. The journal shows the finished objectives and the current one.
-- **Room art** is optional: `content/art/<room id>.txt`, plain text up to about 30 columns, shown in the pane.
+- **Room art** is optional: `games/<id>/art/<room id>.txt`, plain text up to about 30 columns, shown in the pane.
 - **Starting items** in a room may have conditions; they're placed at `/newgame`, after the variants are rolled.
 - **Rooms** may also list `expand:` (directions where a generated room may attach) and `encounters:` (a table id).
-- **Tables** (`content/tables/<id>.md`) give a `chance:` like `2 in 6` and `entries:`. Each entry may end with `(effect: coins -1 | gain <item> | hurt <dice> | heal <dice> | flag <name> | none)` and `(once)`.
+- **Tables** (`games/<id>/tables/<id>.md`) give a `chance:` like `2 in 6` and `entries:`. Each entry may end with `(effect: coins -1 | gain <item> | hurt <dice> | heal <dice> | flag <name> | none)` and `(once)`.
 - **Quests** may give `failed_by:` as well as `completed_by:`.
+- **`look.json`** may set `palette` (`accent`, `good`, `bad`, `warn`, `heal`), `stat_labels` and `stat_short` (names for might, agility and wits), `currency`, `tagline` (under the title card), `tabs` with `tab_labels` and `tab_keys`, and `phrases` (`idle` and `by_command`, what the spinner says). Anything left out comes from `rules/look.default.json`. `validate` flags unknown keys.
+- **`balance.json`** in a game folder overrides any number in `rules/balance.json`, key by key; `validate` flags unknown keys.
 - **`world.md`** may give `rolls:`, `variants:`, `clock:` (name, moves, flag, and optionally `also_if` / `also_flag`), `weather:`, `times:`, `generation:`, and body sections `## Tone` and `## Public knowledge` for the world agent.
 
 ## Changing things
-- **Rewrite the world:** edit the files in `content/`, then run `python3 rules/rpg.py validate` to check that every reference still resolves.
-- **Rebalance:** edit `rules/balance.json`, or the stats in a character or item file. `RULES.md` describes the formulas.
-- **New adventure:** replace the `content/` folder and run `/newgame`.
+- **Rewrite a world:** edit the files in `games/<id>/`, then run `python3 rules/rpg.py validate` to check every game's references and settings (`--game <id>` for one).
+- **Rebalance:** edit a game's `balance.json` (or the kit defaults in `rules/balance.json`), or the stats in a character or item file. `RULES.md` describes the formulas.
+- **New game:** add a folder to `games/` with at least a `world.md` and its rooms, run `validate`, then `/game <id>` and `/newgame`.
 - **Inspect or debug:** `python3 rules/rpg.py look` shows the current state. Set `RPG_SEED=<n>` to make dice repeatable.
