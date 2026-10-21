@@ -1,0 +1,26 @@
+{
+  "env": {
+    "CLAUDE_CODE_FORK_SUBAGENT": "0"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(python3 rules/rpg.py *)",
+      "Read(content/**)",
+      "Read(rules/**)",
+      "Read(state/**)",
+      "Edit(proposals/**)"
+    ]
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/turn_reminder.py\""
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,1233 @@
+#!/usr/bin/env python3
+"""CodeRPG rules engine. Every change to state/save.json goes through this script.
+
+Usage: python3 rules/rpg.py <command> [args]   (run with no args for the command list)
+
+Output is plain text meant for the game master to narrate from.
+A refused action prints "REFUSED: <reason>" and exits with status 1; state is unchanged.
+
+The world is the authored content in content/ plus this run's generated content, kept in the
+save's `run` section. Both are looked up through ent(); generated entries win nothing over
+authored ones (their ids can't collide), they only add.
+"""
+import json
+import os
+import re
+import sys
+import uuid
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import content  # noqa: E402
+import dice  # noqa: E402
+import generate  # noqa: E402
+
+ROOT = Path(__file__).resolve().parent.parent
+SAVE = ROOT / "state" / "save.json"
+BALANCE = json.loads((ROOT / "rules" / "balance.json").read_text())
+STATE_VERSION = 6
+STATS = ("might", "agility", "wits")
+GEN_KINDS = ("extras", "rooms", "items", "characters", "side_quests")
+
+
+def empty_run():
+    return {"id": uuid.uuid4().hex[:12], "variants": {}, "rolls": {}, "clock": None, "moves": 0, "weather": None,
+            "rooms": {}, "characters": {}, "items": {}, "quests": {},
+            "exits": {}, "placements": {}, "notes": {}, "chronicle": [], "rumors": [],
+            "used_encounters": [], "world_turn_due": False, "generated": 0}
+
+
+def _v1_to_v2(state):
+    state.setdefault("npc_memory", {})
+    return state
+
+
+def _v2_to_v3(state):
+    state.setdefault("map", {})
+    return state
+
+
+def _v3_to_v4(state):
+    state.setdefault("met", [])
+    for ident, npc in state.get("npcs", {}).items():
+        if "max_hp" not in npc and content.exists("characters", ident):
+            npc["max_hp"] = int(content.load("characters", ident).get("hp", npc["hp"]))
+    return state
+
+
+def _v4_to_v5(state):
+    state.setdefault("run", empty_run())
+    return state
+
+
+def _v5_to_v6(state):
+    state["run"].setdefault("id", uuid.uuid4().hex[:12])
+    return state
+
+
+# Each entry upgrades a save from version N to N+1.
+MIGRATIONS = {1: _v1_to_v2, 2: _v2_to_v3, 3: _v3_to_v4, 4: _v4_to_v5, 5: _v5_to_v6}
+
+
+class Refused(Exception):
+    pass
+
+
+# ---------------------------------------------------------------- the world: content + this run
+
+_RUN = empty_run()  # the loaded save's run section; set by load_state and newgame
+
+
+def ent(kind, ident):
+    """One room, character, item or quest, authored or generated, as a dict with `id` and `body`."""
+    if content.exists(kind, ident):
+        e = content.load(kind, ident)
+    elif ident in _RUN.get(kind, {}):
+        g = _RUN[kind][ident]
+        e = json.loads(json.dumps(g["meta"]))
+        e.update(id=ident, body=g.get("body", ""), generated="yes")
+    else:
+        raise Refused("no %s named %r in content or in this run" % (kind[:-1], ident))
+    if kind == "rooms":
+        e["exits"] = dict(e.get("exits") or {}, **_RUN.get("exits", {}).get(ident, {}))
+        e["characters"] = list(e.get("characters") or []) + list(_RUN.get("placements", {}).get(ident, []))
+    return e
+
+
+def ent_exists(kind, ident):
+    return content.exists(kind, ident) or ident in _RUN.get(kind, {})
+
+
+def ent_ids(kind):
+    return content.ids(kind) + sorted(_RUN.get(kind, {}))
+
+
+def is_generated(kind, ident):
+    return not content.exists(kind, ident) and ident in _RUN.get(kind, {})
+
+
+def world():
+    return content.load_world()
+
+
+def policy():
+    gen = world().get("generation") or {}
+    return {k: str(gen.get(k, "no")).lower() == "yes" for k in GEN_KINDS}
+
+
+# ---------------------------------------------------------------- state I/O
+
+def load_state():
+    global _RUN
+    if not SAVE.is_file():
+        raise Refused("no save file. Start a game with /newgame.")
+    state = migrate(json.loads(SAVE.read_text()))
+    _RUN = state["run"]
+    return state
+
+
+def migrate(state):
+    v = state.get("version", 1)
+    if v > STATE_VERSION:
+        raise Refused("save is version %d but this engine only knows up to %d" % (v, STATE_VERSION))
+    while v < STATE_VERSION:
+        state = MIGRATIONS[v](state)
+        v += 1
+        state["version"] = v
+    return state
+
+
+def condition_flags(state):
+    """The names content conditions are checked against: the story flags, plus two automatic kinds
+    that are true while they hold: has_<item> (carrying it) and met_<character> (seen them in a room)."""
+    return (list(state["flags"]) + ["has_" + i for i in state["inventory"]]
+            + ["met_" + c for c in state.get("met", [])])
+
+
+_DONE = re.compile(r"^(.*?)\s*\(done when\s+(.+)\)\s*$")
+
+
+def quest_view(ident, flags):
+    """A quest's journal: objectives done so far, then the current one; later ones stay hidden."""
+    q = ent("quests", ident)
+    objectives = []
+    for line in q.get("objectives") or []:
+        m = _DONE.match(str(line))
+        text, cond = (m.group(1), m.group(2)) if m else (str(line), None)
+        done = cond is not None and content.condition_holds(cond, flags)
+        objectives.append({"text": text, "done": done})
+    complete = content.condition_holds(q.get("completed_by"), flags) if q.get("completed_by") else False
+    failed = not complete and bool(q.get("failed_by")) and content.condition_holds(q.get("failed_by"), flags)
+    shown, current_found = [], False
+    for o in objectives:
+        if o["done"] or complete:
+            shown.append(o)
+        elif not current_found and not failed:
+            shown.append(o)
+            current_found = True
+    return {"id": ident, "name": q.get("name", ident), "complete": complete, "failed": failed,
+            "side": is_generated("quests", ident), "objectives": shown}
+
+
+def time_of_day(state):
+    times = world().get("times") or []
+    clock = state["run"].get("clock")
+    if not times:
+        return None
+    if not clock:
+        return times[0]
+    return times[min(len(times) - 1, state["run"]["moves"] * len(times) // max(1, clock["total"]))]
+
+
+def refresh_view(state):
+    """Derived fields for interfaces (the mod's pane, /map, /inventory), so they never read content.
+    `map` and `met` are history: rooms visited (with the exits open when last there) and characters seen.
+    `view` is a snapshot recomputed on every save."""
+    room = room_here(state)
+    here = characters_here(state)
+    met = state.setdefault("met", [])
+    met.extend(c for c in here if c not in met)
+    flags = condition_flags(state)
+    exits = {}
+    for d, target in (room.get("exits") or {}).items():
+        dest, cond = content.split_condition(target)
+        if content.condition_holds(cond, flags):
+            exits[d] = dest
+    state.setdefault("map", {})[room["id"]] = {
+        "name": room.get("name", room["id"]), "exits": exits,
+        # where those exits lead, by name: the player can see or has been told, even before visiting
+        "neighbors": {dest: ent("rooms", dest).get("name", dest) for dest in exits.values() if ent_exists("rooms", dest)},
+    }
+    for entry in state["map"].values():  # rooms visited before neighbors were recorded
+        if "neighbors" not in entry:
+            entry["neighbors"] = {d: ent("rooms", d).get("name", d) for d in entry["exits"].values() if ent_exists("rooms", d)}
+
+    def who(c):
+        ch = ent("characters", c)
+        return {"id": c, "name": ch.get("name", c), "role": ch.get("role", ""), "generated": is_generated("characters", c)}
+
+    art = content.CONTENT / "art" / ("%s.txt" % room["id"])
+    run = state["run"]
+    clock = run.get("clock")
+    state["view"] = {
+        "location_name": room.get("name", room["id"]),
+        "location_generated": is_generated("rooms", room["id"]),
+        "items": [{"id": i, "name": item(i).get("name", i) if ent_exists("items", i) else i, "equipped": i == state["equipped"]}
+                  for i in state["inventory"]],
+        "weight": carried_weight(state),
+        "carry_limit": carry_limit(state),
+        "characters_here": [who(c) for c in here],
+        "people": [dict(who(c), here=c in here, memory=state.get("npc_memory", {}).get(c, []))
+                   for c in met if ent_exists("characters", c)],
+        "foes": [dict(who(c), hp=state["npcs"][c]["hp"], max_hp=state["npcs"][c]["max_hp"])
+                 for c in here if c in state["npcs"] and state["npcs"][c]["hp"] > 0],  # fought and still standing
+        "quests": [quest_view(q, flags) for q in ent_ids("quests")],  # ids come from files that exist
+        "art": art.read_text(encoding="utf-8").rstrip("\n") if art.is_file() else None,
+        "time": time_of_day(state),
+        "weather": run.get("weather"),
+        "clock": {"name": clock["name"], "left": clock["left"], "total": clock["total"]} if clock else None,
+        "chronicle": run["chronicle"][-BALANCE["world"]["chronicle_lines"]:],
+        "rumors": run["rumors"][-BALANCE["world"]["rumors_kept"]:],
+    }
+
+
+def save_state(state):
+    refresh_view(state)
+    SAVE.parent.mkdir(exist_ok=True)
+    tmp = SAVE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(state, indent=2) + "\n")
+    os.replace(tmp, SAVE)
+
+
+def require_playing(state):
+    if state["status"] != "playing":
+        raise Refused("the game is over (%s). Start again with /newgame." % state["status"])
+
+
+# ---------------------------------------------------------------- helpers
+
+def item(ident):
+    return ent("items", ident)
+
+
+def carried_weight(state):
+    return sum(int(item(i).get("weight", 0)) for i in state["inventory"] if ent_exists("items", i))
+
+
+def carry_limit(state):
+    return BALANCE["carry_base"] + BALANCE["carry_per_might"] * state["stats"]["might"]
+
+
+def check_carry(state, ident):
+    w = carried_weight(state) + int(item(ident).get("weight", 0))
+    if w > carry_limit(state):
+        raise Refused("too heavy: carrying %s would make %d, limit is %d. Drop something first."
+                      % (ident, w, carry_limit(state)))
+
+
+def room_here(state):
+    return ent("rooms", state["location"])
+
+
+def characters_here(state):
+    """Who is in the player's room. A generated character drops out once defeated (authored ones say so in
+    their room's conditions), and anyone whose file has gone missing is skipped rather than breaking the save."""
+    flags = condition_flags(state)
+    return [c for c in content.visible(room_here(state).get("characters"), flags)
+            if ent_exists("characters", c) and not (is_generated("characters", c) and "%s_defeated" % c in flags)]
+
+
+def is_minor(ident):
+    return str(ent("characters", ident).get("minor", "no")).lower() == "yes"
+
+
+def player_defense(state):
+    return BALANCE["player_defense_base"] + state["stats"]["agility"]
+
+
+def set_flag(state, name):
+    if name not in state["flags"]:
+        state["flags"].append(name)
+
+
+def hp_line(state):
+    s = state["stats"]
+    return "HP %d/%d" % (s["hp"], s["max_hp"])
+
+
+def damage_player(state, amount):
+    s = state["stats"]
+    s["hp"] = max(0, s["hp"] - amount)
+    if s["hp"] == 0:
+        state["status"] = "defeated"
+        return "PLAYER DEFEATED (HP 0). The game is over; /newgame to start again."
+    return "Player " + hp_line(state)
+
+
+def resolve_dc(text):
+    if str(text).isdigit():
+        return int(text)
+    if text in BALANCE["dc"]:
+        return BALANCE["dc"][text]
+    raise Refused("DC must be a number or one of %s" % ", ".join(BALANCE["dc"]))
+
+
+def d20_test(mod, target):
+    """Roll the check die + mod against a target number. Natural 20 always passes, natural 1 always fails."""
+    total, faces, _ = dice.roll(BALANCE["check_die"])
+    nat = faces[0]
+    total += mod
+    ok = nat == 20 or (nat != 1 and total >= target)
+    note = " (natural 20)" if nat == 20 else " (natural 1)" if nat == 1 else ""
+    return ok, nat, total, note
+
+
+def pick(options):
+    """One of `options`, chosen by a die roll."""
+    return options[dice.roll("1d%d" % len(options))[0] - 1]
+
+
+def options_of(value):
+    """A comma-separated string or a YAML list, as a list of non-empty strings."""
+    parts = value if isinstance(value, list) else str(value or "").split(",")
+    return [str(x).strip() for x in parts if str(x).strip()]
+
+
+def moves_text(n):
+    return "%d move%s" % (n, "" if n == 1 else "s")
+
+
+def unused_expansions(room):
+    """Directions this authored room may grow a generated room in, not yet used."""
+    if is_generated("rooms", room["id"]):
+        return []
+    return [d for d in options_of(room.get("expand") or "") if d not in (room.get("exits") or {})]
+
+
+def short_line(text, what):
+    text = " ".join(text.split())
+    limit = BALANCE["world"]["text_line_chars"]
+    if not text:
+        raise Refused("usage: %s <one short line>" % what)
+    if len(text) > limit:
+        raise Refused("%s lines must be at most %d characters (got %d)" % (what, limit, len(text)))
+    return text
+
+
+# ---------------------------------------------------------------- encounters and the clock
+
+_EFFECT = re.compile(r"\(effect:\s*([^)]+)\)")
+
+
+def apply_effect(state, effect):
+    """Apply one encounter effect: coins ±N, gain <item>, hurt <dice>, heal <dice>, flag <name>, none."""
+    words = effect.split()
+    if not words or words[0] == "none":
+        return None
+    verb, arg = words[0], " ".join(words[1:])
+    s = state["stats"]
+    if verb == "coins":
+        delta = max(int(arg), -s["coins"])
+        if delta == 0:
+            return "COINS: nothing to take, the purse is empty"
+        s["coins"] += delta
+        return "COINS %+d -> %d" % (delta, s["coins"])
+    if verb == "gain":
+        try:
+            check_carry(state, arg)
+        except Refused:
+            return "GAIN %s refused: too heavy to carry" % arg
+        state["inventory"].append(arg)
+        return "GAINED: %s" % arg
+    if verb == "hurt":
+        # a random event can wound but never kill: it leaves at least 1 HP
+        total, faces, mod = dice.roll(arg)
+        dealt = max(0, min(total, s["hp"] - 1))
+        held = "" if dealt == total else ", held to %d" % dealt
+        return "HURT %s%s. %s" % (dice.describe(arg, total, faces, mod), held, damage_player(state, dealt))
+    if verb == "heal":
+        total, faces, mod = dice.roll(arg)
+        before = s["hp"]
+        s["hp"] = min(s["max_hp"], s["hp"] + max(0, total))
+        return "HEAL %s; healed %d. %s" % (dice.describe(arg, total, faces, mod), s["hp"] - before, hp_line(state))
+    if verb == "flag":
+        set_flag(state, arg)
+        return "FLAG set %s" % arg
+    raise Refused("unknown encounter effect %r" % effect)
+
+
+def roll_encounter(state, room):
+    """On entering a room with an encounter table, maybe something happens. Code decides, content describes."""
+    table_id = room.get("encounters")
+    if not table_id:
+        return []
+    table = content.load("tables", table_id)
+    hits, sides = [int(x) for x in re.findall(r"\d+", str(table.get("chance", "1 in 6")))[:2]]
+    roll = dice.roll("1d%d" % sides)[0]
+    if roll > hits:
+        return []
+    used = state["run"]["used_encounters"]
+    entries = [(i, e) for i, e in enumerate(table.get("entries") or [])
+               if not ("(once)" in e and "%s:%d" % (table_id, i) in used)]
+    if not entries:
+        return []
+    i, entry = pick(entries)
+    if "(once)" in entry:
+        used.append("%s:%d" % (table_id, i))
+    text = _EFFECT.sub("", entry).replace("(once)", "").strip()
+    out = ["ENCOUNTER: %s" % text]
+    m = _EFFECT.search(entry)
+    if m:
+        result = apply_effect(state, m.group(1).strip())
+        if result:
+            out.append("  effect: %s" % result)
+    return out
+
+
+def tick_move(state):
+    """Each move passes time: the clock runs down and, every few moves, the world takes a turn."""
+    run, out = state["run"], []
+    run["moves"] += 1
+    clock = run.get("clock")
+    if clock and clock["left"] > 0:
+        clock["left"] -= 1
+        if clock["left"] == 0:
+            set_flag(state, clock["flag"])
+            out.append("CLOCK: %s. Flag set: %s" % (clock["name"], clock["flag"]))
+            if clock.get("also_flag") and content.condition_holds(clock.get("also_if"), condition_flags(state)):
+                set_flag(state, clock["also_flag"])
+                out.append("CLOCK: and since %s, flag set: %s" % (clock["also_if"], clock["also_flag"]))
+        elif clock["left"] <= 3:
+            out.append("CLOCK: %s in %s" % (clock["name"], moves_text(clock["left"])))
+    if run["moves"] % BALANCE["world"]["turn_every_moves"] == 0:
+        run["world_turn_due"] = True
+        weathers = world().get("weather") or []
+        if weathers:
+            run["weather"] = pick(weathers)
+        out.append("WORLD TURN DUE: run `rpg.py world-brief turn` and spawn the world agent (see gm-turn)")
+    return out
+
+
+# ---------------------------------------------------------------- commands
+
+def cmd_newgame(args):
+    global _RUN
+    w = world()
+    run = empty_run()
+    _RUN = run
+    stats = dict(w.get("stats") or {})
+    for k in STATS + ("max_hp",):
+        stats.setdefault(k, 0)
+    for k, spec in (w.get("rolls") or {}).items():
+        total, _, _ = dice.roll(spec)
+        stats[k] = total
+        run["rolls"][k] = total
+    stats["hp"] = stats["max_hp"]
+    stats["coins"] = int(w.get("coins", 0))
+    flags = list(w.get("flags") or [])
+    for name, opts in (w.get("variants") or {}).items():
+        choice = pick(options_of(opts))
+        run["variants"][name] = choice
+        flags.append(choice)
+    if w.get("clock"):
+        c = w["clock"]
+        total = max(1, dice.roll(c["moves"])[0])
+        run["clock"] = {"name": c["name"], "flag": c["flag"], "total": total, "left": total,
+                        "also_if": c.get("also_if"), "also_flag": c.get("also_flag")}
+    if w.get("weather"):
+        run["weather"] = pick(w["weather"])
+    state = {
+        "version": STATE_VERSION,
+        "adventure": w.get("title", "Untitled"),
+        "status": "playing",
+        "location": w["start_room"],
+        "stats": stats,
+        "inventory": list(w.get("inventory") or []),
+        "equipped": w.get("equipped"),
+        "flags": flags,
+        "room_items": {r: content.visible(content.load("rooms", r).get("items"), flags) for r in content.ids("rooms")},
+        "npcs": {},
+        "npc_memory": {},
+        "map": {},
+        "met": [],
+        "run": run,
+    }
+    save_state(state)
+    for stale in (ROOT / "proposals").glob("*.json"):
+        stale.unlink()
+    print("NEW GAME: %s" % state["adventure"])
+    if run["rolls"]:
+        print("ROLLED: %s" % ", ".join("%s %d" % kv for kv in run["rolls"].items()))
+    if run["variants"]:
+        print("THIS RUN (secret from the player): %s" % ", ".join("%s=%s" % kv for kv in run["variants"].items()))
+    if run["clock"]:
+        print("CLOCK: %s in %s" % (run["clock"]["name"], moves_text(run["clock"]["total"])))
+    cmd_look([])
+
+
+def cmd_look(args):
+    state = load_state()
+    run = state["run"]
+    room = room_here(state)
+    flags = condition_flags(state)
+    print("STATUS: %s | %s | %s" % (state["status"], hp_line(state), " ".join(
+        "%s %+d" % (k.capitalize(), state["stats"][k]) for k in STATS)) + " | Coins %d" % state["stats"]["coins"])
+    print("LOCATION: %s (%s)%s" % (room.get("name", room["id"]), room["id"],
+                                   " [generated: read it with `rpg.py show rooms %s`]" % room["id"] if room.get("generated") else ""))
+    texture = [x for x in (time_of_day(state), run.get("weather")) if x]
+    if texture:
+        print("TIME AND WEATHER: %s" % ", ".join(texture))
+    if run.get("clock"):
+        c = run["clock"]
+        print("CLOCK STATUS: %s" % (("%s in %s" % (c["name"], moves_text(c["left"]))) if c["left"] else "%s: it has happened" % c["name"]))
+    for d, target in (room.get("exits") or {}).items():
+        dest, cond = content.split_condition(target)
+        name = ent("rooms", dest).get("name", dest) if ent_exists("rooms", dest) else dest
+        if content.condition_holds(cond, flags):
+            print("  exit %s -> %s" % (d, name))
+        else:
+            print("  exit %s -> %s [BLOCKED: needs %s]" % (d, name, cond))
+    if policy()["rooms"] and unused_expansions(room):
+        print("  may grow: %s (a new place can be generated there if the player goes that way)" % ", ".join(unused_expansions(room)))
+    here = state["room_items"].get(room["id"], [])
+    print("ITEMS HERE: %s" % (", ".join(i + (" [generated]" if is_generated("items", i) else "") for i in here) or "none"))
+    chars = ["%s [%s%s]" % (c, "minor" if is_minor(c) else "agent", ", generated" if is_generated("characters", c) else "")
+             for c in characters_here(state)]
+    print("CHARACTERS HERE: %s" % (", ".join(chars) or "none"))
+    notes = run["notes"].get(room["id"], [])
+    if notes:
+        print("ESTABLISHED HERE: %s" % " | ".join(notes))
+    inv = ["%s%s" % (i, " (equipped)" if i == state["equipped"] else "") for i in state["inventory"]]
+    print("INVENTORY: %s  [weight %d/%d]" % (", ".join(inv) or "nothing", carried_weight(state), carry_limit(state)))
+    print("FLAGS: %s" % (", ".join(state["flags"]) or "none"))
+    print("ALSO TRUE: %s" % (", ".join(f for f in flags if f not in state["flags"]) or "none"))
+    gen_q = [q for q in ent_ids("quests") if is_generated("quests", q)]
+    if gen_q:
+        print("SIDE QUESTS: %s (read with `rpg.py show quests <id>`)" % ", ".join(gen_q))
+    if run["world_turn_due"]:
+        print("WORLD TURN DUE: run `rpg.py world-brief turn` and spawn the world agent (see gm-turn)")
+
+
+def cmd_move(args):
+    state = load_state()
+    require_playing(state)
+    want = args[0]
+    exits = room_here(state).get("exits") or {}
+    if want not in exits:
+        # allow naming the destination room instead of the direction
+        match = [d for d, t in exits.items() if content.split_condition(t)[0] == want]
+        if not match:
+            grow = unused_expansions(room_here(state)) if policy()["rooms"] else []
+            hint = " This room may grow %s: generate a room there first." % "/".join(grow) if want in grow else ""
+            raise Refused("no exit %r here. Exits: %s.%s" % (want, ", ".join(exits) or "none", hint))
+        want = match[0]
+    dest, cond = content.split_condition(exits[want])
+    if not content.condition_holds(cond, condition_flags(state)):
+        raise Refused("the way %s is blocked (needs %s)" % (want, cond))
+    state["location"] = dest
+    events = tick_move(state) + roll_encounter(state, ent("rooms", dest))
+    save_state(state)
+    print("MOVED %s." % want)
+    for line in events:
+        print(line)
+    cmd_look([])
+
+
+def cmd_take(args):
+    state = load_state()
+    require_playing(state)
+    ident = args[0]
+    here = state["room_items"].setdefault(state["location"], [])
+    if ident not in here:
+        raise Refused("%s is not here. Items here: %s" % (ident, ", ".join(here) or "none"))
+    check_carry(state, ident)
+    here.remove(ident)
+    state["inventory"].append(ident)
+    save_state(state)
+    print("TAKEN: %s  [weight %d/%d]" % (ident, carried_weight(state), carry_limit(state)))
+
+
+def remove_from_inventory(state, ident):
+    if ident not in state["inventory"]:
+        raise Refused("you are not carrying %s" % ident)
+    state["inventory"].remove(ident)
+    if state["equipped"] == ident and ident not in state["inventory"]:
+        state["equipped"] = None
+
+
+def cmd_drop(args):
+    state = load_state()
+    require_playing(state)
+    ident = args[0]
+    remove_from_inventory(state, ident)
+    state["room_items"].setdefault(state["location"], []).append(ident)
+    save_state(state)
+    print("DROPPED: %s in %s" % (ident, state["location"]))
+
+
+def cmd_gain(args):
+    state = load_state()
+    require_playing(state)
+    ident = args[0]
+    check_carry(state, ident)
+    state["inventory"].append(ident)
+    save_state(state)
+    print("GAINED: %s  [weight %d/%d]" % (ident, carried_weight(state), carry_limit(state)))
+
+
+def cmd_lose(args):
+    state = load_state()
+    require_playing(state)
+    remove_from_inventory(state, args[0])
+    save_state(state)
+    print("LOST: %s" % args[0])
+
+
+def cmd_equip(args):
+    state = load_state()
+    require_playing(state)
+    ident = args[0]
+    if ident not in state["inventory"]:
+        raise Refused("you are not carrying %s" % ident)
+    if not item(ident).get("damage"):
+        raise Refused("%s is not a weapon (no damage)" % ident)
+    state["equipped"] = ident
+    save_state(state)
+    print("EQUIPPED: %s (damage %s)" % (ident, item(ident)["damage"]))
+
+
+def cmd_use(args):
+    state = load_state()
+    require_playing(state)
+    ident = args[0]
+    if ident not in state["inventory"]:
+        raise Refused("you are not carrying %s" % ident)
+    heal = item(ident).get("heal")
+    if not heal:
+        raise Refused("%s has no mechanical use; use it in the story per its item file" % ident)
+    total, faces, mod = dice.roll(heal)
+    s = state["stats"]
+    before = s["hp"]
+    s["hp"] = min(s["max_hp"], s["hp"] + total)
+    remove_from_inventory(state, ident)
+    save_state(state)
+    print("USED %s: heal %s; healed %d. %s" % (ident, dice.describe(heal, total, faces, mod), s["hp"] - before, hp_line(state)))
+
+
+def cmd_roll(args):
+    spec = args[0]
+    total, faces, mod = dice.roll(spec)
+    print("ROLL %s" % dice.describe(spec, total, faces, mod))
+
+
+def cmd_check(args):
+    state = load_state()
+    require_playing(state)
+    stat, dc = args[0].lower(), resolve_dc(args[1])
+    if stat not in STATS:
+        raise Refused("stat must be one of %s" % ", ".join(STATS))
+    mod = state["stats"][stat]
+    ok, nat, total, note = d20_test(mod, dc)
+    print("CHECK %s vs DC %d: d20 %d %+d = %d%s -> %s"
+          % (stat, dc, nat, mod, total, note, "SUCCESS" if ok else "FAILURE"))
+
+
+def cmd_attack(args):
+    state = load_state()
+    require_playing(state)
+    target = args[0]
+    if target not in characters_here(state):
+        raise Refused("%s is not here" % target)
+    foe = ent("characters", target)
+    if "hp" not in foe:
+        raise Refused("%s has no combat stats and cannot be fought" % target)
+    npc = state["npcs"].setdefault(target, {"hp": int(foe["hp"]), "max_hp": int(foe["hp"])})
+    if npc["hp"] <= 0:
+        raise Refused("%s is already defeated" % target)
+
+    out = []
+    # player swings
+    weapon = state["equipped"]
+    dmg_spec = item(weapon)["damage"] if weapon else BALANCE["unarmed_damage"]
+    mod = state["stats"]["might"]
+    ok, nat, total, note = d20_test(mod, int(foe["defense"]))
+    out.append("PLAYER ATTACKS %s with %s: d20 %d %+d = %d vs defense %s%s -> %s"
+               % (target, weapon or "bare hands", nat, mod, total, foe["defense"], note, "HIT" if ok else "MISS"))
+    if ok:
+        crit = nat == 20 and BALANCE["crit_extra_damage_dice"]
+        dmg, faces, dmod = dice.roll(dmg_spec, extra_dice=crit)
+        dmg = max(1, dmg)
+        npc["hp"] = max(0, npc["hp"] - dmg)
+        out.append("  damage %s%s -> %s HP %d/%s"
+                   % (dice.describe(dmg_spec, dmg, faces, dmod), " (critical: double dice)" if crit else "",
+                      target, npc["hp"], foe["hp"]))
+    if npc["hp"] == 0:
+        set_flag(state, "%s_defeated" % target)
+        out.append("%s IS DEFEATED. Flag set: %s_defeated" % (target.upper(), target))
+    else:
+        # foe swings back
+        amod = int(foe.get("attack", 0))
+        ok, nat, total, note = d20_test(amod, player_defense(state))
+        out.append("%s ATTACKS: d20 %d %+d = %d vs your defense %d%s -> %s"
+                   % (target.upper(), nat, amod, total, player_defense(state), note, "HIT" if ok else "MISS"))
+        if ok:
+            crit = nat == 20 and BALANCE["crit_extra_damage_dice"]
+            dmg, faces, dmod = dice.roll(foe["damage"], extra_dice=crit)
+            dmg = max(1, dmg)
+            out.append("  damage %s%s -> %s" % (dice.describe(foe["damage"], dmg, faces, dmod),
+                                                 " (critical: double dice)" if crit else "", damage_player(state, dmg)))
+    save_state(state)
+    print("\n".join(out))
+
+
+def cmd_hurt(args):
+    state = load_state()
+    require_playing(state)
+    total, faces, mod = dice.roll(args[0])
+    total = max(0, total)
+    msg = damage_player(state, total)
+    save_state(state)
+    print("HURT %s. %s" % (dice.describe(args[0], total, faces, mod), msg))
+
+
+def cmd_heal(args):
+    state = load_state()
+    require_playing(state)
+    total, faces, mod = dice.roll(args[0])
+    s = state["stats"]
+    before = s["hp"]
+    s["hp"] = min(s["max_hp"], s["hp"] + max(0, total))
+    save_state(state)
+    print("HEAL %s; healed %d. %s" % (dice.describe(args[0], total, faces, mod), s["hp"] - before, hp_line(state)))
+
+
+def cmd_coins(args):
+    state = load_state()
+    require_playing(state)
+    try:
+        delta = int(args[0])
+    except ValueError:
+        raise Refused("coins takes a signed whole number, e.g. +3 or -2")
+    if abs(delta) > 999:
+        raise Refused("coins changes are at most 999 at a time")
+    s = state["stats"]
+    if s["coins"] + delta < 0:
+        raise Refused("not enough coins: have %d, need %d" % (s["coins"], -delta))
+    s["coins"] += delta
+    save_state(state)
+    print("COINS %+d -> %d" % (delta, s["coins"]))
+
+
+def cmd_flag(args):
+    state = load_state()
+    require_playing(state)
+    action, name = args[0], args[1]
+    if not re.fullmatch(r"[a-z0-9_]+", name):
+        raise Refused("flag names are lowercase letters, digits and underscores")
+    if name.startswith(("has_", "met_")):
+        raise Refused("has_ and met_ names are automatic (carrying an item, having met someone) and can't be set")
+    if action == "set":
+        set_flag(state, name)
+    elif action == "unset":
+        if name in state["flags"]:
+            state["flags"].remove(name)
+    else:
+        raise Refused("use: flag set <name> | flag unset <name>")
+    save_state(state)
+    print("FLAG %s %s. Flags: %s" % (action, name, ", ".join(state["flags"]) or "none"))
+
+
+def cmd_npc_brief(args):
+    """Everything an NPC agent is allowed to know, built from its character file and state."""
+    state = load_state()
+    ident = args[0]
+    if ident not in characters_here(state):
+        raise Refused("%s is not in this scene" % ident)
+    if is_minor(ident):
+        raise Refused("%s is a minor character; the game master plays them directly" % ident)
+    ch = ent("characters", ident)
+    flags = condition_flags(state)
+    lines = ["You are %s, %s." % (ch.get("name", ident), ch.get("role", "a character in this world")), ""]
+    now = []
+    for heading, text in content.sections(ch["body"]):
+        cond = content.section_condition(heading)
+        if heading.lower().startswith("gm"):
+            continue
+        if cond is not None:
+            if content.condition_holds(cond, flags):
+                now.append(text)
+            continue
+        lines += ["## " + heading if heading else "", text, ""]
+    if now:
+        lines += ["## Right now", "\n\n".join(now), ""]
+    room = room_here(state)
+    others = ["%s (%s)" % (ent("characters", c).get("name", c), ent("characters", c).get("role", ""))
+              for c in characters_here(state) if c != ident]
+    lines += ["## The scene", "You are at %s. Present: the player%s." % (
+        room.get("name", room["id"]), "".join(", " + o for o in others)), ""]
+    rumors = state["run"]["rumors"][-3:]
+    if rumors:
+        lines += ["## Talk going around (you may have heard it)"] + ["- " + r for r in rumors] + [""]
+    memory = state["npc_memory"].get(ident, [])
+    lines.append("## What you remember about the player")
+    lines += ["- " + m for m in memory] if memory else ["You have never met this person before."]
+    print("\n".join(l for l in lines).strip())
+
+
+def cmd_remember(args):
+    state = load_state()
+    require_playing(state)
+    ident, text = args[0], " ".join(args[1:]).strip()
+    if not ent_exists("characters", ident):
+        raise Refused("no character named %r" % ident)
+    if not text:
+        raise Refused("usage: remember <character> <one short line>")
+    limit = BALANCE["npc"]["memory_line_chars"]
+    if len(text) > limit:
+        raise Refused("memory lines must be at most %d characters (got %d); shorten it" % (limit, len(text)))
+    mem = state["npc_memory"].setdefault(ident, [])
+    mem.append(text)
+    del mem[:-BALANCE["npc"]["memory_lines"]]
+    save_state(state)
+    print("REMEMBERED by %s (%d/%d lines): %s" % (ident, len(mem), BALANCE["npc"]["memory_lines"], text))
+
+
+# ---------------------------------------------------------------- run content: show, generate, notes, world turns
+
+def cmd_show(args):
+    """Print a room, character, item or quest as a content file would read, authored or generated."""
+    try:
+        load_state()
+    except Refused:
+        pass  # no game yet: authored content can still be shown
+    kind, ident = args[0], args[1]
+    if kind not in content.KINDS:
+        raise Refused("kind must be one of %s" % ", ".join(content.KINDS))
+    if content.exists(kind, ident):
+        print(content.path_of(kind, ident).read_text(encoding="utf-8").strip())
+        return
+    e = ent(kind, ident)
+    meta = {k: v for k, v in e.items() if k not in ("id", "body")}
+    print("---")
+    for k, v in meta.items():
+        if isinstance(v, dict):
+            print("%s:" % k)
+            for kk, vv in v.items():
+                print("  %s: %s" % (kk, vv))
+        elif isinstance(v, list):
+            print("%s:" % k)
+            for x in v:
+                print("  - %s" % x)
+        else:
+            print("%s: %s" % (k, v))
+    print("---")
+    print(e["body"])
+
+
+def gen_context(state):
+    room = room_here(state)
+    here_items = state["room_items"].get(state["location"], [])
+    names = [ent(k, i).get("name", i) for k in ("rooms", "characters", "items", "quests") for i in ent_ids(k)]
+    ids = [i for k in content.KINDS for i in ent_ids(k)]
+    run = state["run"]
+    return generate.Context(
+        location=state["location"], taken_ids=ids, taken_names=names, expand=unused_expansions(room),
+        policy=policy(), balance=BALANCE["generation"], count=run["generated"],
+        items_found_here=sum(1 for i in here_items if is_generated("items", i)),
+        extras_here=sum(1 for c in run["placements"].get(state["location"], [])
+                        if ent("characters", c).get("extra") == "yes"),
+        characters_here=characters_here(state), room_ids=ent_ids("rooms"),
+        generated_people=list(run["characters"]))
+
+
+def apply_patch(state, patch):
+    run = state["run"]
+    stamp = run["moves"]
+    for kind in ("rooms", "characters", "items", "quests"):
+        for ident, rec in patch[kind].items():
+            run[kind][ident] = dict(rec, made_at_move=stamp)
+    for room, ex in patch["exits"].items():
+        run["exits"].setdefault(room, {}).update(ex)
+    for room, people in patch["placements"].items():
+        run["placements"].setdefault(room, []).extend(people)
+    for room, items in patch["room_items"].items():
+        state["room_items"].setdefault(room, []).extend(items)
+    run["generated"] = sum(len(run[k]) for k in ("rooms", "characters", "items", "quests"))
+
+
+def read_json_arg(args):
+    """The proposal: a JSON file (normally proposals/<name>.json, written by the GM), or stdin."""
+    if args and not Path(args[0]).is_file():
+        raise Refused("no proposal file at %s" % args[0])
+    raw = Path(args[0]).read_text(encoding="utf-8") if args else sys.stdin.read()
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise Refused("the proposal is not valid JSON: %s" % e)
+    if not isinstance(data, dict):
+        raise Refused("the proposal must be one JSON object")
+    return data
+
+
+def done_with(args):
+    """A proposal file in proposals/ is used up once read, applied or refused, so a stale one can't linger."""
+    if args and Path(args[0]).is_file() and Path(args[0]).resolve().parent == (ROOT / "proposals").resolve():
+        Path(args[0]).unlink()
+
+
+MALFORMED = (ValueError, TypeError, AttributeError, KeyError)
+
+
+def cmd_generate(args):
+    """generate <extra|room|item|character|quest> [file]: check a world-agent proposal (JSON on stdin) and add it."""
+    state = load_state()
+    require_playing(state)
+    kind = args[0]
+    if kind not in generate.KINDS:
+        raise Refused("kind must be one of %s" % ", ".join(generate.KINDS))
+    try:
+        proposal = read_json_arg(args[1:])
+        try:
+            patch = generate.KINDS[kind](proposal, gen_context(state))
+        except ValueError as e:
+            raise Refused("proposal rejected: %s" % e)
+        except MALFORMED[1:] as e:
+            raise Refused("proposal rejected: it doesn't match the JSON shape in the brief (%s)" % e)
+    finally:
+        done_with(args[1:])
+    apply_patch(state, patch)
+    save_state(state)
+    made = ["%s %s (%s)" % (k[:-1], patch[k][i]["meta"].get("name", i), i)
+            for k in ("rooms", "characters", "items", "quests") for i in patch[k]]
+    print("GENERATED: %s" % ", ".join(made))
+    for room, ex in patch["exits"].items():
+        for d, dest in ex.items():
+            print("  new exit: %s %s -> %s" % (room, d, dest))
+    for room, items in patch["room_items"].items():
+        print("  placed in %s: %s" % (room, ", ".join(items)))
+    for room, people in patch["placements"].items():
+        print("  present in %s: %s" % (room, ", ".join(people)))
+    print("Read them with `rpg.py show <kind> <id>`. Run total: %d/%d" % (state["run"]["generated"], BALANCE["generation"]["max_per_run"]))
+
+
+def cmd_note(args):
+    """note <text>: record a small detail you established about this room, so it stays true."""
+    state = load_state()
+    text = short_line(" ".join(args), "note")
+    notes = state["run"]["notes"].setdefault(state["location"], [])
+    notes.append(text)
+    del notes[:-BALANCE["world"]["notes_per_room"]]
+    save_state(state)
+    print("NOTED for %s: %s" % (state["location"], text))
+
+
+def cmd_chronicle(args):
+    """chronicle <text>: one line for the story so far."""
+    state = load_state()
+    text = short_line(" ".join(args), "chronicle")
+    state["run"]["chronicle"].append(text)
+    save_state(state)
+    print("CHRONICLED: %s" % text)
+
+
+def _section(body, title):
+    for heading, text in content.sections(body):
+        if heading.lower() == title.lower():
+            return text
+    return ""
+
+
+def cmd_world_brief(args):
+    """world-brief <extra|room|item|character|quest|turn>: the prompt for the world agent."""
+    state = load_state()
+    request = args[0]
+    if request not in tuple(generate.KINDS) + ("turn",):
+        raise Refused("request must be one of %s, turn" % ", ".join(generate.KINDS))
+    pol = policy()
+    if request != "turn" and not pol[{"extra": "extras", "room": "rooms", "item": "items",
+                                      "character": "characters", "quest": "side_quests"}[request]]:
+        raise Refused("this adventure does not allow generated %ss" % request)
+    w = world()
+    room = room_here(state)
+    if request == "room" and not unused_expansions(room):
+        raise Refused("%s has no direction left where a new place could be (no unused `expand:`); "
+                      "the way the player wants doesn't exist" % room.get("name", room["id"]))
+    flags = condition_flags(state)
+    desc = [room["body"].split("\n## ")[0].strip()]
+    for heading, text in content.sections(room["body"]):
+        cond = content.section_condition(heading)
+        if cond and content.condition_holds(cond, flags):
+            desc.append(text)
+    run = state["run"]
+    out = ["# World brief: %s" % request, "",
+           "## The adventure", "%s. %s" % (w.get("title", ""), _section(w["body"], "Tone")), "",
+           "## What everyone around here knows", _section(w["body"], "Public knowledge") or "(nothing listed)", "",
+           "## Where the player is", "%s. %s" % (room.get("name", room["id"]), " ".join(desc))]
+    notes = run["notes"].get(room["id"], [])
+    if notes:
+        out += ["Established details: " + " | ".join(notes)]
+    texture = [x for x in (time_of_day(state), run.get("weather")) if x]
+    if texture:
+        out += ["Time and weather: " + ", ".join(texture)]
+    out += ["", "## Names and ids already in use (never reuse or imitate them)"]
+    for kind in ("rooms", "characters", "items", "quests"):
+        out.append("- %s: %s" % (kind, ", ".join("%s (%s)" % (i, ent(kind, i).get("name", i)) for i in ent_ids(kind))))
+    if run["chronicle"]:
+        out += ["", "## The story so far"] + ["- " + c for c in run["chronicle"][-6:]]
+    out += ["", "## Your task"]
+    g = BALANCE["generation"]
+    out += ["Limits: ids 3-30 characters; names up to 40; each line of 'knows' or 'rumors' up to 160 characters, at most 3 lines;",
+            "roles up to 80; look and speech up to 200; personality and summary up to 300; room descriptions up to 900.", ""]
+    if request == "turn":
+        people = ["%s (%s), now at %s" % (c, ent("characters", c).get("name", c),
+                                         next((r for r, ps in run["placements"].items() if c in ps), "?"))
+                  for c in run["characters"]]
+        out += ["Time passes off-screen. Write what people around here start saying, based only on the story so far",
+                "and public knowledge, and optionally move generated people to another room that exists.",
+                "Generated people: %s" % (", ".join(people) or "none"),
+                "Rooms: %s" % ", ".join(ent_ids("rooms")),
+                'JSON: {"rumors": ["<up to 3 short lines of gossip>"], "moves": [{"id": "<generated person>", "room": "<room id>"}]}']
+    elif request == "extra":
+        out += ["Make the unnamed person the player is addressing into someone specific, consistent with this place.",
+                "They know ONLY public knowledge, what anyone here could see, and gossip; no secrets, no clues beyond that.",
+                'JSON: {"id": "<new_id>", "name": "<name>", "role": "<what they are, a few words>", "look": "<one line>",',
+                '       "speech": "<how they talk>", "knows": ["<up to 3 short lines>"]}']
+    elif request == "room":
+        out += ["Make the new place the player is heading into, %s from here." % " or ".join(unused_expansions(room)),
+                "It is small and self-contained. It must not hold anything the main quest needs, and nothing that solves it.",
+                "Items get a tier, never numbers: %s. Up to 2 items and 1 character (see the character schema; optional)." % ", ".join(g["item_tiers"]),
+                'JSON: {"id": "<new_id>", "name": "<name>", "direction": "<%s>", "description": "<what the player sees, 2-4 sentences>",' % "|".join(unused_expansions(room)),
+                '       "items": [{"id": "...", "name": "...", "description": "...", "tier": "<tier>"}], "characters": []}']
+    elif request == "item":
+        out += ["Make one small thing the player finds here by searching. Modest: not a key to anything, not quest-related.",
+                "Tiers (stats come from the tier): %s." % ", ".join(g["item_tiers"]),
+                'JSON: {"id": "<new_id>", "name": "<name>", "description": "<one or two sentences>", "tier": "<tier>"}']
+    elif request == "character":
+        out += ["Make a minor character who would plausibly be here. They know only public knowledge and their own life.",
+                "Optional: up to 2 trades of new items (price 1-6 coins), and a fighting tier (%s) only if they would fight." % ", ".join(g["foe_tiers"]),
+                'JSON: {"id": "...", "name": "...", "role": "...", "personality": "...", "speech": "...", "knows": ["..."],',
+                '       "wants": "...", "trades": [{"item": {"id": "...", "name": "...", "description": "...", "tier": "..."}, "price": 2}], "tier": null}']
+    elif request == "quest":
+        here = characters_here(state)
+        out += ["Make a small side quest offered by someone present (%s). It must not touch the main quest." % ", ".join(here or ["no one"]),
+                "Its flags are its own: side_<quest id>_<word>. Conditions may also use has_<item> and met_<character>.",
+                "Reward: 0-%d coins and optionally one new item (a tier)." % g["side_quest_max_coins"],
+                'JSON: {"id": "...", "name": "...", "giver": "<id>", "summary": "...",',
+                '       "objectives": [{"text": "...", "done_when": "side_<id>_<word>"}], "reward": {"coins": 2, "item": null}}']
+    out += ["", "Reply with the JSON object only."]
+    print("\n".join(out))
+
+
+def cmd_world_turn(args):
+    """world-turn [file]: apply the world agent's off-screen turn (JSON on stdin)."""
+    state = load_state()
+    try:
+        proposal = read_json_arg(args)
+        try:
+            patch = generate.world_turn(proposal, gen_context(state))
+        except ValueError as e:
+            raise Refused("world turn rejected: %s" % e)
+        except MALFORMED[1:] as e:
+            raise Refused("world turn rejected: it doesn't match the JSON shape in the brief (%s)" % e)
+    finally:
+        done_with(args)
+    run = state["run"]
+    run["rumors"].extend(patch["rumors"])
+    del run["rumors"][:-BALANCE["world"]["rumors_kept"]]
+    for mv in patch["moves"]:
+        for people in run["placements"].values():
+            if mv["id"] in people:
+                people.remove(mv["id"])
+        run["placements"].setdefault(mv["room"], []).append(mv["id"])
+    run["world_turn_due"] = False
+    save_state(state)
+    print("WORLD TURN: %d rumors, %d moves" % (len(patch["rumors"]), len(patch["moves"])))
+    for r in patch["rumors"]:
+        print("  rumor: %s" % r)
+    for mv in patch["moves"]:
+        print("  %s is now at %s" % (mv["id"], mv["room"]))
+
+
+def cmd_validate(args):
+    """Check that every reference in content points at a file that exists."""
+    problems = []
+
+    def need(kind, ident, where):
+        if not content.exists(kind, ident):
+            problems.append("%s: unknown %s %r" % (where, kind[:-1], ident))
+
+    def need_dice(spec, where):
+        try:
+            dice.parse(spec)
+        except ValueError as e:
+            problems.append("%s: %s" % (where, e))
+
+    w = content.load_world()
+    need("rooms", w.get("start_room", ""), "world.md start_room")
+    for i in (w.get("inventory") or []):
+        need("items", i, "world.md inventory")
+    for k, spec in (w.get("rolls") or {}).items():
+        need_dice(spec, "world.md rolls %s" % k)
+    variant_flags = set()
+    for name, opts in (w.get("variants") or {}).items():
+        if len(options_of(opts)) < 2:
+            problems.append("world.md variants %s: needs at least two comma-separated flags" % name)
+        variant_flags.update(options_of(opts))
+    if w.get("clock"):
+        for k in ("name", "moves", "flag"):
+            if k not in w["clock"]:
+                problems.append("world.md clock: missing %s" % k)
+        need_dice(w["clock"].get("moves", "1"), "world.md clock moves")
+        if bool(w["clock"].get("also_if")) != bool(w["clock"].get("also_flag")):
+            problems.append("world.md clock: also_if and also_flag go together")
+    for k in (w.get("generation") or {}):
+        if k not in GEN_KINDS:
+            problems.append("world.md generation: unknown kind %r (kinds: %s)" % (k, ", ".join(GEN_KINDS)))
+    for r in content.ids("rooms"):
+        room = content.load("rooms", r)
+        where = "rooms/%s.md" % r
+        for d, t in (room.get("exits") or {}).items():
+            need("rooms", content.split_condition(t)[0], where + " exit " + d)
+        for i in (room.get("items") or []):
+            need("items", content.split_condition(i)[0], where + " items")
+        for c in (room.get("characters") or []):
+            need("characters", content.split_condition(c)[0], where + " characters")
+        if room.get("expand") is not None and not isinstance(room["expand"], (str, list)):
+            problems.append("%s: expand must be directions, comma-separated or as a list" % where)
+        for d in options_of(room.get("expand") or ""):
+            if d not in generate.OPPOSITE:
+                problems.append("%s: expand direction %r has no opposite" % (where, d))
+            if d in (room.get("exits") or {}):
+                problems.append("%s: expand direction %r is already an exit" % (where, d))
+        if room.get("encounters"):
+            need("tables", room["encounters"], where + " encounters")
+    for t in content.ids("tables"):
+        table = content.load("tables", t)
+        if not re.match(r"^\s*\d+\s+in\s+\d+\s*$", str(table.get("chance", ""))):
+            problems.append("tables/%s.md: chance must look like '2 in 6'" % t)
+        for e in table.get("entries") or []:
+            m = _EFFECT.search(e)
+            if not m:
+                continue
+            words = m.group(1).split()
+            if words[0] not in ("coins", "gain", "hurt", "heal", "flag", "none"):
+                problems.append("tables/%s.md: unknown effect %r" % (t, m.group(1)))
+            elif words[0] == "gain" and len(words) > 1:
+                need("items", words[1], "tables/%s.md gain" % t)
+            elif words[0] in ("hurt", "heal") and len(words) > 1:
+                need_dice(words[1], "tables/%s.md %s" % (t, words[0]))
+    for q in content.ids("quests"):
+        for line in content.load("quests", q).get("objectives") or []:
+            if not _DONE.match(str(line)):
+                problems.append("quests/%s.md: objective needs '(done when <condition>)': %s" % (q, line))
+    art_dir = content.CONTENT / "art"
+    for a in (sorted(art_dir.glob("*.txt")) if art_dir.is_dir() else []):
+        need("rooms", a.stem, "art/%s" % a.name)
+    for c in content.ids("characters"):
+        ch = content.load("characters", c)
+        if str(ch.get("minor", "no")).lower() not in ("yes", "no"):
+            problems.append("characters/%s.md: minor must be yes or no" % c)
+        if "hp" in ch:
+            for k in ("defense", "attack", "damage"):
+                if k not in ch:
+                    problems.append("characters/%s.md: has hp but no %s" % (c, k))
+    for i in content.ids("items"):
+        it = content.load("items", i)
+        for k in ("damage", "heal"):
+            if it.get(k):
+                need_dice(it[k], "items/%s.md" % i)
+    print("\n".join(problems) if problems else "CONTENT OK: %d rooms, %d characters, %d items, %d quests, %d tables" % tuple(
+        len(content.ids(k)) for k in content.KINDS))
+    if problems:
+        sys.exit(1)
+
+
+COMMANDS = {
+    "newgame": (cmd_newgame, 0, "reset the save from content/world.md (rolls stats, variants and the clock)"),
+    "look": (cmd_look, 0, "show state + current room (exits/items/characters filtered by flags)"),
+    "move": (cmd_move, 1, "move <direction|room_id>   (also runs the clock and any encounter)"),
+    "take": (cmd_take, 1, "take <item>   pick up from the current room"),
+    "drop": (cmd_drop, 1, "drop <item>   leave in the current room"),
+    "gain": (cmd_gain, 1, "gain <item>   receive from a character (trade/gift)"),
+    "lose": (cmd_lose, 1, "lose <item>   give away or spend in the story"),
+    "equip": (cmd_equip, 1, "equip <item>  wield a weapon"),
+    "use": (cmd_use, 1, "use <item>    consume an item with a heal value"),
+    "roll": (cmd_roll, 1, "roll <dice>   e.g. 2d6+1"),
+    "check": (cmd_check, 2, "check <might|agility|wits> <dc|easy|normal|hard>"),
+    "attack": (cmd_attack, 1, "attack <character>   one exchange of blows"),
+    "hurt": (cmd_hurt, 1, "hurt <dice>   damage the player"),
+    "heal": (cmd_heal, 1, "heal <dice>   heal the player"),
+    "coins": (cmd_coins, 1, "coins <+n|-n>"),
+    "flag": (cmd_flag, 2, "flag set|unset <name>"),
+    "npc-brief": (cmd_npc_brief, 1, "npc-brief <character>   what an NPC agent may know (prompt for its subagent)"),
+    "remember": (cmd_remember, 2, "remember <character> <text>   add a line to that NPC's memory of the player"),
+    "show": (cmd_show, 2, "show <rooms|characters|items|quests|tables> <id>   read authored or generated content"),
+    "world-brief": (cmd_world_brief, 1, "world-brief <extra|room|item|character|quest|turn>   prompt for the world agent"),
+    "generate": (cmd_generate, 2, "generate <extra|room|item|character|quest> <file>   add a world-agent proposal (a JSON file)"),
+    "world-turn": (cmd_world_turn, 1, "world-turn <file>   apply the world agent's off-screen turn (a JSON file)"),
+    "note": (cmd_note, 1, "note <text>   keep a detail you established about this room"),
+    "chronicle": (cmd_chronicle, 1, "chronicle <text>   add a line to the story so far"),
+    "validate": (cmd_validate, 0, "check content references"),
+}
+
+
+def main(argv):
+    if not argv or argv[0] not in COMMANDS:
+        print("commands:")
+        for name, (_, _, help_text) in COMMANDS.items():
+            print("  %-11s %s" % (name, help_text))
+        return 2
+    fn, nargs, help_text = COMMANDS[argv[0]]
+    if len(argv) - 1 < nargs:
+        print("usage: %s" % help_text)
+        return 2
+    try:
+        fn(argv[1:])
+    except (Refused, ValueError) as e:
+        print("REFUSED: %s" % e)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -1,0 +1,277 @@
+"""Checks what the world agent proposes and turns it into run content. Pure: no files, no state.
+
+Every function takes the proposal (parsed JSON) and a Context and returns a Patch: the entities
+to add to the save's `run` section. Anything out of bounds raises ValueError with the reason.
+Numbers never come from the proposal: item and foe stats come from the tiers in balance.json.
+"""
+import re
+
+OPPOSITE = {"north": "south", "south": "north", "east": "west", "west": "east",
+            "up": "down", "down": "up", "in": "out", "out": "in",
+            "northeast": "southwest", "southwest": "northeast", "northwest": "southeast", "southeast": "northwest"}
+ID = re.compile(r"^[a-z][a-z0-9_]{2,29}$")
+TERM = re.compile(r"\b(?!and\b|or\b|not\b)([a-z][a-z0-9_]*)\b")
+
+
+class Context:
+    """What a proposal is checked against. Built by rpg.py from content and the save."""
+
+    def __init__(self, *, location, taken_ids, taken_names, expand, policy, balance, count,
+                 items_found_here, extras_here, characters_here, room_ids, generated_people):
+        self.location = location                    # the player's room id
+        self.taken_ids = set(taken_ids)             # every id in use, any kind
+        self.taken_names = {n.lower() for n in taken_names}
+        self.expand = list(expand)                  # unused directions this room may grow in
+        self.policy = policy                        # {"extras": True, "rooms": False, ...}
+        self.balance = balance                      # balance.json "generation"
+        self.count = count                          # entities generated so far this run
+        self.items_found_here = items_found_here
+        self.extras_here = extras_here
+        self.characters_here = list(characters_here)
+        self.room_ids = set(room_ids)
+        self.generated_people = set(generated_people)
+
+
+def empty_patch():
+    return {"rooms": {}, "characters": {}, "items": {}, "quests": {},
+            "exits": {}, "placements": {}, "room_items": {}, "rumors": [], "moves": []}
+
+
+def _allowed(ctx, kind):
+    if not ctx.policy.get(kind):
+        raise ValueError("this adventure does not allow generated %s" % kind)
+
+
+def _obj(x, what):
+    """Each nested part of a proposal must be a JSON object; say which one isn't."""
+    if not isinstance(x, dict):
+        raise ValueError("%s must be an object like the brief shows, not %s" % (what, type(x).__name__))
+    return x
+
+
+def _list(x, what):
+    if x is None:
+        return []
+    if not isinstance(x, list):
+        raise ValueError("%s must be a list" % what)
+    return x
+
+
+def _text(p, key, limit, required=True):
+    v = p.get(key)
+    if v is None or (isinstance(v, str) and not v.strip()):
+        if required:
+            raise ValueError("missing %r" % key)
+        return ""
+    if not isinstance(v, str):
+        raise ValueError("%r must be text" % key)
+    v = " ".join(v.split())
+    if len(v) > limit:
+        raise ValueError("%r is too long (%d characters, at most %d)" % (key, len(v), limit))
+    return v
+
+
+def _lines(p, key, most, limit, required=True):
+    v = p.get(key) or []
+    if not isinstance(v, list) or not all(isinstance(x, str) for x in v):
+        raise ValueError("%r must be a list of text lines" % key)
+    if required and not v:
+        raise ValueError("%r needs at least one line" % key)
+    out = [" ".join(x.split()) for x in v][:most]  # extra lines are dropped, not an error
+    for x in out:
+        if len(x) > limit:
+            raise ValueError("a line in %r is too long (at most %d characters)" % (key, limit))
+    return out
+
+
+def _claim(p, ctx, patch_ids):
+    ident = p.get("id")
+    if not isinstance(ident, str) or not ID.match(ident):
+        raise ValueError("id must be 3-30 lowercase letters, digits or underscores, starting with a letter")
+    if ident in ctx.taken_ids or ident in patch_ids:
+        raise ValueError("id %r is already in use" % ident)
+    name = _text(p, "name", 40)
+    if name.lower() in ctx.taken_names:
+        raise ValueError("the name %r is already in use" % name)
+    patch_ids.add(ident)
+    ctx.taken_names.add(name.lower())
+    return ident, name
+
+
+def _budget(ctx, n):
+    if ctx.count + n > ctx.balance["max_per_run"]:
+        raise ValueError("this run has generated as much as it may (%d)" % ctx.balance["max_per_run"])
+    ctx.count += n
+
+
+# ---------------------------------------------------------------- kinds
+
+def item(p, ctx, patch=None, ids=None, place=True):
+    """A found or traded item. `tier` picks its stats: trinket, light_weapon, weapon or tonic."""
+    _allowed(ctx, "items")
+    patch = patch if patch is not None else empty_patch()
+    ids = ids if ids is not None else set()
+    ident, name = _claim(p, ctx, ids)
+    tiers = ctx.balance["item_tiers"]
+    tier = p.get("tier")
+    if tier not in tiers:
+        raise ValueError("tier must be one of %s" % ", ".join(tiers))
+    meta = dict(name=name, generated="yes", tier=tier, **tiers[tier])
+    patch["items"][ident] = {"meta": meta, "body": _text(p, "description", 400)}
+    _budget(ctx, 1)
+    if place:
+        if ctx.items_found_here >= ctx.balance["items_found_per_room"]:
+            raise ValueError("this room has already yielded a generated item")
+        patch["room_items"].setdefault(ctx.location, []).append(ident)
+    return patch
+
+
+def _character_body(p, kind):
+    knows = _lines(p, "knows", 3, 160)
+    parts = []
+    if kind == "extra":
+        parts += ["## Look", _text(p, "look", 200)]
+    else:
+        parts += ["## Personality", _text(p, "personality", 300)]
+    parts += ["## How they speak", _text(p, "speech", 200), "## What they know"] + ["- " + k for k in knows]
+    if kind == "character":
+        parts += ["## What they want", _text(p, "wants", 200)]
+    return parts
+
+
+def extra(p, ctx):
+    """An unnamed person from a room's prose, made into someone the player can talk to."""
+    _allowed(ctx, "extras")
+    if ctx.extras_here >= ctx.balance["extras_per_room"]:
+        raise ValueError("this room already has as many generated extras as it may")
+    patch, ids = empty_patch(), set()
+    ident, name = _claim(p, ctx, ids)
+    body = _character_body(p, "extra") + [
+        "## GM only",
+        "- A generated extra: no items, no trades, no combat, no flags. They only know public things and gossip.",
+    ]
+    patch["characters"][ident] = {"meta": {"name": name, "role": _text(p, "role", 80), "minor": "yes", "generated": "yes",
+                                           "extra": "yes"}, "body": "\n".join(body)}
+    patch["placements"].setdefault(ctx.location, []).append(ident)
+    _budget(ctx, 1)
+    return patch
+
+
+def character(p, ctx, patch=None, ids=None, room=None):
+    """A minor character with an optional trade and an optional fighting tier."""
+    _allowed(ctx, "characters")
+    patch = patch if patch is not None else empty_patch()
+    ids = ids if ids is not None else set()
+    ident, name = _claim(p, ctx, ids)
+    meta = {"name": name, "role": _text(p, "role", 80), "minor": "yes", "generated": "yes"}
+    body = _character_body(p, "character")
+    gm = ["## GM only", "- Generated for this run."]
+    trades = _list(p.get("trades"), "trades")
+    if len(trades) > 2:
+        raise ValueError("trades must be a list of at most 2")
+    if trades:
+        body.append("## What they will trade or reveal")
+    for t in trades:
+        if not isinstance(t, dict) or not isinstance(t.get("item"), dict):
+            raise ValueError("each trade needs an 'item' (a new item) and a 'price'")
+        price = t.get("price")
+        if not isinstance(price, int) or not 1 <= price <= 6:
+            raise ValueError("a trade price must be a whole number of coins from 1 to 6")
+        item(t["item"], ctx, patch, ids, place=False)
+        iid = t["item"]["id"]
+        body.append("- Sells %s for %d coins." % (patch["items"][iid]["meta"]["name"], price))
+        gm.append("- Sale: `coins -%d`, then `gain %s`." % (price, iid))
+    tier = p.get("tier")
+    if tier is not None:
+        tiers = ctx.balance["foe_tiers"]
+        if tier not in tiers:
+            raise ValueError("tier must be one of %s, or left out for someone who won't fight" % ", ".join(tiers))
+        meta.update(tiers[tier])
+        gm.append("- Fights (as a %s foe) only if attacked or badly provoked." % tier)
+    patch["characters"][ident] = {"meta": meta, "body": "\n".join(body + gm)}
+    patch["placements"].setdefault(room or ctx.location, []).append(ident)
+    _budget(ctx, 1)
+    return patch
+
+
+def room(p, ctx):
+    """A new place off the player's room, through one of the directions the room may grow in."""
+    _allowed(ctx, "rooms")
+    patch, ids = empty_patch(), set()
+    direction = p.get("direction")
+    if direction not in ctx.expand:
+        raise ValueError("this room can only grow %s" % (" or ".join(ctx.expand) if ctx.expand else "nowhere"))
+    back = OPPOSITE.get(direction)
+    if not back:
+        raise ValueError("no way back is known for direction %r" % direction)
+    ident, name = _claim(p, ctx, ids)
+    _budget(ctx, 1)
+    items = [_obj(x, "each of the room's items") for x in _list(p.get("items"), "items")]
+    chars = [_obj(x, "each of the room's characters") for x in _list(p.get("characters"), "characters")]
+    if len(items) > 2 or len(chars) > 1:
+        raise ValueError("a generated room holds at most 2 items and 1 character")
+    for it in items:
+        item(it, ctx, patch, ids, place=False)
+        patch["room_items"].setdefault(ident, []).append(it["id"])
+    for ch in chars:
+        character(ch, ctx, patch, ids, room=ident)
+    patch["rooms"][ident] = {"meta": {"name": name, "generated": "yes", "exits": {back: ctx.location}},
+                             "body": _text(p, "description", 900)}
+    patch["exits"][ctx.location] = {direction: ident}
+    return patch
+
+
+def quest(p, ctx):
+    """A small side quest from someone present. Its flags are its own: side_<id>_<word>."""
+    _allowed(ctx, "side_quests")
+    patch, ids = empty_patch(), set()
+    ident, name = _claim(p, ctx, ids)
+    giver = p.get("giver")
+    if giver not in ctx.characters_here:
+        raise ValueError("the giver must be someone in this room: %s" % ", ".join(ctx.characters_here or ["no one"]))
+    objectives = [_obj(o, "each objective") for o in _list(p.get("objectives"), "objectives")]
+    if not 1 <= len(objectives) <= 4:
+        raise ValueError("a side quest has 1 to 4 objectives")
+    lines, flags = [], set()
+    for o in objectives:
+        text = _text(o, "text", 120)
+        cond = _text(o, "done_when", 160)
+        for term in TERM.findall(cond):
+            if term.startswith("side_%s_" % ident):
+                flags.add(term)
+            elif not term.startswith(("has_", "met_")):
+                raise ValueError("objective conditions may only use side_%s_<word>, has_<item> or met_<character> (got %r)"
+                                 % (ident, term))
+        lines.append("%s (done when %s)" % (text, cond))
+    reward = _obj(p.get("reward") or {}, "reward")
+    coins = reward.get("coins", 0)
+    if not isinstance(coins, int) or not 0 <= coins <= ctx.balance["side_quest_max_coins"]:
+        raise ValueError("the reward is 0 to %d coins" % ctx.balance["side_quest_max_coins"])
+    gm = ["## GM only",
+          "- Generated side quest. Set its flags as the player does each step: %s." % (", ".join(sorted(flags)) or "none"),
+          "- It never touches the main quest."]
+    pay = ["`coins +%d`" % coins] if coins else []
+    if reward.get("item"):
+        item(_obj(reward["item"], "the reward item"), ctx, patch, ids, place=False)
+        pay.append("`gain %s`" % reward["item"]["id"])
+    gm.append("- When complete, %s gives the reward: %s." % (giver, ", ".join(pay) or "thanks only"))
+    last = objectives[-1]
+    patch["quests"][ident] = {"meta": {"name": name, "giver": giver, "generated": "yes", "objectives": lines,
+                                       "completed_by": _text(last, "done_when", 160)},
+                              "body": "\n".join(["## Summary", _text(p, "summary", 300)] + gm)}
+    _budget(ctx, 1)
+    return patch
+
+
+def world_turn(p, ctx):
+    """Off-screen life: new rumors, and generated people moving between rooms. Nothing mechanical."""
+    patch = empty_patch()
+    patch["rumors"] = _lines(p, "rumors", 3, 160, required=False)
+    for mv in _list(p.get("moves"), "moves"):
+        if not isinstance(mv, dict) or mv.get("id") not in ctx.generated_people or mv.get("room") not in ctx.room_ids:
+            raise ValueError("moves may only send generated people to rooms that exist")
+        patch["moves"].append({"id": mv["id"], "room": mv["room"]})
+    return patch
+
+
+KINDS = {"extra": extra, "item": item, "character": character, "room": room, "quest": quest}

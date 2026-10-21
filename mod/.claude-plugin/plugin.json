@@ -1,0 +1,6 @@
+{
+  "name": "coderpg",
+  "version": "0.1.0",
+  "description": "Makes Claude Code look like the CodeRPG game: story-styled narration, hidden game plumbing, a character sheet pane, and instant /inventory and /map.",
+  "types": "./types/index.d.ts"
+}

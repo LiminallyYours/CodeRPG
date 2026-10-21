@@ -1,0 +1,68 @@
+{
+  "dc": {
+    "easy": 8,
+    "normal": 12,
+    "hard": 16
+  },
+  "check_die": "1d20",
+  "player_defense_base": 10,
+  "unarmed_damage": "1d2",
+  "crit_extra_damage_dice": true,
+  "carry_base": 8,
+  "carry_per_might": 2,
+  "npc": {
+    "memory_lines": 6,
+    "memory_line_chars": 160,
+    "exchange_max_lines": 4
+  },
+  "generation": {
+    "max_per_run": 16,
+    "items_found_per_room": 1,
+    "extras_per_room": 2,
+    "side_quest_max_coins": 4,
+    "item_tiers": {
+      "trinket": {
+        "weight": 1
+      },
+      "light_weapon": {
+        "weight": 1,
+        "damage": "1d4"
+      },
+      "weapon": {
+        "weight": 3,
+        "damage": "1d6"
+      },
+      "tonic": {
+        "weight": 1,
+        "heal": "1d4+1"
+      }
+    },
+    "foe_tiers": {
+      "weak": {
+        "hp": 5,
+        "defense": 9,
+        "attack": 0,
+        "damage": "1d4"
+      },
+      "average": {
+        "hp": 8,
+        "defense": 11,
+        "attack": 1,
+        "damage": "1d6"
+      },
+      "tough": {
+        "hp": 12,
+        "defense": 12,
+        "attack": 2,
+        "damage": "1d8"
+      }
+    }
+  },
+  "world": {
+    "turn_every_moves": 5,
+    "chronicle_lines": 12,
+    "rumors_kept": 6,
+    "notes_per_room": 6,
+    "text_line_chars": 200
+  }
+}
