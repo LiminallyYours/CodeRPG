@@ -38,7 +38,7 @@ RPG_SEED=3 python3 rules/rpg.py newgame
 python3 rules/rpg.py move east
 RPG_SEED=7 python3 rules/rpg.py attack grukk
 ```
-`RPG_SEED` makes rolls repeatable. `rpg.py game switch <id>` picks the game; each keeps its own save in the scratch copy's `state/`. Proposals for `generate` and `world-turn` are JSON files: write one to `proposals/x.json`, then run `rpg.py generate extra proposals/x.json`. Also test malformed shapes; the script must refuse them, never crash. Behaviour worth keeping belongs in `tools/test_rules.py`, which drives the CLI the same way.
+`RPG_SEED` makes rolls repeatable, and overrides a run's own seed (`newgame <seed>`), which does the same thing for players across separate commands. `rpg.py game switch <id>` picks the game; each keeps its own save in the scratch copy's `state/`. Proposals for `generate` and `world-turn` are JSON files: write one to `proposals/x.json`, then run `rpg.py generate extra proposals/x.json`. Also test malformed shapes; the script must refuse them, never crash. Behaviour worth keeping belongs in `tools/test_rules.py`, which drives the CLI the same way.
 
 ## Testing live
 

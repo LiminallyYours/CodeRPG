@@ -60,6 +60,7 @@ Flags are named facts about what has happened. Content files say when a flag sho
 Two kinds of names are automatic and can't be set: `has_<item>` is true while you carry that item, and `met_<character>` is true once you've been in a room with that character. Content conditions can use them like flags.
 
 ## A run's variation
+- **Seed:** every run has a seed: one the player names, `daily` (today's date, so everyone gets the same world that day), or a new one. Each die is drawn from the game, the seed and how many dice the run has rolled so far, so the same seed rolls the same dice in the same order. Choices made differently, or agents speaking differently, lead to different commands and so to different dice later on.
 - **New game:** `newgame` rolls any stats `world.md` lists under `rolls:` and picks one flag from each `variants:` line. It also places starting items whose conditions hold and starts the clock.
 - **Moves and the clock:** every `move` is one tick. The clock counts down. When it runs out, its flag is set, plus `also_flag` if `also_if` holds at that moment.
 - **World turns:** every `world.turn_every_moves` moves (5), a world turn falls due and the weather may change.

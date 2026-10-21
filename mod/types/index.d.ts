@@ -22,6 +22,8 @@ export type CoderpgSave = {
     /** The game being played and its look, copied from games/<id>/ (version 7+). */
     game?: { id: string; title: string }
     look?: CoderpgLook
+    /** "2026-10-21 · seed ember-4821" or "2026-10-21 · daily world", for the title card (version 7+). */
+    run_label?: string | null
     location_name: string
     items: { id: string; name: string; equipped: boolean }[]
     weight: number
@@ -73,6 +75,8 @@ export type CoderpgStory = {
   banner?: string
   /** The adventure's title, on a new game's opening narration. */
   title?: string
+  /** The run's date and seed, under the title. */
+  runLabel?: string
   /** An ending card after this block. */
   ending?: 'victory' | 'defeat' | 'lost'
   /** The quest completed, for a victory card. */

@@ -13,6 +13,7 @@ over authored ones (their ids can't collide), they only add.
 state/save.json is the active game's save. Other games' saves wait in state/shelf/<game>.json and
 are swapped in by `game switch`, so switching loses nothing.
 """
+import datetime
 import json
 import os
 import re
@@ -34,6 +35,11 @@ STATE_VERSION = 7
 OLDEST_VERSION = 7  # older saves are from before the game kit and aren't upgraded
 STATS = ("might", "agility", "wits")
 GEN_KINDS = ("extras", "rooms", "items", "characters", "side_quests")
+SEED = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
+# words for a new run's seed when the player doesn't name one: plain, and no game's in particular
+SEED_WORDS = ("amber", "birch", "cinder", "drift", "ember", "fennel", "gale", "hollow", "iris", "juniper",
+              "kestrel", "lantern", "moss", "nettle", "onyx", "pebble", "quill", "rook", "sorrel", "thistle",
+              "umber", "vale", "willow", "yarrow")
 
 
 def empty_run():
@@ -141,7 +147,14 @@ def load_state():
         raise Refused("this save is from an older version of CodeRPG and can't be continued. Start a new game with /newgame.")
     state = migrate(state)
     _RUN = state["run"]
+    if _RUN.get("seed"):
+        dice.use_stream(stream_key(state), _RUN.get("dice_n", 0))
     return state
+
+
+def stream_key(state):
+    """The run's dice stream: the same game and seed roll the same dice, in the same order."""
+    return "%s:%s" % (state["game"], state["run"]["seed"])
 
 
 def migrate(state):
@@ -229,6 +242,7 @@ def refresh_view(state):
     clock = run.get("clock")
     state["view"] = {
         "game": {"id": state["game"], "title": state["adventure"]},
+        "run_label": run_label(state),
         "look": content.look(),
         "location_name": room.get("name", room["id"]),
         "location_generated": is_generated("rooms", room["id"]),
@@ -251,7 +265,17 @@ def refresh_view(state):
     }
 
 
+def run_label(state):
+    """'2026-10-21 · seed ember-4821' or '2026-10-21 · daily world': what the title card says about this run."""
+    run = state["run"]
+    if not run.get("seed"):
+        return None
+    return "%s · %s" % (run.get("started", "?"), "daily world" if run.get("daily") else "seed %s" % run["seed"])
+
+
 def save_state(state):
+    if dice.position() is not None:
+        state["run"]["dice_n"] = dice.position()
     refresh_view(state)
     write_json(SAVE, state)
 
@@ -478,9 +502,22 @@ def tick_move(state):
 # ---------------------------------------------------------------- commands
 
 def cmd_newgame(args):
+    """newgame [seed | daily]: a fresh run. The same seed rolls the same run in this game for anyone."""
     global _RUN
+    today = datetime.date.today().isoformat()
+    want = args[0].lower() if args else None
+    if want == "daily":
+        seed = today
+    elif want:
+        if not SEED.match(want):
+            raise Refused("a seed is 1-40 letters, digits, dashes or underscores, or 'daily' for today's world")
+        seed = want
+    else:
+        seed = "%s-%04d" % (dice.fresh_choice(SEED_WORDS), dice.fresh_choice(range(10000)))
+    dice.use_stream("%s:%s" % (content.game_id(), seed), 0)
     w = world()
     run = empty_run()
+    run.update(seed=seed, started=today, daily=want == "daily", dice_n=0)
     _RUN = run
     stats = dict(w.get("stats") or {})
     for k in STATS + ("max_hp",):
@@ -525,6 +562,7 @@ def cmd_newgame(args):
     for stale in (ROOT / "proposals").glob("*.json"):
         stale.unlink()
     print("NEW GAME: %s" % state["adventure"])
+    print("SEED: %s%s (the same seed rolls the same run)" % (seed, ", today's daily world" if run["daily"] else ""))
     if run["rolls"]:
         print("ROLLED: %s" % ", ".join("%s %d" % kv for kv in run["rolls"].items()))
     if run["variants"]:
@@ -684,8 +722,14 @@ def cmd_use(args):
 
 
 def cmd_roll(args):
+    try:
+        state = load_state()
+    except Refused:
+        state = None  # no game: a loose roll
     spec = args[0]
     total, faces, mod = dice.roll(spec)
+    if state:
+        save_state(state)  # the run's dice stream has moved on
     print("ROLL %s" % dice.describe(spec, total, faces, mod))
 
 
@@ -697,6 +741,7 @@ def cmd_check(args):
         raise Refused("stat must be one of %s" % ", ".join(STATS))
     mod = state["stats"][stat]
     ok, nat, total, note = d20_test(mod, dc)
+    save_state(state)  # the run's dice stream has moved on
     print("CHECK %s vs DC %d: d20 %d %+d = %d%s -> %s"
           % (stat, dc, nat, mod, total, note, "SUCCESS" if ok else "FAILURE"))
 
@@ -1338,7 +1383,7 @@ def cmd_game(args):
 
 
 COMMANDS = {
-    "newgame": (cmd_newgame, 0, "start the active game afresh from its world.md (rolls stats, variants and the clock)"),
+    "newgame": (cmd_newgame, 0, "newgame [seed|daily]   start the active game afresh (rolls stats, variants and the clock from the seed)"),
     "look": (cmd_look, 0, "show state + current room (exits/items/characters filtered by flags)"),
     "move": (cmd_move, 1, "move <direction|room_id>   (also runs the clock and any encounter)"),
     "take": (cmd_take, 1, "take <item>   pick up from the current room"),

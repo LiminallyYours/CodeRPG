@@ -206,10 +206,11 @@ test('the journal tab lists quest objectives and the people met, with their memo
 test('a new game opens with a title card, and a finished quest closes with an ending card', async ($, on) => {
   const text = 'The lamp blazes into life.'
   on('state.get', { plugin: 'coderpg', key: 'story' }, () => ({
-    value: { value: [{ key: storyKey(text), title: 'The Dark Lighthouse', ending: 'victory', endingQuest: 'Light the Lamp' }], version: 1 },
+    value: { value: [{ key: storyKey(text), title: 'The Dark Lighthouse', runLabel: '2026-10-21 · seed ember-4821', ending: 'victory', endingQuest: 'Light the Lamp' }], version: 1 },
   }))
   const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'AssistantMessage', requestId: 'm2', props: { text, isFirstOfReply: true } })
   expect(await ui.find({ text: spaced('The Dark Lighthouse') })).toBeDefined()
+  expect(await ui.find({ text: '2026-10-21 · seed ember-4821' })).toBeDefined() // the run's date and seed
   expect(await ui.find({ text: /T H E   E N D/ })).toBeDefined()
   expect(await ui.find({ text: /Quest complete: Light the Lamp/ })).toBeDefined()
   await ui.unmount()

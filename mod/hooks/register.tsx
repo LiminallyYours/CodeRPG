@@ -329,10 +329,11 @@ export const register: Register = on => {
       const first = narration[0]
       const banner = !isNewGame && now && was && now.location !== was.location ? now.view?.location_name ?? now.location : undefined
       const title = isNewGame && now ? now.adventure : undefined
+      const runLabel = isNewGame ? now?.view?.run_label ?? undefined : undefined
       const mine = new Set(turnKeys)
       await update($, story, list => list.map(s =>
         asides.has(s.key) ? { ...s, aside: true, pending: false }
-        : s.key === first ? { ...s, pending: false, ...(banner ? { banner } : {}), ...(title ? { title } : {}) }
+        : s.key === first ? { ...s, pending: false, ...(banner ? { banner } : {}), ...(title ? { title } : {}), ...(runLabel ? { runLabel } : {}) }
         : mine.has(s.key) ? { ...s, pending: false }
         : s))
       const last = narration[narration.length - 1]
@@ -429,6 +430,7 @@ export const register: Register = on => {
           <Box flexDirection="column" alignItems="center" borderStyle="double" borderColor={accent} paddingX={2} marginBottom={1}>
             <Text color={accent} bold>{spaced(entry.title)}</Text>
             <Text dimColor>{look.tagline}</Text>
+            {entry.runLabel && <Text dimColor>{entry.runLabel}</Text>}
           </Box>
         )}
         <Box flexDirection="column" borderStyle="round" borderColor={accent} paddingX={1}>

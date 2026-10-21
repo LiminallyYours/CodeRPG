@@ -4,7 +4,7 @@ A text RPG that runs inside Claude Code. Claude is the game master, and you type
 
 ## How to play
 1. Open Claude Code in this folder with the interface mod: `cd CodeRPG && claude --plugin-dir ./mod`. Plain `claude` works too, without the game look.
-2. Type `/newgame`. Type `/game` to see the installed games, and `/game <id>` to switch; each game keeps its own save.
+2. Type `/newgame`. Add a seed to replay a run exactly (`/newgame ember-4821`), or `daily` for today's world, the same for everyone; the title card shows the date and seed. Type `/game` to see the installed games, and `/game <id>` to switch; each game keeps its own save.
 3. Type actions in plain English, for example "look around", "go to the tavern", "ask Pell about the troll", "attack the troll".
 4. To talk to Claude as a developer instead of the GM, start your message with `ooc:`. Without it, a hook reminds the GM that the message is an in-game action.
 5. Instant commands (no Claude turn, no cost): `/inventory`, `/map`, `/sheet` (reopens the character pane) and `/sound` (turns sound effects on or off).
@@ -65,6 +65,7 @@ The authored world is fixed, but each run varies within limits the content sets,
 
 | Layer | Who decides | Where it's defined | Where it's kept |
 |---|---|---|---|
+| **Seed:** every run has one (named, `daily`, or chosen for you); the same seed in the same game rolls the same stats, variants, clock and dice in the same order. What agents say can still differ | `/newgame [seed\|daily]` | | `run.seed`, `run.dice_n` |
 | **Rolled character:** stats rolled at `/newgame` | dice | `world.md` `rolls:` | `run.rolls` |
 | **Variants:** e.g. what Grukk craves (honey cake or smoked fish), where the cutlass and the spare tonic are | dice pick one flag per line; content branches on the flags | `world.md` `variants:` plus `## If` sections | flags, `run.variants` |
 | **Encounters:** a gull steals a coin, a fall, a found tonic | dice, on arriving in a room | `games/<id>/tables/*.md`, linked from rooms by `encounters:` | effects applied; `(once)` entries remembered |

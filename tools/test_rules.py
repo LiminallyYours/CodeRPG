@@ -156,6 +156,53 @@ class Engine(unittest.TestCase):
         b = self.rpg("newgame", seed=11).splitlines()[:4]
         self.assertEqual(a, b)
 
+    # ---------------------------------------------------------------- seeds and daily worlds (no RPG_SEED)
+
+    def play(self, seed):
+        """A fixed little session from a named seed: what it rolled and printed."""
+        outs = [self.rpg("newgame", seed)]
+        for d in ("north", "south", "north"):
+            outs.append(self.rpg("move", d))
+        outs += [self.rpg("check", "wits", "normal") for _ in range(3)]
+        outs.append(self.rpg("roll", "3d6"))
+        s = self.save()
+        return s["run"]["rolls"], s["run"]["variants"], s["run"]["clock"], s["run"]["weather"], outs[1:]
+
+    def test_a_named_seed_rolls_the_same_run_for_anyone(self):
+        for g in GAMES:
+            self.rpg("game", "switch", g)
+            first, again = self.play("kestrel-0042"), self.play("kestrel-0042")
+            self.assertEqual(first, again)
+            self.assertNotEqual(first, self.play("kestrel-0043"))
+
+    def test_each_roll_moves_the_stream_on(self):
+        self.rpg("newgame", "moss-1")
+        checks = [self.rpg("check", "wits", "normal") for _ in range(6)]
+        self.assertGreater(len(set(checks)), 1, "checks in a seeded run must not repeat one result")
+        self.assertGreater(self.save()["run"]["dice_n"], 6)
+
+    def test_a_seed_belongs_to_its_game(self):
+        self.rpg("game", "switch", "dark_lighthouse")
+        self.rpg("newgame", "same-seed")
+        lighthouse = [self.rpg("roll", "1d1000") for _ in range(3)]
+        self.rpg("game", "switch", "flooded_station")
+        self.rpg("newgame", "same-seed")
+        self.assertNotEqual(lighthouse, [self.rpg("roll", "1d1000") for _ in range(3)])
+
+    def test_daily_world_and_the_run_label(self):
+        import datetime
+        today = datetime.date.today().isoformat()
+        out = self.rpg("newgame", "daily")
+        self.assertIn("SEED: %s, today's daily world" % today, out)
+        s = self.save()
+        self.assertEqual(s["run"]["seed"], today)
+        self.assertEqual(s["view"]["run_label"], "%s · daily world" % today)
+        self.rpg("newgame", "Ember-7")
+        self.assertEqual(self.save()["view"]["run_label"], "%s · seed ember-7" % today)
+        self.rpg("newgame")
+        self.assertRegex(self.save()["run"]["seed"], r"^[a-z]+-\d{4}$")
+        self.assertIn("a seed is", self.rpg("newgame", "no spaces!", ok=False))
+
     # ---------------------------------------------------------------- proposals never crash the script
 
     def test_malformed_proposals_are_refused_not_crashed(self):
