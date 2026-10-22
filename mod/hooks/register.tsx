@@ -200,10 +200,9 @@ function itemsOf(s: CoderpgSave): { id: string; name: string; equipped: boolean 
   return s.inventory.map(id => ({ id, name: pretty(id), equipped: id === s.equipped }))
 }
 
-/** What each kind of action is, in the player's words, for /budget. */
+/** What each priced extra is, in the player's words, for /budget. Playing the game as written is free. */
 const PRICE_NAMES: Record<string, string> = {
-  turn: 'each turn', npc: 'a character answering in their own voice', generate: 'something new appearing',
-  world_turn: 'the world moving on by itself',
+  generate: 'something new appearing', world_turn: 'the world moving on by itself',
 }
 
 /** The meter's color: plain while there's plenty, then the warning and danger colors. */
@@ -221,7 +220,7 @@ export function budgetText(s: CoderpgSave): string {
   const prices = Object.entries(v.prices).filter(([k, n]) => n > 0 && PRICE_NAMES[k]).map(([k, n]) => `${PRICE_NAMES[k]} ${n}`)
   return [
     `**${r.icon} ${r.name}:** ${m.left}/${m.capacity}${m.state === 'spent' ? ' (spent)' : m.state === 'low' ? ' (running low)' : ''}. It refills each time you open Claude Code here.`,
-    `**What things cost:** ${prices.join(' · ')}. Everything else is free.`,
+    `**What the extras cost:** ${prices.join(' · ')}. Playing the game as written is always free.`,
     `**Characters' own voices:** ${on(v.npc_agents.on)}, up to ${v.npc_agents.lines_per_exchange} lines between two per turn${v.npc_agents.off_for.length ? `; voiced by the storyteller: ${v.npc_agents.off_for.join(', ')}` : ''}.`,
     `**The world moving on by itself:** ${on(v.world_turns.on)}, every ${v.world_turns.every_moves} moves.`,
     `**New things appearing:** ${on(v.generation.on && v.generation.kinds.length > 0)}, up to ${v.generation.max_per_run} per game${v.generation.kinds.length ? ` (${v.generation.kinds.join(', ').replace(/_/g, ' ')})` : ''}.`,

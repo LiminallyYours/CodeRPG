@@ -8,7 +8,6 @@ Notes for whoever works on the game next, human or Claude. `README.md` covers th
 - Start messages with `ooc:`, or say in the first message that the whole session is development.
 - Never test in the real `state/save.json`; that's the player's game. Use a scratch copy (below).
 - Run `sh tools/check.sh` before and after changes.
-- Messages without `ooc:` pay a turn from the meter (the prompt hook can't tell development from play). It refills the next time Claude Code is opened, so this costs nothing that matters.
 
 ## The invariants
 
@@ -97,7 +96,7 @@ This is the subtlest part of `mod/hooks/register.tsx`. If narration goes missing
 
 ## Changing things
 
-- **New feature that spends tokens:** give its kind a price in `rules/balance.json` `meter.prices`, charge it with `charge(kind)` where the spending happens (after every check that could refuse), refuse with an in-fiction reason when `can_pay(kind)` is false, and give it a switch in `rules/presets.json` (all three presets, the same keys) read through `SETTINGS`.
+- **New feature that spends tokens:** if it goes beyond playing the game as written (baseline play is never charged), give its kind a price in `rules/balance.json` `meter.prices`, charge it with `charge(kind)` where the spending happens (after every check that could refuse), refuse with an in-fiction reason when `can_pay(kind)` is false, and give it a switch in `rules/presets.json` (all three presets, the same keys) read through `SETTINGS`.
 - **New `rpg.py` command:** add it to `COMMANDS`. If its output should show in the dice tray, add it to `TRAY_COMMANDS` and teach `trayLines` (`mod/hooks/tray.ts`) its format. If it only records something, add it to `WRITE_COMMANDS`.
 - **New save field:** bump `STATE_VERSION`, add a migration to `MIGRATIONS` (saves from version 7 on upgrade on load; older ones are refused), extend `refresh_view` if the mod needs it, and mirror it in `mod/types/index.d.ts`.
 - **New content field:** document it in the README, teach `rpg.py validate` to check it, and use it in both shipped games.

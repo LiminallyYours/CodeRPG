@@ -7,7 +7,7 @@ A text RPG that runs inside Claude Code. Claude is the game master, and you type
 2. Type `/newgame`. Add a seed to replay a run exactly (`/newgame ember-4821`), or `daily` for today's world, the same for everyone; the title card shows the date and seed. Type `/game` to see the installed games, and `/game <id>` to switch; each game keeps its own save.
 3. Type actions in plain English, for example "look around", "go to the tavern", "ask Pell about the troll", "attack the troll".
 4. To talk to Claude as a developer instead of the GM, start your message with `ooc:`. Without it, a hook reminds the GM that the message is an in-game action.
-5. Instant commands (no Claude turn, no cost): `/inventory`, `/map`, `/sheet` (reopens the character pane), `/sound` (turns sound effects on or off) and `/budget` (what's left to spend, what things cost, and what's switched on).
+5. Instant commands (no Claude turn, no cost): `/inventory`, `/map`, `/sheet` (reopens the character pane), `/sound` (turns sound effects on or off) and `/budget` (what's left of the meter, what the extras cost, and what's switched on).
 
 Two games ship on the kit:
 - **The Dark Lighthouse** (`dark_lighthouse`): a fishing village with a stolen lamp lens. Six rooms, three characters, six items and one quest with three branches.
@@ -21,7 +21,7 @@ CLAUDE.md                     GM role + standing orders (procedure only, no worl
 .claude/skills/game/          /game: list the installed games or switch between them
 .claude/agents/npc.md         the NPC subagent: no tools, sees only the brief it's given
 .claude/agents/world.md       the world subagent: proposes new people/places/items/side quests as JSON
-.claude/hooks/turn_reminder.py  on every in-game message: pays the turn's price and reminds the GM of the procedure
+.claude/hooks/turn_reminder.py  reminds the GM of the turn procedure on every in-game message
 .claude/hooks/session_start.py  refills the meter each time Claude Code is opened here
 .claude/settings.json         lets the GM run rules/rpg.py without permission prompts;
                               makes the GM wait for NPC replies (CLAUDE_CODE_FORK_SUBAGENT=0)
@@ -65,24 +65,22 @@ DEVELOPING.md                 how to work on the game safely: checks, testing, i
 - **Two agents in one room** can trade lines, up to the owner's `npc_agents.lines_per_exchange` (4 in the normal preset) per turn. In the starter world this happens in the friendly-troll ending, when Grukk and Ysolde are both in Harbor Square.
 - **Model:** NPCs run on `sonnet` (set in `.claude/agents/npc.md`). Switch to `haiku` for cheaper, faster, flatter characters.
 
-## What play costs: the meter and the switches
-Every action that spends Claude's tokens drains an in-world resource the player can see: **lamp oil** in the Lighthouse, **power** on the station (each game names and styles its own in `look.json`). It sits in the status band and the pane, warns when it runs low, and refills each time Claude Code is opened in the folder.
+## What the extras cost: the meter and the switches
+Playing the game as written is free. The meter is a budget for the **extras** that go beyond it, shown as an in-world resource: **lamp oil** in the Lighthouse, **power** on the station (each game names and styles its own in `look.json`). It sits in the status band and the pane, warns when it runs low, and refills each time Claude Code is opened in the folder.
 
-| Action | Price (the game's `balance.json`) | When the meter can't pay |
+| | Price (the game's `balance.json`) | When the meter can't pay |
 |---|---|---|
-| a game-master turn | 1 | the turn still happens; play never stops |
-| a character answering through its own agent | 3 | the GM voices them (`[minor, agent resting]`) |
-| generating something new | 4 | it doesn't exist; no `may grow` ways are offered |
-| a world turn | 3 | none falls due; nothing happens off-screen |
-| everything else (rules commands, `ooc:`, slash commands) | free | |
+| generating something new (a person, place, item, side quest) | 2 | it doesn't exist; no `may grow` ways are offered |
+| a world turn (life going on off-screen) | 2 | none falls due |
+| every game-master turn, every rules command, the authored characters' agents | free | |
 
-Prices are charged by code where the spending happens, not by the GM: the prompt hook pays for the turn, `npc-brief` for each agent reply and `world-brief` for each generation or world turn. The owner's switches live in each game's `settings.json`, a preset from `rules/presets.json` with overrides:
+One point is roughly one extra round of game-master work (about 10–15k tokens, weighted as the API prices them). Measured on Sonnet, an ordinary turn costs about 30k and an agent's reply about 5k; the turn is the cost of playing at all, so it's never charged. Prices are charged by the rules script where the extra happens (`world-brief`), after every check that could refuse. The owner's switches live in each game's `settings.json`, a preset from `rules/presets.json` with overrides:
 
 | Preset | Meter | NPC agents | World turns | Generation |
 |---|---|---|---|---|
-| `thrifty` | 60 | off: the GM voices everyone | off | extras, rooms and items only, 6 per run |
-| `normal` | 100 | on, 4 lines between two per turn | every 5 moves | everything the game allows, 16 per run |
-| `rich` | 200 | on, 6 lines | every 4 moves | everything the game allows, 24 per run |
+| `thrifty` | 10 | off: the GM voices everyone | off | extras, rooms and items only, 6 per run |
+| `normal` | 30 | on, 4 lines between two per turn | every 5 moves | everything the game allows, 16 per run |
+| `rich` | 60 | on, 6 lines | every 4 moves | everything the game allows, 24 per run |
 
 Change them with `python3 tools/settings.py preset thrifty` or `set npc_agents.characters.grukk false`; `/budget` shows what's in effect. The station overrides one switch: its world turns come every 4 moves.
 

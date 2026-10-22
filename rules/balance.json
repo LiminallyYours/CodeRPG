@@ -66,11 +66,8 @@
   "meter": {
     "low_at_percent": 25,
     "prices": {
-      "turn": 1,
-      "npc": 3,
-      "generate": 4,
-      "world_turn": 3,
-      "free": 0
+      "generate": 2,
+      "world_turn": 2
     }
   }
 }

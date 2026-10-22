@@ -37,7 +37,7 @@ Work out what the player is trying to do, then use the matching command:
 - Run each command once and accept the result. Never re-roll because you didn't like it.
 - **Moving:** use `move` only when the player's words clearly match one open exit, by direction or by the place it leads to. If they're vague ("head into town", "go somewhere warm") or could mean more than one exit, don't move them. Describe the open exits and ask where they want to go.
 - **Don't roll for certain things.** Talking, looking around and walking through an open door need no command, except `move` for walking.
-- **Talking:** `look` marks each character `[minor]` or `[agent]`. `[minor, agent resting]` means the character normally has an agent, but it is quiet right now (the owner's settings, or the meter is spent): treat it as `[minor]`. Their memory of the player is at the end of `rpg.py show characters <id>`.
+- **Talking:** `look` marks each character `[minor]` or `[agent]`. `[minor, agent resting]` means the character normally has an agent, but the owner's settings have it quiet: treat it as `[minor]`. Their memory of the player is at the end of `rpg.py show characters <id>`.
   - **[minor]:** you speak as the character yourself, in the voice their file describes. Share only what their file allows under the current flags (the `## If` sections that hold), and hold trades to the prices in their file.
   - **[agent]:** the character speaks through their own subagent. Follow **Agent characters** below.
 - When the player tries several things in one message, resolve them in order and stop at the first one that fails, or that a character would interrupt.
@@ -102,7 +102,7 @@ When two `[agent]` characters are present and the moment naturally involves both
 ---
 
 # Filling gaps
-The game's `generation:` policy (in `rpg.py show world`) says what may be created during a run. When the player reaches for something the content doesn't have, use the matching case below. If that kind isn't allowed, it doesn't exist. `world-brief` also refuses when the owner has switched that kind off or the meter is spent; then, too, the thing doesn't exist.
+The game's `generation:` policy (in `rpg.py show world`) says what may be created during a run. When the player reaches for something the content doesn't have, use the matching case below. If that kind isn't allowed, it doesn't exist. `world-brief` also refuses when the owner has switched that kind off or the meter can't pay for it; then, too, the thing doesn't exist.
 
 | The player… | Do this |
 |---|---|

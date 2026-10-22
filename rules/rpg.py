@@ -100,12 +100,14 @@ def choose_game(ident):
         SETTINGS = dict(content.kit_presets()["normal"], preset="normal")  # validate reports the bad file
 
 
-# ---------------------------------------------------------------- the meter: what play costs
-# Every kind of action that spends Claude's tokens has a price (the game's balance.json `meter.prices`);
-# the owner's settings give the capacity. It refills each time Claude Code is opened in the folder
-# (`meter refill`, from the SessionStart hook). When it can't pay for something, that thing falls back
-# to its cheap form: agents fall quiet and the game master voices them, nothing new is generated, and
-# world turns stop. Play itself never stops. It lives outside every save, so it carries across games.
+# ---------------------------------------------------------------- the meter: what the extras cost
+# Baseline play is free: every game-master turn, every rules command, and the authored characters
+# speaking through their agents. Only extras beyond the game as written have a price (the game's
+# balance.json `meter.prices`): generating something new, a world turn, and later stages' extras. The
+# owner's settings give the capacity. It refills each time Claude Code is opened in the folder
+# (`meter refill`, from the SessionStart hook). When it can't pay for an extra, that extra doesn't
+# happen: nothing new is generated and the world doesn't stir off-screen, and the game as written plays
+# on. It lives outside every save, so it carries across games.
 
 def resource():
     return content.look()["resource"]
@@ -144,14 +146,13 @@ def meter_state(m=None):
 
 
 def agents_resting(ident):
-    """Why a non-minor character can't speak through its own agent right now, or None if it can."""
+    """Why a non-minor character can't speak through its own agent right now (the owner's switches), or None.
+    Agents are baseline play, so the meter never silences them."""
     agents = SETTINGS["npc_agents"]
     if not agents["on"]:
         return "the owner has the game master voice every character"
     if not agents["characters"].get(ident, True):
         return "the owner has the game master voice this character"
-    if not can_pay("npc"):
-        return "the %s is spent" % resource()["name"].lower()
     return None
 
 
@@ -673,7 +674,7 @@ def cmd_look(args):
     if meter_state(m) == "low":
         print("METER LOW: %s (you may let it show once, lightly, in the story)" % res["low"])
     elif meter_state(m) == "spent":
-        print("METER SPENT: %s Every character is yours to voice and nothing new can be generated until the next session."
+        print("METER SPENT: %s Nothing new can be generated and the world won't stir off-screen until the next session."
               % res["spent"])
     for d, target in (room.get("exits") or {}).items():
         dest, cond = content.split_condition(target)
@@ -980,8 +981,6 @@ def cmd_npc_brief(args):
     memory = state["npc_memory"].get(ident, [])
     lines.append("## What you remember about the player")
     lines += ["- " + m for m in memory] if memory else ["You have never met this person before."]
-    charge("npc")
-    save_state(state)
     print("\n".join(l for l in lines).strip())
 
 
@@ -1468,16 +1467,6 @@ def meter_line():
     return "%s %d/%d" % (res["name"], m["left"], m["capacity"])
 
 
-def cmd_spend(args):
-    """spend <kind>: take the price of one action of that kind from the meter (the hooks call this)."""
-    price(args[0])  # refuse an unknown kind before touching anything
-    charge(args[0])
-    resave_view()
-    print("SPENT %s (%d): %s" % (args[0], price(args[0]), meter_line()))
-    if meter_state() == "spent":
-        print("METER SPENT: %s" % resource()["spent"])
-
-
 def cmd_meter(args):
     """meter [refill]: the meter, or fill it to capacity (the SessionStart hook does this)."""
     if args and args[0] == "refill":
@@ -1588,7 +1577,6 @@ COMMANDS = {
     "chronicle": (cmd_chronicle, 1, "chronicle <text>   add a line to the story so far"),
     "validate": (cmd_validate, 0, "validate [--game <id>]   check every game's content references and settings"),
     "game": (cmd_game, 0, "game [list | show | switch <id>]   the installed games; switching keeps each one's save"),
-    "spend": (cmd_spend, 1, "spend <kind>   take one action's price from the meter (the hooks call this)"),
     "meter": (cmd_meter, 0, "meter [refill]   the meter, or fill it (the SessionStart hook refills it)"),
     "settings": (cmd_settings, 0, "settings   the owner's switches and prices for this game (change: tools/settings.py)"),
 }

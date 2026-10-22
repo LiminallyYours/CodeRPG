@@ -48,6 +48,9 @@ class Engine(unittest.TestCase):
     def meter(self):
         return self.save()["view"]["meter"]["left"]
 
+    def meter_file(self):
+        return json.loads((self.dir / "state" / "meter.json").read_text())["left"]
+
     def set_meter(self, left):
         self.write("state/meter.json", json.dumps({"left": left}))
 
@@ -245,51 +248,49 @@ class Engine(unittest.TestCase):
         for name, p in presets.items():
             self.assertEqual(shape(p), shape(presets["normal"]), name)
 
-    def test_the_meter_drains_by_price_and_refills(self):
+    def test_only_extras_drain_the_meter_and_it_refills(self):
         self.at_the_lighthouse()
         self.rpg("meter", "refill")
-        self.assertEqual(self.meter(), 100)
-        self.rpg("spend", "turn")
-        self.assertEqual(self.meter(), 99)
-        self.rpg("spend", "free")
-        self.assertEqual(self.meter(), 99)
-        self.assertIn("no price", self.rpg("spend", "lunch", ok=False))
-        self.rpg("npc-brief", "ysolde")  # an agent's reply costs 3
-        self.assertEqual(self.meter(), 96)
+        self.assertEqual(self.meter(), 30)
+        for args in (("look",), ("move", "east"), ("move", "west"), ("check", "wits", "normal"),
+                     ("npc-brief", "ysolde"), ("show", "characters", "ysolde")):
+            self.rpg(*args)
+        self.assertEqual(self.meter(), 30, "baseline play, authored agents included, is free")
         self.rpg("move", "east")
-        self.rpg("world-brief", "room")  # generating costs 4
-        self.assertEqual(self.meter(), 92)
-        self.set_meter(2)
-        self.rpg("spend", "npc")
-        self.assertEqual(self.meter(), 0)  # never below empty
-        self.assertIn("METER SPENT", self.rpg("look"))
+        self.rpg("world-brief", "room")  # generating something new: 2
+        self.assertEqual(self.meter(), 28)
+        self.rpg("world-brief", "turn")  # a world turn: 2
+        self.assertEqual(self.meter(), 26)
+        self.set_meter(3)
+        self.rpg("world-brief", "room")
+        self.assertEqual(self.meter(), 1)
+        self.assertIn("spent until the next session", self.rpg("world-brief", "room", ok=False))
+        self.assertEqual(self.meter(), 1, "a refused extra costs nothing")
         self.rpg("meter", "refill")
-        self.assertEqual(self.meter(), 100)
+        self.assertEqual(self.meter(), 30)
 
-    def test_a_spent_meter_falls_back_to_the_cheap_form_and_play_goes_on(self):
+    def test_a_spent_meter_stops_the_extras_and_play_goes_on(self):
         self.at_the_lighthouse()
-        self.assertIn("ysolde [agent]", self.rpg("look"))
-        self.set_meter(2)  # enough for a turn, not for an agent's reply
+        self.set_meter(0)
         look = self.rpg("look")
-        self.assertIn("ysolde [minor, agent resting]", look)
-        self.assertIn("Voice them yourself", self.rpg("npc-brief", "ysolde", ok=False))
+        self.assertIn("METER SPENT", look)
+        self.assertIn("ysolde [agent]", look)  # agents are baseline: the meter never silences them
+        self.assertIn("You are Ysolde", self.rpg("npc-brief", "ysolde"))
         self.rpg("move", "east")
         self.assertNotIn("may grow", self.rpg("look"))
         self.assertIn("spent", self.rpg("world-brief", "room", ok=False))
-        self.set_meter(0)
         for d in ("north", "south") * 4:  # moves still work, and no world turn falls due
             self.assertNotIn("WORLD TURN DUE", self.rpg("move", d))
-        self.assertIn("METER SPENT", self.rpg("look"))
 
     def test_the_meter_outlasts_new_games_and_switches(self):
         self.at_the_lighthouse()
-        self.set_meter(40)
+        self.set_meter(12)
         self.rpg("newgame", seed=21)
-        self.assertEqual(self.meter(), 40)
+        self.assertEqual(self.meter(), 12)
         self.rpg("game", "switch", "flooded_station")
         self.rpg("newgame", seed=22)
-        self.assertEqual(self.meter(), 40)
-        self.assertIn("METER: Power 40/100", self.rpg("look"))
+        self.assertEqual(self.meter(), 12)
+        self.assertIn("METER: Power 12/30", self.rpg("look"))
 
     def settings_tool(self, *args, ok=True):
         r = self.run_py("tools/settings.py", *args)
@@ -301,7 +302,7 @@ class Engine(unittest.TestCase):
         self.settings_tool("preset", "thrifty")
         look = self.rpg("look")
         self.assertIn("ysolde [minor, agent resting]", look)
-        self.assertIn("METER: Lamp oil 60/60", look)
+        self.assertIn("METER: Lamp oil 10/10", look)
         self.assertIn("off in this game", self.rpg("world-brief", "turn", ok=False))
         self.assertIn("can appear in this game", self.rpg("world-brief", "character", ok=False))
         self.settings_tool("preset", "normal")
@@ -341,34 +342,31 @@ class Engine(unittest.TestCase):
         self.assertIn("'pell' is minor", out)
         self.assertIn("unknown character 'nobody'", out)
 
-    def test_the_hooks_pay_for_turns_and_refill_on_opening(self):
+    def test_the_prompt_hook_reminds_without_charging_and_opening_refills(self):
         self.at_the_lighthouse()
-        self.rpg("meter", "refill")
+        self.set_meter(9)
         hook = ".claude/hooks/turn_reminder.py"
-        r = self.run_py(hook, stdin=json.dumps({"prompt": "I ask Ysolde about the lens."}))
-        self.assertIn("gm-turn procedure", r.stdout)
-        self.assertEqual(self.meter(), 99)
+        self.assertIn("gm-turn procedure", self.run_py(hook, stdin=json.dumps({"prompt": "I ask Ysolde about the lens."})).stdout)
+        self.assertEqual(self.meter_file(), 9, "a turn is baseline play: free")
         hand_back = '<agent-message from="af36dd">\n[Subagent hand-back] The text below is the final report of a subagent.'
-        for free in ("ooc: how does the meter work?", "/budget", "/newgame daily", hand_back,
-                     "<task-notification>\n<task-id>b1</task-id>"):
-            self.assertEqual(self.run_py(hook, stdin=json.dumps({"prompt": free})).stdout, "")
-        self.assertEqual(self.meter(), 99)
-        self.set_meter(1)
-        self.assertIn("meter is spent", self.run_py(hook, stdin=json.dumps({"prompt": "look around"})).stdout)
+        for quiet in ("ooc: how does the meter work?", "/budget", "/newgame daily", hand_back,
+                      "<task-notification>\n<task-id>b1</task-id>"):
+            self.assertEqual(self.run_py(hook, stdin=json.dumps({"prompt": quiet})).stdout, "", quiet)
         self.assertEqual(self.run_py(".claude/hooks/session_start.py", stdin="{}").stdout, "")
-        self.assertEqual(self.meter(), 100)
+        self.assertEqual(self.meter_file(), 30)
+        self.assertEqual(self.meter(), 30)  # and the save's view shows it
 
     def test_the_save_carries_the_meter_and_switches_for_the_interface(self):
         self.at_the_lighthouse()
         v = self.save()["view"]
         self.assertEqual(set(v["meter"]), {"left", "capacity", "state"})
         self.assertEqual(v["settings"]["preset"], "normal")
-        self.assertEqual(v["settings"]["prices"]["npc"], 3)
-        self.set_meter(20)
-        self.rpg("spend", "turn")
-        self.assertEqual(self.save()["view"]["meter"]["state"], "low")
-        self.set_meter(1)
-        self.rpg("spend", "turn")
+        self.assertEqual(v["settings"]["prices"], {"generate": 2, "world_turn": 2})
+        self.set_meter(9)
+        self.rpg("world-brief", "turn")
+        self.assertEqual(self.save()["view"]["meter"]["state"], "low")  # 7 of 30
+        self.set_meter(2)
+        self.rpg("world-brief", "turn")
         self.assertEqual(self.save()["view"]["meter"]["state"], "spent")
 
 

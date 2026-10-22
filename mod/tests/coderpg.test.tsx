@@ -503,40 +503,39 @@ test('a new game, or switching to another game, starts on a cleared screen; list
 })
 
 const SETTINGS = {
-  preset: 'normal', capacity: 100, prices: { turn: 1, npc: 3, generate: 4, world_turn: 3, free: 0 },
+  preset: 'normal', capacity: 30, prices: { generate: 2, world_turn: 2 },
   npc_agents: { on: true, lines_per_exchange: 4, off_for: ['grukk'] },
   world_turns: { on: false, every_moves: 5 },
   generation: { on: true, max_per_run: 16, kinds: ['extras', 'side_quests'] },
 }
 const metered = (left: number, state: 'ok' | 'low' | 'spent'): CoderpgSave => ({
-  ...STATION, view: { ...STATION.view!, meter: { left, capacity: 100, state }, settings: SETTINGS,
+  ...STATION, view: { ...STATION.view!, meter: { left, capacity: 30, state }, settings: SETTINGS,
     look: { ...STATION.view!.look!, resource: { name: 'Power', icon: 'ϟ', low: 'Batteries low.', spent: 'Flat.' } } },
 })
 
 test("the pane shows the meter under the game's own name, colored when it runs low", async ($, on) => {
-  on('state.get', { plugin: 'coderpg', key: 'save' }, () => ({ value: { value: metered(18, 'low'), version: 1 } }))
+  on('state.get', { plugin: 'coderpg', key: 'save' }, () => ({ value: { value: metered(6, 'low'), version: 1 } }))
   const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'Pane', requestId: 'coderpg-sheet', props: PANE_PROPS })
   const icon = await ui.find({ type: 'Text', text: 'ϟ Power ' })
   expect(icon?.props.color).toBe(STATION.view!.look!.palette.warn)
-  expect(await ui.find({ text: ' 18/100' })).toBeDefined()
+  expect(await ui.find({ text: ' 6/30' })).toBeDefined()
   await ui.unmount()
 })
 
 test('/budget tells the player what is left, what things cost and what is on, in plain words', () => {
-  const text = budgetText(metered(42, 'ok'))
-  expect(text).toContain('**ϟ Power:** 42/100.')
-  expect(text).toContain('each turn 1 · a character answering in their own voice 3 · something new appearing 4 · the world moving on by itself 3')
-  expect(text).not.toContain('free 0')
+  const text = budgetText(metered(22, 'ok'))
+  expect(text).toContain('**ϟ Power:** 22/30.')
+  expect(text).toContain('something new appearing 2 · the world moving on by itself 2. Playing the game as written is always free.')
   expect(text).toContain('voiced by the storyteller: grukk')
   expect(text).toContain('**The world moving on by itself:** off')
   expect(text).toContain('(extras, side quests)')
-  expect(budgetText(metered(0, 'spent'))).toContain('0/100 (spent)')
+  expect(budgetText(metered(0, 'spent'))).toContain('0/30 (spent)')
   expect(budgetText(SAVE)).toContain('Nothing to show yet')
 })
 
 test('the meter running low, running out and refilling each get one toast', () => {
-  expect(feedback(metered(30, 'ok'), metered(24, 'low')).toast).toBe('ϟ Power running low')
+  expect(feedback(metered(9, 'ok'), metered(7, 'low')).toast).toBe('ϟ Power running low')
   expect(feedback(metered(2, 'low'), metered(0, 'spent')).toast).toBe('ϟ Power spent')
-  expect(feedback(metered(0, 'spent'), metered(100, 'ok')).toast).toBe('ϟ Power refilled')
-  expect(feedback(metered(50, 'ok'), metered(49, 'ok')).toast).toBeUndefined() // a turn's price: quiet
+  expect(feedback(metered(0, 'spent'), metered(30, 'ok')).toast).toBe('ϟ Power refilled')
+  expect(feedback(metered(20, 'ok'), metered(18, 'ok')).toast).toBeUndefined() // one extra's price: quiet
 })

@@ -80,11 +80,11 @@ Two kinds of names are automatic and can't be set: `has_<item>` is true while yo
   - Generated prices are 1–6 coins, and side-quest rewards at most 4 coins.
 - **Side quests** may only use their own `side_<id>_<word>` flags, plus `has_` and `met_` names.
 
-## The meter: what play costs
-Every action that spends Claude's tokens has a fixed price, set by the game (`meter.prices` in balance.json): a game-master turn 1, a character answering through its own agent 3, generating something 4, a world turn 3. Everything else, including every rules-script command, `ooc:` messages and slash commands, is free. The game shows the meter as its own resource (lamp oil, power), with a capacity from the owner's settings (100 in the normal preset).
-- **Paying:** the UserPromptSubmit hook pays for each in-game turn; `npc-brief` pays for a character's reply and `world-brief` for each generation or world turn, so a retry pays again.
-- **Running low:** below `meter.low_at_percent` (25%) the game warns once.
-- **Spent:** when the meter can't pay for something, that thing falls back to its cheap form, and play goes on: agents fall quiet and the game master voices everyone (`look` marks them `[minor, agent resting]`), nothing new is generated, no `may grow` ways are offered, and no world turns fall due.
+## The meter: what the extras cost
+Playing the game as written is free: every game-master turn, every rules command, and the authored characters speaking through their agents. Only extras beyond it have a price, set by the game (`meter.prices` in balance.json): generating something new 2, a world turn 2. One point is roughly one extra round of game-master work. The game shows the meter as its own resource (lamp oil, power), with a capacity from the owner's settings (30 in the normal preset).
+- **Paying:** `world-brief` pays for each generation or world turn after every check that could refuse, so a refused extra costs nothing and a retry pays again.
+- **Running low:** at `meter.low_at_percent` (25%) or below, the game warns once.
+- **Spent:** when the meter can't pay for an extra, it doesn't happen: nothing new is generated, no `may grow` ways are offered, and no world turns fall due. The game as written plays on, agents included.
 - **Refill:** each time Claude Code is opened or resumed in the folder (a SessionStart hook); a `/clear` doesn't refill it. The meter lives in `state/meter.json`, outside every save, so it carries across new games and game switches.
 
 ## The owner's switches
