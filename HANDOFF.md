@@ -57,8 +57,25 @@ As of 2026-10-21. The state of the kit build for whoever picks it up next, human
 - No `gm-turn/curses.md` side file: reading it mid-game would need a Read permission and could prompt. `look`'s `CURSE:` line and the prompt hook carry the procedure instead. Use the same pattern for later stages' procedure where possible: put it in `rpg.py` output or the hook, only when the feature is active.
 - `validate` checks a curse's cure is reachable by searching the game's other `.md` files for the flag name (a heuristic).
 
-## Next: Stage 5, the player leaves a mark (from the plan)
-5.1 crafting (`makes:` tiers on makers; `world-brief craft`, `generate craft` priced from `balance.generation.craft_price`, a commission collected with `rpg.py collect`); 5.2 building (`build:` directions on rooms, `builds: yes` on characters, completes after N moves in `tick_move`, shown on the map as the player's); 5.3 the library (`state/library/<game>.json`, carry-over of player-built places and befriended generated people on `newgame`, reuse via `{"reuse": id}`, `tools/library.py` for keep or forget); 5.4 promotion (`rpg.py talk <id>` counts conversations, promotes a generated person to an agent). Each extra gets a meter price and a switch in all three presets (promotion: on, max_per_run, after_conversations). Add content for both games.
+## Next: Stage 5, the player leaves a mark
+Build it in four commits (5.1–5.4), live-check each player-visible part, then stop for the user's playtest. Add content for both games.
+
+- **5.1 Crafting:** characters may give `makes:` (item tiers) and optionally `accepts:` (material items). Flow: the player describes an item, then `world-brief craft <maker>` (charges the meter), then the world agent proposes `{id, name, description, tier}`, then `generate craft` checks the tier is in `makes`. The price comes from `balance.generation.craft_price[tier]`, never the proposal. It's stored as a commission (`run.commissions`) marked `made_by: player`, and `rpg.py collect <id>` pays and gives the item. Off-trade requests are refused in character.
+- **5.2 Building:** rooms may give `build:` (directions), characters `builds: yes`. `world-brief build` / `generate build` reuse the room checks in `generate.room`. The price is from `balance.generation.build_price`; the commission completes after N moves in `tick_move`; the room is `made_by: player` and the map marks it as the player's.
+- **5.3 The library:** `state/library/<game>.json` holds every generated or player-made entry (`origin: player|world`, kept, forgotten, friend_line), with a size cap per game. `newgame` carries over player-built places and befriended generated people (one remembered line each). Authored characters, flags, inventory and quests reset. `world-brief` lists at most 5 fitting entries; a proposal `{"reuse": "<id>"}` re-creates one with stats re-tiered from the current tables. Owner tool `tools/library.py list | keep <id> | forget <id>`; `keep` writes it into `games/<id>/` and validates. The GM can't run it.
+- **5.4 Promotion:** `rpg.py talk <id>` (the GM runs it before voicing any generated person) prints their voice brief and counts at most one conversation per scene. After the game's number of conversations, the person becomes `minor: no` for the run and speaks through `npc-brief` with their own memory. The journal marks promoted people.
+
+**Proposed to the user on 2026-10-22, not yet confirmed (ask before building):**
+- Prices: crafting 2, building 3, reusing a library entry 1, promoting free, but **each promoted character's agent reply costs 1** (unlike authored agents, which stay free).
+- Switches in all three presets: `crafting` {on, max_per_run}, `building` {on, max_per_run}, `promotion` {on, max_per_run, after_conversations}.
+- "Befriended" is rule-based: you completed their side quest, or they were promoted.
+- Keeping a library entry is an owner tool only.
+- Content: Lighthouse, a net-mender maker (Pell's cousin) and a buildable plot on the quay; station, Bucket as a maker and the storage float as a buildable spot.
+
+## Later stages (unchanged from the plan)
+- **Stage 6, puzzles:** the GM assembles prebuilt kit code blocks (`rules/blocks.py`, a JSON pipeline; `rpg.py solve` and `unlock` for locks, `inspect` and `repair` for a broken mechanism). No free-form code.
+- **Stage 7, a living world:** major characters' `plans:` (`may_go`, `may_do` with in-world signals) applied on world turns; two-character side scenes (`scenes/`, `rpg.py scene start|end`).
+- **Stage 8, new worlds:** `/newworld`; a background `worldsmith` agent with file tools confined to `state/forge/`; `validate --kit-complete`; `rpg.py forge quote|start|install`.
 
 ## Stage 3 notes
 - The title card's typing and the ending's lines can't be grepped whole in a `play.py` capture (the terminal redraws changed cells only); search for parts, e.g. `S T A T I O N`.
