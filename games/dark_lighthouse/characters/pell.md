@@ -38,8 +38,12 @@ He lowers his voice, wishes the player luck, and repeats his tip about the troll
 ## If fleet_lost
 He's grey-faced and quiet. His brother's boat was one of those that didn't come in, and he can barely talk about anything.
 
+## If mirror_cursed and not tongue_salted
+This person is talking backwards. You recognise it at once: mirror-tongue, from staring into a cursed glass. Your gran had it once. The cure is a pinch of salt from your hearth-crock thrown over their left shoulder, and you'll gladly do it for free if they ask for help.
+
 ## If lamp_lit
 He's overjoyed and insists the player's next drink is on the house. That is only flavour and gives no items.
 
 ## GM only
 - **Sale:** `coins -2`, then `gain honey_cake` or `gain smoked_fish`.
+- **Mirror-tongue:** if the player asks him for help with their backwards talk, he throws the salt: `flag set tongue_salted`.

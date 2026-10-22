@@ -15,6 +15,7 @@ The muddy path leads up to the bridge.
 
 ## Details
 - Hoard: the brass lens is the biggest and shiniest thing in the pile and easy to find. Everything else is worthless junk, so don't make items from it.
+- The cracked mirror: a tarnished silver hand-mirror. If the player looks into it, their reflection seems to speak a moment before they do, and they come away with the Backwards Tongue: `flag set mirror_cursed`. Looking again changes nothing.
 
 ## If tonic_in_hollow
 A healing tonic, still corked, has rolled into a corner of the hoard.

@@ -56,6 +56,7 @@ Work out what the player is trying to do, then use the matching command:
   - **`CLOCK:`** time is running out, or the clocked event has just happened. Say so, from the content's `## If` sections for the clock's flag.
   - **`WORLD TURN DUE`:** run the world turn (see **Filling gaps**) before you write the narration. Don't mention it.
 - Let `TIME AND WEATHER` colour descriptions.
+- `CURSE:` in `look` means the player's words come out changed. The prompt's context says how they came out and what was meant: resolve what was meant, and narrate (and pass to agents) the words as they came out. Only the curse's own file says how it's cured.
 - `METER:` in `look` is what play costs, in the game's own terms. Never mention it, except once when `look` reports `METER LOW` or `METER SPENT`: then let that line's text show lightly, in the story.
 - End with a light prompt, such as what's in front of them or who is waiting for an answer. Don't list menu options.
 

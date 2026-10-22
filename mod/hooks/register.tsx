@@ -13,6 +13,7 @@ import { atom, read, update } from 'claude-code'
 import type { ClientProps, ElementConstructor, EngineInterface, Register } from 'claude-code'
 
 import type { CoderpgLook, CoderpgPhase, CoderpgSave, CoderpgStory } from '../types'
+import { cursedWords } from './curse'
 import { feedback } from './feedback'
 import { accentOf, lookOf, money, phasePhrase, soundFor, tabsOf } from './look'
 import { exitsOf, keyText, mapText, usesUpDown } from './map'
@@ -40,6 +41,7 @@ const flash = atom({ plugin: 'coderpg', key: 'flash' } as const, null)
 const tab = atom({ plugin: 'coderpg', key: 'tab' } as const, 'here')
 const muted = atom({ plugin: 'coderpg', key: 'muted' } as const, false)
 const running = atom({ plugin: 'coderpg', key: 'running' } as const, false)
+const cursed = atom({ plugin: 'coderpg', key: 'cursed' } as const, [])
 
 // ---------------------------------------------------------------- pure helpers
 
@@ -644,11 +646,14 @@ export const register: Register = on => {
     const kind = e.props.origin.kind
     if (!isGame || e.props.isExpanded || (kind !== 'composer' && kind !== 'plugin') || /^\s*(ooc:|\/)/i.test(e.props.text)) return next(e)
     const { Box, Text } = $.ui.resolve(e)
-    const accent = accentOf(await read($, save))
+    const s = await read($, save)
+    const accent = accentOf(s)
+    const shown = (await read($, cursed)).find(x => x.key === storyKey(e.props.text))?.shown
     return (
       <Box flexDirection="row" marginTop={1}>
         <Text color={accent} bold>» </Text>
-        <Text italic>{e.props.text}</Text>
+        <Text italic>{shown ?? e.props.text}</Text>
+        {shown !== undefined && <Text color={lookOf(s).palette.bad} dimColor> ✶</Text>}
       </Box>
     )
   })
@@ -672,6 +677,7 @@ export const register: Register = on => {
         <Text>{money(s.stats.coins, look)}</Text>
         {s.view?.meter ? sep : null}
         {s.view?.meter ? <Text color={meterColor(s.view.meter.state, look)}>{look.resource.icon} {s.view.meter.left}</Text> : null}
+        {(s.view?.curses ?? []).map(c => <Text color={look.palette.bad} wrap="truncate">{'  │  '}✶ {c.name}</Text>)}
         {clock ? sep : null}
         {clock ? <Text color={clock.left <= 3 ? look.palette.bad : undefined}>⧗ {clock.left > 0 ? clock.left : '!'}</Text> : null}
         {s.view?.time ? sep : null}
@@ -692,6 +698,12 @@ export const register: Register = on => {
 
   on('prompt.submit', async ($, e, next) => {
     const c = e.command
+    // A cursed player's own words are drawn as they came out (the prompt hook tells the game master both).
+    const curses = (await read($, save))?.view?.curses ?? []
+    if (isGame && !c && curses.length && e.origin.kind === 'composer' && !/^\s*(ooc:|\/)/i.test(e.text)) {
+      const entry = { key: storyKey(e.text), shown: cursedWords(curses, e.text) }
+      await update($, cursed, list => [...list, entry].slice(-500))
+    }
     if (!isGame || !c || e.origin.kind === 'plugin') return next(e)
     const args = c.args.trim()
     if (!startsAfresh(c.name, args, (await read($, save))?.game)) return next(e)
@@ -966,6 +978,7 @@ export const register: Register = on => {
         <Text> </Text>
         {vitals}
         {objective && <Text color={accent} wrap="truncate">▸ {objective}</Text>}
+        {(s.view?.curses ?? []).map(c => <Text color={look.palette.bad} wrap="truncate">✶ {c.name}</Text>)}
         {waiting && <Text dimColor italic wrap="truncate">◌ {waiting}…</Text>}
         <Text> </Text>
         <Box flexDirection="column" width={frameW} flexGrow={1} borderStyle="round" borderDimColor>

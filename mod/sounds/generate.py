@@ -80,4 +80,6 @@ write("chime_mid.wav", mix(tone(523, 0.5, 6), tone(784, 0.5, 8)), 0.2)
 write("chime_high.wav", mix(tone(784, 0.45, 7), tone(1175, 0.45, 9)), 0.2)
 # a wet footstep, for flooded places
 write("splash.wav", seq(mix(noise(0.14, 18, 0.5), tone(180, 0.06, 50)), silence(0.12), mix(noise(0.12, 20, 0.55), tone(160, 0.05, 50))), 0.4)
+# a curse taking hold: a low, wavering minor sigh
+write("curse.wav", [x * (0.6 + 0.4 * math.sin(2 * math.pi * 5 * i / RATE)) for i, x in enumerate(mix(tone(233, 0.9, 2.5), tone(277, 0.9, 3), tone(349, 0.9, 3.5)))], 0.3)
 print("wrote", sorted(p.name for p in HERE.glob("*.wav")))

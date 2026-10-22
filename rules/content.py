@@ -21,7 +21,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 GAMES = ROOT / "games"
-KINDS = ("rooms", "characters", "items", "quests", "tables")
+KINDS = ("rooms", "characters", "items", "quests", "tables", "curses")
 
 _GAME = None  # the active game's folder; set by use_game()
 

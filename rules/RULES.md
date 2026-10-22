@@ -95,3 +95,8 @@ Each game's `settings.json` picks a preset from `rules/presets.json` (`thrifty`,
 - `generation`: `on`, `max_per_run`, and `kinds` (extras, rooms, items, characters, side_quests). Something is generated only if the game's own `generation:` allows it **and** the switch is on.
 
 `rpg.py settings` and the instant command `/budget` show them. Only the owner changes them, with `tools/settings.py`, which the game master can't run.
+
+## Curses
+A game's content may define curses (`curses/<id>.md`). Each changes the words the player types: `reverse_words`, `mirror` (each word spelled backwards), `word_limit <n>` or `suffix "<phrase>"`. A curse is on the player while its `caused_by` condition holds and its `cured_by` doesn't. Both are flag conditions set by content, so a new game always starts uncursed, and every curse has a cure in the same game (`validate` checks that something sets its cure).
+
+A curse changes the story, not the rules: the game master is told what the player meant and resolves that, while everyone in the story hears the words as they came out. `ooc:` messages and slash commands are never cursed. Curses cost nothing from the meter.

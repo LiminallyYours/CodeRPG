@@ -193,6 +193,8 @@
     "phase_considering": "chime_mid",
     "phase_shaping": "chime_high",
     "phase_stirring": "chime_low",
-    "phase_resolving": null
+    "phase_resolving": null,
+    "curse": "curse",
+    "curse_lifted": "chime_high"
   }
 }

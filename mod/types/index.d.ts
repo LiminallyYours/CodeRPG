@@ -30,6 +30,8 @@ export type CoderpgSave = {
     look?: CoderpgLook
     /** What's left to spend this session; it refills when Claude Code is opened (version 7+). */
     meter?: { left: number; capacity: number; state: 'ok' | 'low' | 'spent' }
+    /** The curses on the player now, each with its effect on their words (version 7+). */
+    curses?: { id: string; name: string; effect: string }[]
     /** The owner's switches and prices, for /budget (version 7+). */
     settings?: CoderpgSettings
     /** "2026-10-21 · seed ember-4821" or "2026-10-21 · daily world", for the title card (version 7+). */
@@ -145,6 +147,8 @@ declare module 'claude-code' {
       tab: CoderpgTab
       /** Sound effects off. */
       muted: boolean
+      /** The player's rows typed under a curse: how the words came out, by the row's story key. */
+      cursed: { key: string; shown: string }[]
     }
   }
 }

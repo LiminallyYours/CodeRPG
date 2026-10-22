@@ -23,6 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import content  # noqa: E402
+import curse  # noqa: E402
 import dice  # noqa: E402
 import generate  # noqa: E402
 
@@ -143,6 +144,25 @@ def meter_state(m=None):
     m = m or meter()
     low = m["left"] * 100 <= m["capacity"] * BALANCE["meter"]["low_at_percent"]
     return "spent" if m["left"] == 0 else "low" if low else "ok"
+
+
+def active_curses(state):
+    """The curses on the player now, in id order: each while its `caused_by` holds and its `cured_by` doesn't.
+    They follow from flags, so none survives a new game."""
+    flags = condition_flags(state)
+    out = []
+    for c in content.ids("curses"):
+        meta = content.load("curses", c)
+        if content.condition_holds(meta.get("caused_by"), flags) and not content.condition_holds(meta.get("cured_by"), flags):
+            out.append(dict(meta, id=c))
+    return out
+
+
+def cursed_words(state, text):
+    """The player's words as they come out under every curse on them, in order."""
+    for c in active_curses(state):
+        text = curse.apply(c["effect"], text)
+    return text
 
 
 def agents_resting(ident):
@@ -328,6 +348,7 @@ def refresh_view(state):
         "weather": run.get("weather"),
         "clock": {"name": clock["name"], "left": clock["left"], "total": clock["total"]} if clock else None,
         "meter": dict(meter(), state=meter_state()),
+        "curses": [{"id": c["id"], "name": c.get("name", c["id"]), "effect": c["effect"]} for c in active_curses(state)],
         "settings": settings_view(),
         "chronicle": run["chronicle"][-BALANCE["world"]["chronicle_lines"]:],
         "rumors": run["rumors"][-BALANCE["world"]["rumors_kept"]:],
@@ -674,6 +695,9 @@ def cmd_look(args):
         print("CLOCK STATUS: %s" % (("%s in %s" % (c["name"], moves_text(c["left"]))) if c["left"] else "%s: it has happened" % c["name"]))
     m, res = meter(), resource()
     print("METER: %s %d/%d" % (res["name"], m["left"], m["capacity"]))
+    for c in active_curses(state):
+        print("CURSE: %s (`rpg.py show curses %s`): the player's words come out %s. Resolve what they meant; in the "
+              "story, and to every character, they said the words as they came out." % (c.get("name", c["id"]), c["id"], curse.describe(c["effect"])))
     if meter_state(m) == "low":
         print("METER LOW: %s (you may let it show once, lightly, in the story)" % res["low"])
     elif meter_state(m) == "spent":
@@ -1458,7 +1482,25 @@ def validate_game():
         for k in ("damage", "heal"):
             if it.get(k):
                 need_dice(it[k], "items/%s.md" % i)
-    return problems, "%d rooms, %d characters, %d items, %d quests, %d tables" % tuple(len(content.ids(k)) for k in content.KINDS)
+    flag_text = "\n".join(path.read_text(encoding="utf-8") for path in content.game_dir().rglob("*.md"))
+    for c in content.ids("curses"):
+        meta, where = content.load("curses", c), "curses/%s.md" % c
+        try:
+            curse.parse(meta.get("effect"))
+        except ValueError as e:
+            problems.append("%s: %s" % (where, e))
+        for key in ("caused_by", "cured_by"):
+            if not meta.get(key):
+                problems.append("%s: needs %s (a condition); every curse has a cause and a cure" % (where, key))
+        own = content.path_of("curses", c).read_text(encoding="utf-8")
+        for term in generate.TERM.findall(str(meta.get("cured_by") or "")):
+            if term.startswith("has_"):
+                need("items", term[4:], where + " cured_by")
+            elif term.startswith("met_"):
+                need("characters", term[4:], where + " cured_by")
+            elif flag_text.replace(own, "").count(term) == 0:
+                problems.append("%s: nothing in the game sets %r, so the curse can't be cured" % (where, term))
+    return problems, "%d rooms, %d characters, %d items, %d quests, %d tables, %d curses" % tuple(len(content.ids(k)) for k in content.KINDS)
 
 
 def cmd_validate(args):
@@ -1498,6 +1540,19 @@ def resave_view():
 def meter_line():
     m, res = meter(), resource()
     return "%s %d/%d" % (res["name"], m["left"], m["capacity"])
+
+
+def cmd_curse_text(args):
+    """curse-text <the player's words>: the words as they come out under any curse, as JSON for the prompt hook:
+    {"curses": [names], "text": "<as they came out>"}. No curse (or no game): the words unchanged."""
+    text = " ".join(args)
+    try:
+        state = load_state()
+    except Refused:
+        state = None
+    active = active_curses(state) if state else []
+    print(json.dumps({"curses": [c.get("name", c["id"]) for c in active], "text": cursed_words(state, text) if active else text},
+                     ensure_ascii=False))
 
 
 def cmd_meter(args):
@@ -1612,6 +1667,7 @@ COMMANDS = {
     "game": (cmd_game, 0, "game [list | show | switch <id>]   the installed games; switching keeps each one's save"),
     "meter": (cmd_meter, 0, "meter [refill]   the meter, or fill it (the SessionStart hook refills it)"),
     "settings": (cmd_settings, 0, "settings   the owner's switches and prices for this game (change: tools/settings.py)"),
+    "curse-text": (cmd_curse_text, 0, "curse-text <words>   the player's words as any curse makes them come out (JSON, for the prompt hook)"),
 }
 
 

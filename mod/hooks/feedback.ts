@@ -56,6 +56,11 @@ export function feedback(prev: CoderpgSave | null, next: CoderpgSave): Feedback 
     else if (now.left > was.left) parts.push(`${r.icon} ${r.name} refilled`)
   }
 
+  const cursesBefore = new Set((prev.view?.curses ?? []).map(c => c.id))
+  const cursesNow = new Set((next.view?.curses ?? []).map(c => c.id))
+  for (const c of next.view?.curses ?? []) if (!cursesBefore.has(c.id)) { parts.push(`✶ cursed: ${c.name}`); fb.sounds.push('curse') }
+  for (const c of prev.view?.curses ?? []) if (!cursesNow.has(c.id)) { parts.push(`✶ curse lifted: ${c.name}`); fb.sounds.push('curse_lifted') }
+
   if (next.status === 'defeated' && prev.status !== 'defeated') { parts.push('you have fallen'); fb.sounds = ['defeat'] }
 
   if (parts.length) fb.toast = parts.join('  ·  ')

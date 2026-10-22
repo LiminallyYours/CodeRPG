@@ -17,3 +17,4 @@ The pump panel glows green. A line on the tide chart is finally bending downward
 ## Details
 - The panel: anyone who reads it learns the main pump's fuse has blown, and that the pump is in the Pump Room off the Common Deck. Reading it needs no roll.
 - The tide chart: high tide is coming soon. The player can see that but not the exact time.
+- The comms headset: a headset with a cracked earpiece hangs by the dead radio. If the player puts it on and tries to call out, they get nothing but squealing feedback, and for a while afterwards they end everything they say with "…over.": `flag set radio_habit`.

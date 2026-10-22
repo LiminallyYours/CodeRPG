@@ -12,6 +12,8 @@ import { tileGrid, tilesAt } from '../hooks/tiles'
 import { FX_MS, hpAt, lineAt, numberAt, stripAt, TUMBLE_MS } from '../hooks/trayfx'
 import { budgetText, currentObjective, fitCells, startsAfresh, isGmNote, isPendingPlumbing, isPlumbing, pipBar, smoothBar, spaced, storyKey, stripPreamble, trayFor } from '../hooks/register'
 import { combatOf, trayLines, traySound } from '../hooks/tray'
+import { applyCurse, cursedWords } from '../hooks/curse'
+import { CURSE_VECTORS } from './curse_vectors'
 
 const MAP: NonNullable<CoderpgSave['map']> = {
   harbor_square: { name: 'Harbor Square', exits: { north: 'gull_tavern', west: 'lighthouse', east: 'coast_road' },
@@ -719,4 +721,31 @@ test('the accent follows the time of day when the game gives one', () => {
   const at = (time: string): CoderpgSave => ({ ...SAVE, view: { ...SAVE.view!, look, time } })
   expect(accentOf(at('deep night'))).toBe('#9c7a45')
   expect(accentOf(at('dusk'))).toBe(DEFAULT_LOOK.palette.accent)
+})
+
+// ---------------------------------------------------------------- Stage 4: curses
+
+test('curses change words exactly as the rules do (the shared examples)', () => {
+  for (const v of CURSE_VECTORS) expect(applyCurse(v.effect, v.input)).toBe(v.output)
+  expect(cursedWords([{ effect: 'reverse_words' }, { effect: 'suffix "…over."' }], 'go north')).toBe('north go …over.')
+  expect(applyCurse('sing', 'go north')).toBe('go north') // unknown: unchanged (validate refuses it)
+})
+
+const CURSED: CoderpgSave = { ...SAVE, view: { ...SAVE.view!, curses: [{ id: 'backwards_tongue', name: 'The Backwards Tongue', effect: 'reverse_words' }] } }
+
+test('an active curse is shown in the pane', async ($, on) => {
+  on('state.get', { plugin: 'coderpg', key: 'save' }, () => ({ value: { value: CURSED, version: 1 } }))
+  on('state.get', { plugin: 'coderpg', key: 'cursed' }, () => ({ value: { value: [{ key: storyKey('go north now'), shown: 'now north go' }], version: 1 } }))
+  const pane = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'Pane', requestId: 'coderpg-sheet', props: PANE_PROPS })
+  expect(await pane.find({ text: '✶ The Backwards Tongue' })).toBeDefined()
+  await pane.unmount()
+})
+
+test('a curse taking hold or lifting gets a toast and its sound', () => {
+  const fb = feedback(SAVE, CURSED)
+  expect(fb.toast).toBe('✶ cursed: The Backwards Tongue')
+  expect(fb.sounds).toEqual(['curse'])
+  const lifted = feedback(CURSED, SAVE)
+  expect(lifted.toast).toBe('✶ curse lifted: The Backwards Tongue')
+  expect(lifted.sounds).toEqual(['curse_lifted'])
 })

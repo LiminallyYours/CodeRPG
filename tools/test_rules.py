@@ -428,5 +428,62 @@ class Engine(unittest.TestCase):
         self.assertEqual(self.save()["map"]["specimen_store"]["made_by"], "world")
 
 
+    # ---------------------------------------------------------------- Stage 4: curses
+
+    def test_curse_examples_hold_and_the_mod_has_the_same_ones(self):
+        sys.path.insert(0, str(ROOT / "rules"))
+        import curse
+        vectors = json.loads((ROOT / "rules" / "curse_vectors.json").read_text())
+        for v in vectors:
+            self.assertEqual(curse.apply(v["effect"], v["input"]), v["output"], v)
+        mod_copy = (ROOT / "mod" / "tests" / "curse_vectors.ts").read_text().split("=", 1)[1]
+        self.assertEqual(json.loads(mod_copy), vectors, "mod/tests/curse_vectors.ts must match rules/curse_vectors.json")
+        for bad in ("sing", "word_limit 0", "suffix over", ""):
+            self.assertRaises(ValueError, curse.parse, bad)
+
+    def test_a_curse_takes_hold_by_its_flag_and_its_cure_lifts_it(self):
+        self.rpg("game", "switch", "dark_lighthouse")
+        self.rpg("newgame", seed=40)
+        self.assertEqual(json.loads(self.rpg("curse-text", "go north"))["text"], "go north")
+        self.rpg("flag", "set", "mirror_cursed")
+        look = self.rpg("look")
+        self.assertIn("CURSE: The Backwards Tongue", look)
+        self.assertIn("in reverse word order", look)
+        self.assertEqual(self.save()["view"]["curses"], [{"id": "backwards_tongue", "name": "The Backwards Tongue", "effect": "reverse_words"}])
+        out = json.loads(self.rpg("curse-text", "I ask Pell for help"))
+        self.assertEqual(out, {"curses": ["The Backwards Tongue"], "text": "help for Pell ask I"})
+        self.rpg("flag", "set", "tongue_salted")
+        self.assertNotIn("CURSE:", self.rpg("look"))
+        self.assertEqual(self.save()["view"]["curses"], [])
+        self.rpg("flag", "unset", "tongue_salted")
+        self.assertIn("CURSE:", self.rpg("look"))
+        self.rpg("newgame", seed=41)  # no curse survives a new game
+        self.assertEqual(self.save()["view"]["curses"], [])
+
+    def test_the_prompt_hook_tells_the_game_master_how_cursed_words_came_out(self):
+        self.rpg("game", "switch", "flooded_station")
+        self.rpg("newgame", seed=42)
+        hook = ".claude/hooks/turn_reminder.py"
+        plain = self.run_py(hook, stdin=json.dumps({"prompt": "Where is the fuse?"})).stdout
+        self.assertNotIn("came out as", plain)
+        self.rpg("flag", "set", "radio_habit")
+        out = self.run_py(hook, stdin=json.dumps({"prompt": "Where is the fuse?"})).stdout
+        self.assertIn("under Radio Habit", out)
+        self.assertIn("came out as: \u00abWhere is the fuse? …over.\u00bb", out)
+        self.assertIn("What they meant: \u00abWhere is the fuse?\u00bb", out)
+        self.assertEqual(self.run_py(hook, stdin=json.dumps({"prompt": "ooc: is the curse working?"})).stdout, "")
+
+    def test_validate_insists_every_curse_has_a_cause_and_a_reachable_cure(self):
+        d = "games/dark_lighthouse/curses/"
+        self.write(d + "hiccups.md", "---\nname: Hiccups\neffect: sing loudly\ncaused_by: mirror_cursed\n---\nHic.\n")
+        out = self.rpg("validate", "--game", "dark_lighthouse", ok=False)
+        self.assertIn("effect must be", out)
+        self.assertIn("needs cured_by", out)
+        self.write(d + "hiccups.md", "---\nname: Hiccups\neffect: word_limit 2\ncaused_by: mirror_cursed\ncured_by: hiccups_gone\n---\nHic.\n")
+        self.assertIn("nothing in the game sets 'hiccups_gone'", self.rpg("validate", "--game", "dark_lighthouse", ok=False))
+        self.write(d + "hiccups.md", "---\nname: Hiccups\neffect: word_limit 2\ncaused_by: mirror_cursed\ncured_by: has_no_such_thing\n---\nHic.\n")
+        self.assertIn("unknown item 'no_such_thing'", self.rpg("validate", "--game", "dark_lighthouse", ok=False))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

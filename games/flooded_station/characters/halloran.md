@@ -33,6 +33,9 @@ You are more frightened than you're letting on. You'd go if someone gave you a r
 ## If halloran_briefed and not pump_running and not halloran_agrees
 You've told this person about the pump and the fuse. Every few minutes you glance at the tide chart.
 
+## If radio_habit and not habit_broken
+This person keeps ending everything they say with "over", like a radio operator. It is driving you up the wall. You'll snap your fingers in their face and tell them to stop.
+
 ## If pump_running
 The pump is running again! You are giddy with relief and keep checking the gauge just to watch the line fall.
 
@@ -44,4 +47,5 @@ You've agreed to leave. You're sitting at the landing with your specimen cooler,
 - **Persuading her to leave:** if halloran_shaken, `check wits 12`; if halloran_stubborn, `check wits 16`. Allow one try per conversation. On a success, `flag set halloran_agrees`, and she goes down to the landing.
 - **Leaving:** see the landing's file. She goes only once `halloran_agrees` is set.
 - **If pump_running:** she won't leave now, and no longer needs to.
+- **Radio habit:** the first time she hears the player sign off with "over", she snaps them out of it: `flag set habit_broken`.
 - **She never fights,** and she won't hand over anything; she has nothing the player needs.
