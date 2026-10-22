@@ -8,6 +8,7 @@ Notes for whoever works on the game next, human or Claude. `README.md` covers th
 - Start messages with `ooc:`, or say in the first message that the whole session is development.
 - Never test in the real `state/save.json`; that's the player's game. Use a scratch copy (below).
 - Run `sh tools/check.sh` before and after changes.
+- If `HANDOFF.md` exists, read it next: it says where an in-progress build stands and what was decided.
 
 ## The invariants
 
