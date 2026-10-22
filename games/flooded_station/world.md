@@ -37,7 +37,7 @@ weather:
 # what the world agent may create during a run
 generation:
   extras: no
-  rooms: yes
+  rooms: anywhere
   items: yes
   characters: no
   side_quests: yes

@@ -232,7 +232,15 @@ def policy():
     """What may be generated now: the content allows it and the owner's settings switch it on."""
     gen = world().get("generation") or {}
     owner = SETTINGS["generation"]
-    return {k: str(gen.get(k, "no")).lower() == "yes" and owner["on"] and owner["kinds"].get(k, False) for k in GEN_KINDS}
+    allowed = {k: str(gen.get(k, "no")).lower() in (("yes", "marked", "anywhere") if k == "rooms" else ("yes",)) for k in GEN_KINDS}
+    return {k: allowed[k] and owner["on"] and owner["kinds"].get(k, False) for k in GEN_KINDS}
+
+
+def growth():
+    """Where the world may grow new places: "anywhere" (any free way, unless a room says otherwise), "marked"
+    (only the directions rooms list in `expand:`), or "no". world.md's `generation: rooms:` sets it; yes = marked."""
+    v = str((world().get("generation") or {}).get("rooms", "no")).lower()
+    return "anywhere" if v == "anywhere" else "marked" if v in ("yes", "marked") else "no"
 
 
 # ---------------------------------------------------------------- orders: what the player has made
@@ -253,22 +261,112 @@ def accepts(ident):
     return options_of(ent("characters", ident).get("accepts") or "")
 
 
-def why_no_order(state):
-    """Why no maker takes a new order now (the owner's switches, this run's orders, the meter), or None."""
-    switch = SETTINGS["crafting"]
+def builds(ident):
+    """Whether a character builds places to order (`builds: yes`)."""
+    return str(ent("characters", ident).get("builds", "no")).lower() == "yes"
+
+
+ORDER_KINDS = {"craft": ("item", "crafting", "makers"), "build": ("room", "building", "builders")}
+
+
+def why_no_order(state, kind="craft"):
+    """Why no maker (craft) or builder (build) takes a new order now: the owner's switches, this run's orders,
+    the meter. None when one can be placed."""
+    what, switch_name, who = ORDER_KINDS[kind]
+    switch = SETTINGS[switch_name]
     if not switch["on"]:
-        return "no one takes orders in this game (the owner's settings)"
-    if sum(1 for c in state["run"]["commissions"].values() if c["kind"] == "item") >= int(switch["max_per_run"]):
-        return "the makers have taken as much work as they will this run (%d orders)" % int(switch["max_per_run"])
-    if not can_pay("craft"):
+        return "no %s take orders in this game (the owner's settings)" % who
+    if sum(1 for c in state["run"]["commissions"].values() if c["kind"] == what) >= int(switch["max_per_run"]):
+        return "the %s have taken as much work as they will this run (%d orders)" % (who, int(switch["max_per_run"]))
+    if not can_pay(kind):
         return "the %s is spent until the next session, so no new work is taken on" % resource()["name"].lower()
     return None
 
 
+def order_name(ident, com):
+    return com["record"]["meta"]["name"] if "record" in com else item(ident).get("name", ident)
+
+
 def price_text(com):
-    """'3 coins, or in trade: smoked_fish' for an order."""
-    trade = accepts(com["maker"]) if ent_exists("characters", com["maker"]) else []
+    """'3 coins, or in trade: smoked_fish' for an order. Only made items can be paid for in trade."""
+    trade = accepts(com["maker"]) if com["kind"] == "item" and ent_exists("characters", com["maker"]) else []
     return "%d %s%s" % (com["price"], currency(), ", or in trade: %s" % ", ".join(trade) if trade else "")
+
+
+# ---------------------------------------------------------------- where new places can go
+# Every room has a square on the map, found by walking the exits from the start room (up and down are drawn
+# as north and south, as the mod draws them). A new place may only go where its square is free, so the map
+# never overlaps. Build spots (`build:` on a room) are reserved for the player: the world never grows there.
+
+STEP = {"north": (0, -1), "south": (0, 1), "east": (1, 0), "west": (-1, 0), "up": (0, -1), "down": (0, 1),
+        "northeast": (1, -1), "northwest": (-1, -1), "southeast": (1, 1), "southwest": (-1, 1)}
+CARDINAL = ("north", "south", "east", "west")
+
+
+def layout():
+    """Every reachable room's map square, from the start room through every exit (open or not)."""
+    start = world()["start_room"]
+    pos, queue = {start: (0, 0)}, [start]
+    taken = {(0, 0)}
+    while queue:
+        r = queue.pop(0)
+        x, y = pos[r]
+        for d, target in (ent("rooms", r).get("exits") or {}).items():
+            dest = content.split_condition(target)[0]
+            if d not in STEP or dest in pos or not ent_exists("rooms", dest):
+                continue
+            sq = (x + STEP[d][0], y + STEP[d][1])
+            if sq in taken:
+                continue
+            pos[dest] = sq
+            taken.add(sq)
+            queue.append(dest)
+    return pos
+
+
+def square_of(room_id, d, pos):
+    """The map square a new place `d` of this room would take, or None (in and out aren't drawn)."""
+    if d not in STEP or room_id not in pos:
+        return None
+    x, y = pos[room_id]
+    return (x + STEP[d][0], y + STEP[d][1])
+
+
+def reserved_squares(pos):
+    """The squares every authored build spot will take: kept free for the player."""
+    out = set()
+    for r in content.ids("rooms"):
+        spots = content.load("rooms", r).get("build")
+        for d in (spots if isinstance(spots, dict) else {}):
+            sq = square_of(r, d, pos)
+            if sq:
+                out.add(sq)
+    return out
+
+
+def square_free(room_id, d, pos, keep=frozenset()):
+    """Whether a new place `d` of this room would have a map square of its own, not one of `keep`
+    (always free for in and out, and for a room the map can't place)."""
+    sq = square_of(room_id, d, pos)
+    if sq is None:
+        return d not in STEP or room_id not in pos
+    return sq not in set(pos.values()) and sq not in keep
+
+
+def room_depth(room):
+    """How many generated rooms deep a room is: 0 for authored ones."""
+    return int(room.get("depth", 1)) if room.get("generated") else 0
+
+
+def build_spots(state, room):
+    """This room's free build spots, {direction: what could go there}: content lists them, and none has an exit
+    or a paid-for building yet. Generated and built rooms have none."""
+    spots = room.get("build") if not room.get("generated") else None
+    if not isinstance(spots, dict):
+        return {}
+    busy = {c["direction"] for c in state["run"]["commissions"].values()
+            if c["kind"] == "room" and c["room"] == room["id"] and c["status"] != "ordered"}
+    return {d: str(t) for d, t in spots.items() if d not in (room.get("exits") or {}) and d not in busy}
 
 
 # ---------------------------------------------------------------- state I/O
@@ -418,6 +516,7 @@ def settings_view():
         "world_turns": {"on": turns["on"], "every_moves": turns["every_moves"]},
         "generation": {"on": gen["on"], "max_per_run": gen["max_per_run"], "kinds": [k for k, on in policy().items() if on]},
         "crafting": {"on": SETTINGS["crafting"]["on"], "max_per_run": SETTINGS["crafting"]["max_per_run"]},
+        "building": {"on": SETTINGS["building"]["on"], "max_per_run": SETTINGS["building"]["max_per_run"]},
     }
 
 
@@ -545,10 +644,26 @@ def moves_text(n):
 
 
 def unused_expansions(room):
-    """Directions this authored room may grow a generated room in, not yet used."""
-    if is_generated("rooms", room["id"]):
+    """The directions the world may grow a new place in from this room, by the game's `growth()`:
+    - marked: the authored room's `expand:` directions;
+    - anywhere: the room's `expand:` directions if it lists any, else north, south, east and west; `expand: no`
+      opts out. Generated rooms grow too, until `generation.max_depth` rooms deep.
+    Never through an exit, a build spot, or onto a map square that's already taken."""
+    mode, raw = growth(), room.get("expand")
+    listed = [] if str(raw).strip().lower() in ("no", "none") else options_of(raw or "")
+    if mode == "no":
         return []
-    return [d for d in options_of(room.get("expand") or "") if d not in (room.get("exits") or {})]
+    if room.get("generated"):
+        if mode != "anywhere" or room_depth(room) >= int(BALANCE["generation"]["max_depth"]):
+            return []
+        dirs = list(CARDINAL)
+    elif mode == "marked":
+        dirs = listed
+    else:
+        dirs = listed if raw is not None else list(CARDINAL)
+    pos = layout()
+    keep = reserved_squares(pos)
+    return [d for d in dirs if d not in (room.get("exits") or {}) and square_free(room["id"], d, pos, keep)]
 
 
 def short_line(text, what):
@@ -650,11 +765,29 @@ def tick_move(state):
         weathers = world().get("weather") or []
         if weathers:
             run["weather"] = pick(weathers)
+    for ident, com in run["commissions"].items():
+        if com["kind"] == "room" and com["status"] == "building" and run["moves"] >= com["ready_at"]:
+            out.append(finish_building(state, ident, com))
     turns = SETTINGS["world_turns"]
     if turns["on"] and run["moves"] % max(1, int(turns["every_moves"])) == 0 and can_pay("world_turn"):
         run["world_turn_due"] = True
         out.append("WORLD TURN DUE: run `rpg.py world-brief turn` and spawn the world agent (see gm-turn)")
     return out
+
+
+def finish_building(state, ident, com):
+    """A paid-for building is done: the place joins the world, with a way to it from where it was ordered.
+    People hear of it, so they start using it."""
+    run = state["run"]
+    record = com.pop("record")
+    run["rooms"][ident] = dict(record, made_at_move=run["moves"])
+    run["exits"].setdefault(com["room"], {})[com["direction"]] = ident
+    com["status"] = "done"
+    name, where = record["meta"]["name"], ent("rooms", com["room"]).get("name", com["room"])
+    run["rumors"].append("%s is finished, %s of %s, and folk are curious to see it." % (name, com["direction"], where))
+    del run["rumors"][:-BALANCE["world"]["rumors_kept"]]
+    return ("BUILT: %s (%s) is finished, %s of %s, built for the player by %s. It's open now; describe it when the "
+            "player next sees it." % (name, ident, com["direction"], where, ent("characters", com["maker"]).get("name", com["maker"])))
 
 
 # ---------------------------------------------------------------- commands
@@ -774,10 +907,18 @@ def cmd_look(args):
     if makers and not why_no_order(state):
         print("MAKERS HERE: %s. If the player orders something made: `world-brief craft <maker>` (see gm-turn)."
               % "; ".join("%s makes %s" % (c, ", ".join(t.replace("_", " ") for t in makes(c))) for c in makers))
+    spots, builders = build_spots(state, room), [c for c in here if builds(c)]
+    if spots and builders and not why_no_order(state, "build"):
+        print("BUILD SPOTS HERE: %s. Builders here: %s. If the player orders something built: `world-brief build <builder>` "
+              "(see gm-turn)." % ("; ".join("%s: %s" % kv for kv in spots.items()), ", ".join(builders)))
     waiting = [(i, c) for i, c in run["commissions"].items() if c["status"] == "ordered"]
     if waiting:
-        print("ORDERS WAITING: %s. When the player pays the maker: `pay <id>` or `pay <id> <material>`." % " | ".join(
-            "%s (%s) from %s, unpaid: %s" % (i, item(i).get("name", i), c["maker"], price_text(c)) for i, c in waiting))
+        print("ORDERS WAITING: %s. When the player pays: `pay <id>` (an item may be paid for in trade: `pay <id> <material>`)."
+              % " | ".join("%s (%s) from %s, unpaid: %s" % (i, order_name(i, c), c["maker"], price_text(c)) for i, c in waiting))
+    going_up = [(i, c) for i, c in run["commissions"].items() if c["status"] == "building"]
+    if going_up:
+        print("BEING BUILT: %s" % " | ".join("%s (%s), %s of %s: ready in %s" % (
+            i, order_name(i, c), c["direction"], c["room"], moves_text(max(0, c["ready_at"] - run["moves"]))) for i, c in going_up))
     if sum(1 for v in voice.values() if v == "agent") >= 2:
         print("AGENT LINES PER TURN: at most %d between them" % SETTINGS["npc_agents"]["lines_per_exchange"])
     notes = run["notes"].get(room["id"], [])
@@ -1157,9 +1298,13 @@ def gen_context(state):
     names = [ent(k, i).get("name", i) for k in ("rooms", "characters", "items", "quests") for i in ent_ids(k)]
     ids = [i for k in content.KINDS for i in ent_ids(k)]
     run = state["run"]
-    maker = (run.get("ordering") or {}).get("maker")
-    if maker and not ent_exists("characters", maker):
-        maker = None
+    ordering = run.get("ordering") or {}
+    maker = ordering.get("maker") if ent_exists("characters", ordering.get("maker") or "") else None
+    kind = ordering.get("kind", "craft")
+    for i, com in run["commissions"].items():
+        if "record" in com:  # a building not finished yet still holds its id and name
+            ids.append(i)
+            names.append(com["record"]["meta"]["name"])
     return generate.Context(
         location=state["location"], taken_ids=ids, taken_names=names, expand=unused_expansions(room),
         policy=policy(), balance=dict(BALANCE["generation"], max_per_run=SETTINGS["generation"]["max_per_run"]),
@@ -1170,7 +1315,8 @@ def gen_context(state):
         characters_here=characters_here(state), room_ids=ent_ids("rooms"),
         generated_people=list(run["characters"]),
         terrains=list(content.look().get("terrain") or {}), terrain_here=room.get("terrain"),
-        moves=run["moves"], maker=maker, makes=makes(maker) if maker else ())
+        moves=run["moves"], maker=maker if kind == "craft" else None, makes=makes(maker) if maker and kind == "craft" else (),
+        builder=maker if kind == "build" else None, build_spots=build_spots(state, room), depth_here=room_depth(room))
 
 
 def apply_patch(state, patch):
@@ -1222,9 +1368,13 @@ def cmd_generate(args):
     kind = args[0]
     if kind not in generate.KINDS:
         raise Refused("kind must be one of %s" % ", ".join(generate.KINDS))
-    maker = (state["run"].get("ordering") or {}).get("maker")
+    ordering = state["run"].get("ordering") or {}
+    maker = ordering.get("maker")
+    if kind in ORDER_KINDS and maker and ordering.get("kind", "craft") != kind:
+        raise Refused("the open order is a %s order; run `world-brief %s <%s>` first" % (ordering.get("kind", "craft"), kind,
+                                                                                      "maker" if kind == "craft" else "builder"))
     try:
-        if kind == "craft" and maker and maker not in characters_here(state):
+        if kind in ORDER_KINDS and maker and maker not in characters_here(state):
             raise Refused("the order was being placed with %s, who isn't here any more; nothing is made" % maker)
         proposal = read_json_arg(args[1:])
         try:
@@ -1240,16 +1390,26 @@ def cmd_generate(args):
             raise Refused("proposal rejected: it doesn't match the JSON shape in the brief (%s)" % e)
     finally:
         done_with(args[1:])
+    if kind == "build":  # a newer order for the same spot replaces an unpaid one
+        com = next(iter(patch["commissions"].values()))
+        for i, old in list(state["run"]["commissions"].items()):
+            if old["kind"] == "room" and old["status"] == "ordered" and (old["room"], old["direction"]) == (com["room"], com["direction"]):
+                del state["run"]["commissions"][i]
     apply_patch(state, patch)
-    if kind == "craft":
+    if kind in ORDER_KINDS:
         state["run"]["ordering"] = None
         save_state(state)
         for i, com in patch["commissions"].items():
-            meta = patch["items"][i]["meta"]
-            print("COMMISSIONED: %s (%s), %s, from %s" % (meta["name"], i, meta["tier"].replace("_", " "),
-                                                         ent("characters", com["maker"]).get("name", com["maker"])))
-            print("PRICE: %s. The maker names it in character. When the player pays, run `pay %s` (or `pay %s <material>`); "
-                  "until then it isn't theirs." % (price_text(com), i, i))
+            who = ent("characters", com["maker"]).get("name", com["maker"])
+            if kind == "craft":
+                meta = patch["items"][i]["meta"]
+                print("COMMISSIONED: %s (%s), %s, from %s" % (meta["name"], i, meta["tier"].replace("_", " "), who))
+                print("PRICE: %s. The maker names it in character. When the player pays, run `pay %s` (or `pay %s <material>`); "
+                      "until then it isn't theirs." % (price_text(com), i, i))
+            else:
+                print("COMMISSIONED: %s (%s), to be built %s of here by %s" % (com["record"]["meta"]["name"], i, com["direction"], who))
+                print("PRICE: %s. The builder names it in character. When the player pays, run `pay %s`; it takes %s to build, "
+                      "and until then it doesn't exist." % (price_text(com), i, moves_text(int(BALANCE["generation"]["build_moves"]))))
         return
     save_state(state)
     made = ["%s %s (%s)" % (k[:-1], patch[k][i]["meta"].get("name", i), i)
@@ -1266,8 +1426,9 @@ def cmd_generate(args):
 
 
 def cmd_pay(args):
-    """pay <order> [<material>]: the player pays the maker for an order, in money or with an item they take
-    in trade. A made item is handed over at once and is the player's own."""
+    """pay <order> [<material>]: the player pays the maker or builder for an order, in money or (for a made item)
+    with an item they take in trade. A made item is handed over at once and is the player's own; a building
+    starts, and is finished `generation.build_moves` moves later."""
     state = load_state()
     require_playing(state)
     ident, run = args[0], state["run"]
@@ -1281,6 +1442,10 @@ def cmd_pay(args):
         raise Refused("%s isn't here; the order waits with them" % who)
     s = state["stats"]
     material = args[1] if len(args) > 1 else None
+    if material and com["kind"] == "room":
+        raise Refused("%s builds for %s only" % (who, currency()))
+    if com["kind"] == "room" and com["direction"] not in build_spots(state, ent("rooms", com["room"])):
+        raise Refused("something is already being built %s of here" % com["direction"])
     if material:
         if material not in accepts(maker):
             raise Refused("%s takes no %s in trade (takes: %s)" % (who, material, ", ".join(accepts(maker)) or "only " + currency()))
@@ -1291,6 +1456,14 @@ def cmd_pay(args):
             raise Refused("not enough %s: the price is %d and the player has %d" % (currency(), com["price"], s["coins"]))
         s["coins"] -= com["price"]
         paid = "COINS -%d -> %d" % (com["price"], s["coins"])
+    if com["kind"] == "room":
+        wait = int(BALANCE["generation"]["build_moves"])
+        com.update(status="building", paid_at=run["moves"], ready_at=run["moves"] + wait)
+        save_state(state)
+        print(paid)
+        print("BUILDING: %s (%s), %s of here, by %s: ready in %s. It doesn't exist until then."
+              % (order_name(ident, com), ident, com["direction"], who, moves_text(wait)))
+        return
     com.update(status="done", paid_at=run["moves"])
     check_carry(state, ident)
     state["inventory"].append(ident)
@@ -1335,15 +1508,19 @@ def cmd_world_brief(args):
         raise Refused("request must be one of %s, turn" % ", ".join(generate.KINDS))
     pol = policy()
     maker = None
-    if request == "craft":
+    if request in ORDER_KINDS:
         if len(args) < 2:
-            raise Refused("usage: world-brief craft <maker>")
+            raise Refused("usage: world-brief %s <%s>" % (request, "maker" if request == "craft" else "builder"))
         maker = args[1]
         if maker not in characters_here(state):
             raise Refused("%s isn't here to take an order" % maker)
-        if not makes(maker):
+        if request == "craft" and not makes(maker):
             raise Refused("%s makes nothing to order; they turn the request away in character" % maker)
-        why = why_no_order(state)
+        if request == "build" and not builds(maker):
+            raise Refused("%s builds nothing to order; they turn the request away in character" % maker)
+        if request == "build" and not build_spots(state, room_here(state)):
+            raise Refused("there's nowhere here that anything could be built; %s says so in character" % maker)
+        why = why_no_order(state, request)
         if why:
             raise Refused("%s; %s turns the order away in character" % (why, maker))
     elif request != "turn" and not pol[{"extra": "extras", "room": "rooms", "item": "items",
@@ -1352,14 +1529,14 @@ def cmd_world_brief(args):
                       "it doesn't exist" % request)
     if request == "turn" and not SETTINGS["world_turns"]["on"]:
         raise Refused("world turns are off in this game's settings; nothing happens off-screen")
-    cost = {"turn": "world_turn", "craft": "craft"}.get(request, "generate")
+    cost = {"turn": "world_turn", "craft": "craft", "build": "build"}.get(request, "generate")
     if not can_pay(cost):
         raise Refused("the %s is spent until the next session, so nothing new turns up: it doesn't exist"
                       % resource()["name"].lower())
     w = world()
     room = room_here(state)
     if request == "room" and not unused_expansions(room):
-        raise Refused("%s has no direction left where a new place could be (no unused `expand:`); "
+        raise Refused("%s has no direction left where a new place could be; "
                       "the way the player wants doesn't exist" % room.get("name", room["id"]))
     flags = condition_flags(state)
     desc = [room["body"].split("\n## ")[0].strip()]
@@ -1391,9 +1568,11 @@ def cmd_world_brief(args):
         people = ["%s (%s), now at %s" % (c, ent("characters", c).get("name", c),
                                          next((r for r, ps in run["placements"].items() if c in ps), "?"))
                   for c in run["characters"]]
+        built = ["%s (%s)" % (r, ent("rooms", r).get("name", r)) for r in run["rooms"] if made_by("rooms", r) == "player"]
         out += ["Time passes off-screen. Write what people around here start saying, based only on the story so far",
                 "and public knowledge, and optionally move generated people to another room that exists.",
                 "Generated people: %s" % (", ".join(people) or "none"),
+                "Places the player had built (people may start using them, and talking about them): %s" % (", ".join(built) or "none"),
                 "Rooms: %s" % ", ".join(ent_ids("rooms")),
                 'JSON: {"rumors": ["<up to 3 short lines of gossip>"], "moves": [{"id": "<generated person>", "room": "<room id>"}]}']
     elif request == "extra":
@@ -1432,7 +1611,23 @@ def cmd_world_brief(args):
                 "quest, turn it down instead.",
                 'JSON: {"id": "<new_id>", "name": "<name>", "description": "<one or two sentences>", "tier": "<%s>"}' % "|".join(makes(maker)),
                 'or, to turn it down: {"refuse": "<why, in a few words>"}']
-        run["ordering"] = {"maker": maker}
+        run["ordering"] = {"maker": maker, "kind": "craft"}
+    elif request == "build":
+        ch = ent("characters", maker)
+        who, spots = ch.get("name", maker), build_spots(state, room)
+        out += ["The player is asking %s (%s) to build something here. Where it can go:" % (who, ch.get("role", ""))]
+        out += ["- %s: %s" % kv for kv in spots.items()]
+        trade = next((t for h, t in content.sections(ch["body"]) if re.fullmatch(r"What \w+ builds?", h)), "")
+        if trade:
+            out.append("What %s builds: %s" % (who, " ".join(trade.split())))
+        out += ["Shape what they ask for into one small place that fits that spot, and keep the name they gave it if any.",
+                "It starts empty (no items, no people), and it must not hold or replace anything the main quest needs.",
+                "If the request doesn't fit the spot or the builder, turn it down instead.",
+                "Its terrain is one of: %s (optional; it defaults to this room's)." % ", ".join(content.look().get("terrain") or {}),
+                'JSON: {"id": "<new_id>", "name": "<name>", "direction": "<%s>", "terrain": "<terrain>",' % "|".join(spots),
+                '       "description": "<what the player will see there, 2-4 sentences>"}',
+                'or, to turn it down: {"refuse": "<why, in a few words>"}']
+        run["ordering"] = {"maker": maker, "kind": "build"}
     elif request == "quest":
         here = characters_here(state)
         out += ["Make a small side quest offered by someone present (%s). It must not touch the main quest." % ", ".join(here or ["no one"]),
@@ -1575,9 +1770,13 @@ def validate_game():
         need_dice(w["clock"].get("moves", "1"), "world.md clock moves")
         if bool(w["clock"].get("also_if")) != bool(w["clock"].get("also_flag")):
             problems.append("world.md clock: also_if and also_flag go together")
-    for k in (w.get("generation") or {}):
+    for k, v in (w.get("generation") or {}).items():
         if k not in GEN_KINDS:
             problems.append("world.md generation: unknown kind %r (kinds: %s)" % (k, ", ".join(GEN_KINDS)))
+        elif str(v).lower() not in (("yes", "no", "marked", "anywhere") if k == "rooms" else ("yes", "no")):
+            problems.append("world.md generation %s: %r should be %s" % (k, v, "yes, no, marked or anywhere" if k == "rooms" else "yes or no"))
+    pos = layout()
+    claimed = {}
     for r in content.ids("rooms"):
         room = content.load("rooms", r)
         where = "rooms/%s.md" % r
@@ -1588,12 +1787,33 @@ def validate_game():
         for c in (room.get("characters") or []):
             need("characters", content.split_condition(c)[0], where + " characters")
         if room.get("expand") is not None and not isinstance(room["expand"], (str, list)):
-            problems.append("%s: expand must be directions, comma-separated or as a list" % where)
-        for d in options_of(room.get("expand") or ""):
+            problems.append("%s: expand must be directions, comma-separated or as a list, or no" % where)
+        expand = [] if str(room.get("expand")).strip().lower() in ("no", "none") else options_of(room.get("expand") or "")
+        for d in expand:
             if d not in generate.OPPOSITE:
                 problems.append("%s: expand direction %r has no opposite" % (where, d))
             if d in (room.get("exits") or {}):
                 problems.append("%s: expand direction %r is already an exit" % (where, d))
+        spots = room.get("build")
+        if spots is not None and not isinstance(spots, dict):
+            problems.append("%s: build gives directions, each with what could be built there (direction: text)" % where)
+            spots = {}
+        for d in spots or {}:
+            if d not in generate.OPPOSITE:
+                problems.append("%s: build direction %r has no opposite" % (where, d))
+            elif d in (room.get("exits") or {}) or d in expand:
+                problems.append("%s: build direction %r is already an exit or an expand direction" % (where, d))
+            elif not square_free(r, d, pos):
+                problems.append("%s: build direction %r would land on another room's map square" % (where, d))
+            sq = square_of(r, d, pos)
+            if sq and sq in claimed:
+                problems.append("%s: build direction %r takes the same map square as a build spot in %s" % (where, d, claimed[sq]))
+            elif sq:
+                claimed[sq] = r
+        if spots and not any(str(content.load("characters", c).get("builds", "no")).lower() == "yes"
+                             for c in (content.split_condition(x)[0] for x in room.get("characters") or [])
+                             if content.exists("characters", c)):
+            problems.append("%s: has build spots but no builder (`builds: yes`) among its characters" % where)
         if room.get("encounters"):
             need("tables", room["encounters"], where + " encounters")
     for t in content.ids("tables"):
@@ -1632,6 +1852,8 @@ def validate_game():
                                 % (c, t, ", ".join(BALANCE["generation"]["item_tiers"])))
         for i in options_of(ch.get("accepts") or ""):
             need("items", i, "characters/%s.md accepts" % c)
+        if str(ch.get("builds", "no")).lower() not in ("yes", "no"):
+            problems.append("characters/%s.md: builds must be yes or no" % c)
         if ch.get("accepts") and not ch.get("makes"):
             problems.append("characters/%s.md: accepts goes with makes (it's what a maker takes in trade)" % c)
     for t in BALANCE["generation"]["item_tiers"]:
@@ -1741,6 +1963,7 @@ def cmd_settings(args):
     g = v["generation"]
     print("GENERATION: %s, at most %d per run; kinds: %s" % (on(g["on"]), g["max_per_run"], ", ".join(g["kinds"]) or "none"))
     print("CRAFTING: %s, at most %d orders per run" % (on(v["crafting"]["on"]), v["crafting"]["max_per_run"]))
+    print("BUILDING: %s, at most %d orders per run" % (on(v["building"]["on"]), v["building"]["max_per_run"]))
 
 
 # ---------------------------------------------------------------- games: list, show, switch
@@ -1819,9 +2042,9 @@ COMMANDS = {
     "npc-brief": (cmd_npc_brief, 1, "npc-brief <character>   what an NPC agent may know (prompt for its subagent)"),
     "remember": (cmd_remember, 2, "remember <character> <text>   add a line to that NPC's memory of the player"),
     "show": (cmd_show, 1, "show <rooms|characters|items|quests|tables> <id> [--all] | show world   content as it reads now"),
-    "world-brief": (cmd_world_brief, 1, "world-brief <extra|room|item|character|quest|turn> | craft <maker>   prompt for the world agent"),
-    "generate": (cmd_generate, 2, "generate <extra|room|item|character|quest|craft> <file>   add a world-agent proposal (a JSON file)"),
-    "pay": (cmd_pay, 1, "pay <order> [material]   the player pays a maker for an order; a made item is handed over"),
+    "world-brief": (cmd_world_brief, 1, "world-brief <extra|room|item|character|quest|turn> | craft <maker> | build <builder>   prompt for the world agent"),
+    "generate": (cmd_generate, 2, "generate <extra|room|item|character|quest|craft|build> <file>   add a world-agent proposal (a JSON file)"),
+    "pay": (cmd_pay, 1, "pay <order> [material]   the player pays a maker or builder for an order"),
     "world-turn": (cmd_world_turn, 1, "world-turn <file>   apply the world agent's off-screen turn (a JSON file)"),
     "note": (cmd_note, 1, "note <text>   keep a detail you established about this room"),
     "chronicle": (cmd_chronicle, 1, "chronicle <text>   add a line to the story so far"),

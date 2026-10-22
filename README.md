@@ -73,15 +73,16 @@ Playing the game as written is free. The meter is a budget for the **extras** th
 | generating something new (a person, place, item, side quest) | 2 | it doesn't exist; no `may grow` ways are offered |
 | a world turn (life going on off-screen) | 2 | none falls due |
 | having something made (a maker shapes your order) | 2 | the maker takes no new work |
+| having something built (a builder shapes your order) | 3 | the builder takes no new work |
 | every game-master turn, every rules command, the authored characters' agents | free | |
 
 One point is roughly one extra round of game-master work (about 10–15k tokens, weighted as the API prices them). Measured on Sonnet, an ordinary turn costs about 30k and an agent's reply about 5k; the turn is the cost of playing at all, so it's never charged. Prices are charged by the rules script where the extra happens (`world-brief`), after every check that could refuse. The owner's switches live in each game's `settings.json`, a preset from `rules/presets.json` with overrides:
 
-| Preset | Meter | NPC agents | World turns | Generation | Crafting |
-|---|---|---|---|---|---|
-| `thrifty` | 10 | off: the GM voices everyone | off | extras, rooms and items only, 6 per run | 2 orders per run |
-| `normal` | 30 | on, 4 lines between two per turn | every 5 moves | everything the game allows, 16 per run | 5 orders |
-| `rich` | 60 | on, 6 lines | every 4 moves | everything the game allows, 24 per run | 10 orders |
+| Preset | Meter | NPC agents | World turns | Generation | Crafting | Building |
+|---|---|---|---|---|---|---|
+| `thrifty` | 10 | off: the GM voices everyone | off | extras, rooms and items only, 6 per run | 2 orders per run | 1 per run |
+| `normal` | 30 | on, 4 lines between two per turn | every 5 moves | everything the game allows, 16 per run | 5 orders | 3 |
+| `rich` | 60 | on, 6 lines | every 4 moves | everything the game allows, 24 per run | 10 orders | 5 |
 
 Change them with `python3 tools/settings.py preset thrifty` or `set npc_agents.characters.grukk false`; `/budget` shows what's in effect. The station overrides one switch: its world turns come every 4 moves.
 
@@ -97,7 +98,8 @@ The authored world is fixed, but each run varies within limits the content sets,
 | **The clock:** the fleet comes home after 2d6+12 moves. If the lamp is still dark, `fleet_lost` is set and the quest fails | dice, counting moves | `world.md` `clock:` | `run.clock` |
 | **Time and weather:** time follows the clock; the weather changes every few moves | dice | `world.md` `times:` and `weather:` | `run.weather` |
 | **Extras:** the unnamed dockhand you try to talk to becomes a real, minor person | world agent proposes, `generate.py` checks | `world.md` `generation:` and `## Public knowledge` | `run.characters` and `run.placements` |
-| **New rooms:** off directions the content marks `expand:`, such as the quay steps, the tavern's upstairs or the sheep track | world agent / checks | room `expand:` | `run.rooms` and `run.exits` |
+| **New rooms:** wherever the game's growth rule allows: with `rooms: anywhere`, any free way from a room (north, south, east, west, or the room's own `expand:` list), onto a free map square, up to `generation.max_depth` (2) generated rooms deep; with `rooms: yes`, only the `expand:` directions | world agent / checks | `world.md` `generation: rooms:`, room `expand:` | `run.rooms` and `run.exits` |
+| **Places you have built:** a builder standing at a build spot (Morwen at the net-loft footing, Bucket at the railing gap) builds what you describe; you pay, it's done a few moves later, and the map marks it ⌂ | world agent shapes it, `generate.py` checks it like a generated room; the price is `balance.json` `build_price` | room `build:`, character `builds:` | `run.commissions`, then `run.rooms` (`made_by: player`) |
 | **Items, minor characters and side quests:** stats come from the tier tables, never the agent; side quests use only their own `side_<id>_…` flags and can't touch the main quest | world agent / checks | `balance.json` `generation` | `run.items`, `run.characters`, `run.quests` |
 | **Things made to order:** you describe something to a maker (Morwen the net-mender, Bucket the drone); it's shaped within their trade, and once you pay it's yours, marked as made for you | world agent shapes it, `generate.py` checks its tier; the price comes from `balance.json` `craft_price` | character `makes:` and `accepts:` | `run.items` (`made_by: player`), `run.commissions` |
 | **World turns:** every few moves (the owner's `world_turns` setting) the world agent adds rumors and moves generated people around | world agent / checks | `settings.json` | `run.rumors` |
@@ -153,7 +155,8 @@ Extra prose shown only when that flag is set.
 - **Quests** list their `objectives:` in front matter, each ending `(done when <condition>)`. The journal shows the finished objectives and the current one.
 - **Room art** is optional: `games/<id>/art/<room id>.txt`, plain text up to about 30 columns, shown in the pane.
 - **Starting items** in a room may have conditions; they're placed at `/newgame`, after the variants are rolled.
-- **Rooms** may also list `expand:` (directions where a generated room may attach) and `encounters:` (a table id).
+- **Rooms** may also list `expand:` (the directions a generated room may attach in; `no` for none) and `encounters:` (a table id).
+- **Build spots:** a room may give `build:`, each direction with what could be built there (`southwest: the bare stone footing of a burned-out net-loft`). Say so in the room's prose, so the player can see it. A build spot is kept for the player: the world never grows onto its map square. A character with `builds: yes` among the room's characters builds there to order; a `## What <she|he|it|they> build(s)` section describes what they build. `validate` checks each spot has a builder and a free map square.
 - **Tables** (`games/<id>/tables/<id>.md`) give a `chance:` like `2 in 6` and `entries:`. Each entry may end with `(effect: coins -1 | gain <item> | hurt <dice> | heal <dice> | flag <name> | none)` and `(once)`.
 - **Quests** may give `failed_by:` as well as `completed_by:`.
 - **Rooms** may give `terrain:` (a kind from the look's `terrain`, e.g. water, grass, stone, indoors; the station adds metal and flooded) and `color:` for their map tile. Generated rooms take a terrain too, or their neighbour's.
@@ -162,7 +165,7 @@ Extra prose shown only when that flag is set.
 - **Makers** are characters with `makes:` (the item tiers they make to order) and optionally `accepts:` (items they take instead of money). A `## What <she|he|it|they> make(s)` section describes their trade; the world agent reads it when shaping an order. The Lighthouse has Morwen the net-mender on the square; on the station, Bucket makes things from scrap.
 - **`look.json`** may set `palette` (`accent`, `good`, `bad`, `warn`, `heal`, and `accent_by_time`, a color per time of day from world.md's `times`), `terrain` (each kind's tile `bg`, `fg`, and `moves` for water), `sounds` (which kit sound each beat plays, or `null`: step, dice, hit, miss, coin, heal, fanfare, defeat, wipe, type, meter_low, and `phase_<reading|considering|shaping|stirring|resolving>`), `stat_labels` and `stat_short` (names for might, agility and wits), `currency`, `tagline` (under the title card), `tabs` with `tab_labels` and `tab_keys`, and `phrases` (`idle`, `by_command`, and `phases`, what the waiting line says in each stage of a turn; `{name}` is who's thinking). Anything left out comes from `rules/look.default.json`. `validate` flags unknown keys.
 - **`balance.json`** in a game folder overrides any number in `rules/balance.json`, key by key; `validate` flags unknown keys.
-- **`world.md`** may give `rolls:`, `variants:`, `clock:` (name, moves, flag, and optionally `also_if` / `also_flag`), `weather:`, `times:`, `generation:`, and body sections `## Tone` and `## Public knowledge` for the world agent.
+- **`world.md`** may give `rolls:`, `variants:`, `clock:` (name, moves, flag, and optionally `also_if` / `also_flag`), `weather:`, `times:`, `generation:` (each kind `yes` or `no`; `rooms` may also be `anywhere`), and body sections `## Tone` and `## Public knowledge` for the world agent.
 
 ## Changing things
 - **Rewrite a world:** edit the files in `games/<id>/`, then run `python3 rules/rpg.py validate` to check every game's references and settings (`--game <id>` for one).

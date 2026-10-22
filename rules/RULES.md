@@ -71,7 +71,8 @@ Two kinds of names are automatic and can't be set: `has_<item>` is true while yo
 - The world agent proposes, and `generate.py` decides whether the proposal fits:
   - ids and names are new;
   - descriptions are short;
-  - new rooms attach only through a room's `expand:` directions, and go no further;
+  - new rooms attach only where the game's growth rule allows (`generation: rooms:` in world.md): `anywhere` means any free way from a room (its `expand:` list if it has one, else north, south, east and west; `expand: no` for none), onto a free map square, up to `generation.max_depth` (2) generated rooms deep; `yes` means only authored rooms' `expand:` directions;
+  - no new place lands on another room's map square, or on a build spot's;
   - each room yields at most 1 found item and 2 extras;
   - each run allows at most the owner's `generation.max_per_run` generated entities (16 in the normal preset).
 - **Stats come from tiers, never from the proposal.**
@@ -87,8 +88,14 @@ Two kinds of names are automatic and can't be set: `has_<item>` is true while yo
 - **Paying:** `pay <id>` takes the tier's price from `generation.craft_price` (trinket 2, light weapon 3, tonic 3, weapon 5), or `pay <id> <item>` takes one item the maker accepts. The item is handed over at once and is the player's own.
 - **Limits:** the owner's `crafting.max_per_run` orders per run (2, 5, 10 by preset); orders don't count toward the generation limit, and a game's `generation:` policy doesn't apply to them.
 
+## Places built to order
+- A **builder** (`builds: yes`) builds at the build spots (`build:`) of the room they stand in.
+- **Ordering:** `world-brief build <builder>` (price `build`, 3); the world agent shapes the player's request into one small, empty place at a build spot, checked like a generated room by `generate build`.
+- **Paying:** `pay <id>` takes `generation.build_price` (5), in money only. The place is finished `generation.build_moves` (3) moves later: it joins the world with a way to it, marked `made_by: player`, and a rumor spreads so people start using it.
+- **Limits:** the owner's `building.max_per_run` (1, 3, 5 by preset). A newer order for the same spot replaces an unpaid one.
+
 ## The meter: what the extras cost
-Playing the game as written is free: every game-master turn, every rules command, and the authored characters speaking through their agents. Only extras beyond it have a price, set by the game (`meter.prices` in balance.json): generating something new 2, a world turn 2, having something made 2. One point is roughly one extra round of game-master work. The game shows the meter as its own resource (lamp oil, power), with a capacity from the owner's settings (30 in the normal preset).
+Playing the game as written is free: every game-master turn, every rules command, and the authored characters speaking through their agents. Only extras beyond it have a price, set by the game (`meter.prices` in balance.json): generating something new 2, a world turn 2, having something made 2, having something built 3. One point is roughly one extra round of game-master work. The game shows the meter as its own resource (lamp oil, power), with a capacity from the owner's settings (30 in the normal preset).
 - **Paying:** `world-brief` pays for each generation or world turn after every check that could refuse, so a refused extra costs nothing and a retry pays again.
 - **Running low:** at `meter.low_at_percent` (25%) or below, the game warns once.
 - **Spent:** when the meter can't pay for an extra, it doesn't happen: nothing new is generated, no `may grow` ways are offered, and no world turns fall due. The game as written plays on, agents included.
@@ -101,6 +108,7 @@ Each game's `settings.json` picks a preset from `rules/presets.json` (`thrifty`,
 - `world_turns`: `on` and `every_moves`;
 - `generation`: `on`, `max_per_run`, and `kinds` (extras, rooms, items, characters, side_quests). Something is generated only if the game's own `generation:` allows it **and** the switch is on.
 - `crafting`: `on` and `max_per_run` (orders placed with makers).
+- `building`: `on` and `max_per_run` (places ordered from builders).
 
 `rpg.py settings` and the instant command `/budget` show them. Only the owner changes them, with `tools/settings.py`, which the game master can't run.
 

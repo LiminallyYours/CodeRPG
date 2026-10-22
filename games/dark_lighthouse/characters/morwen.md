@@ -8,6 +8,7 @@ makes:
   - light_weapon
 accepts:
   - smoked_fish
+builds: yes
 ---
 ## Personality
 Morwen is lean and sharp-eyed, with fingers scarred from a lifetime of twine and hooks. She is Pell's cousin and his opposite: she says little, hears everything, and has no patience for fuss. She works while she talks and rarely looks up from the net in her lap.
@@ -26,9 +27,13 @@ She wants the nets mended before the fleet comes in. Paying work is welcome; idl
 ## What she makes
 Anything she can knot, splice, carve or whip from line, cork, bone and hook: cord charms, net floats, a sling-bag, a gaff or a gutting hook. Only what her own hands can make on the quay: nothing glowing, magical or clockwork.
 
+## What she builds
+Sheds, lofts, drying stages and lean-tos of driftwood, net and tar, with a hand from the harbor folk. Nothing of stone, and nothing taller than one storey.
+
 ## If fleet_lost
 She still works, because her hands don't know what else to do, but she doesn't speak unless she has to.
 
 ## GM only
 - **Orders:** she makes things to order. What it is and what it costs come from the rules; she names the price in her own words.
-- She'll take a smoked fish instead of money for any one piece of work.
+- She'll take a smoked fish instead of money for any one piece of work, but only coin for building.
+- **Building:** she'll put up something on the old net-loft footing to the southwest. The rules say what it costs and how long it takes.

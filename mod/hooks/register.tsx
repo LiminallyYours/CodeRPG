@@ -105,6 +105,10 @@ const GM_ALWAYS = /^(Recording|Generating|Narrating|Spawning|Updating|Let me|I'l
 // talks about the machinery.
 const GM_MAYBE = /^(I\b|Now\b|Next\b|First\b|Saving|Running|Checking|Placing|Rolling|Bringing|Calling|Asking|Writing|Passing)\b/i
 const GM_WORDS = /(narrat|generat|rpg\.py|world turn|world agent|subagent|npc agent|\bagent\b|\bthe brief\b|proposal|\bspawn|\bflags?\b|\bthe save\b|procedure|tool calls?|\brecord(ing)?\b|next thing you see|you'?ll see|\b(her|his|their|the) reply\b)/i
+// Anywhere in a note-shaped paragraph, these give it away however it opens: the machinery by name, the game
+// master speaking as "I" (narration is in the second person and dialogue is in quotes), or figures (narration
+// spells numbers out; a status line like "priced at 5 credits, not paid for yet" doesn't).
+const GM_ANYWHERE = /(narrating|\bnarration\b|rpg\.py|world agent|subagent|world update|\bworld turn\b|off-screen|proposal|tool calls?|\bI('ve|'m|'ll|'d)?\b|\d)/
 
 /**
  * A short line the game master wrote about what it's doing ("Recording what Ysolde noticed. Her reply is the
@@ -116,7 +120,7 @@ const GM_WORDS = /(narrat|generat|rpg\.py|world turn|world agent|subagent|npc ag
 export function isGmNote(text: string): boolean {
   const t = text.trim()
   if (t.length > 200 || t.includes('\n\n') || /["“”]/.test(t)) return false
-  return GM_ALWAYS.test(t) || (GM_MAYBE.test(t) && GM_WORDS.test(t))
+  return GM_ALWAYS.test(t) || GM_ANYWHERE.test(t) || (GM_MAYBE.test(t) && GM_WORDS.test(t))
 }
 
 /** Narration with a game-master note removed from its start, when story follows it. */
@@ -207,7 +211,7 @@ function itemsOf(s: CoderpgSave): { id: string; name: string; equipped: boolean;
 
 /** What each priced extra is, in the player's words, for /budget. Playing the game as written is free. */
 const PRICE_NAMES: Record<string, string> = {
-  generate: 'something new appearing', world_turn: 'the world moving on by itself', craft: 'having something made',
+  generate: 'something new appearing', world_turn: 'the world moving on by itself', craft: 'having something made', build: 'having something built',
 }
 
 /** The meter's color: plain while there's plenty, then the warning and danger colors. */
@@ -230,6 +234,7 @@ export function budgetText(s: CoderpgSave): string {
     `**The world moving on by itself:** ${on(v.world_turns.on)}, every ${v.world_turns.every_moves} moves.`,
     `**New things appearing:** ${on(v.generation.on && v.generation.kinds.length > 0)}, up to ${v.generation.max_per_run} per game${v.generation.kinds.length ? ` (${v.generation.kinds.join(', ').replace(/_/g, ' ')})` : ''}.`,
     ...(v.crafting ? [`**Having things made:** ${on(v.crafting.on)}, up to ${v.crafting.max_per_run} orders per game.`] : []),
+    ...(v.building ? [`**Having places built:** ${on(v.building.on)}, up to ${v.building.max_per_run} per game.`] : []),
     `*Preset: ${v.preset}. The owner changes these with \`python3 tools/settings.py\`.*`,
   ].join('\n\n')
 }
@@ -930,6 +935,9 @@ export const register: Register = on => {
               <Box flexDirection="row"><Text backgroundColor={c.bg} color={c.fg}>{c.moves ? ' ~ ' : '   '}</Text><Text dimColor> {t}</Text></Box>
             ))}
             {usesUpDown(s.map ?? {}) && <Box flexDirection="row"><Text dimColor>┊ up or down</Text></Box>}
+            {Object.values(s.map ?? {}).some(r => r.made_by === 'player') && (
+              <Box flexDirection="row"><Text color={accent} bold>⌂</Text><Text dimColor> built for you</Text></Box>
+            )}
           </Box>
         )}
       </Box>

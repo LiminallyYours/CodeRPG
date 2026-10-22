@@ -6,6 +6,7 @@ items:
   - spare_fuse
 characters:
   - shellback (if not shellback_defeated)
+expand: no
 terrain: flooded
 ---
 The lower lab is flooded to the waist. Emergency strip-lights glow green under the water. Along the far wall stands a steel parts locker, its door ajar, with a box of fuses on its top shelf. The stairwell climbs back up to the Lab Wing.

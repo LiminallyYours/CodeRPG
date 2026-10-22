@@ -32,6 +32,10 @@ export function trayLines(stdout: string, look: CoderpgLook = DEFAULT_LOOK): Tra
       out.push({ icon: ' ', text: `${n > 0 ? '+' : '-'}${money(Math.abs(n), look)} · ${m[2]} left`, tone: n > 0 ? 'good' : 'bad' })
     } else if ((m = /^MADE: (.+?) \([a-z0-9_]+\), made for the player by (.+?)\./.exec(line))) {
       out.push({ icon: '✧', text: `${m[1]}, made for you by ${m[2]}`, tone: 'good' })
+    } else if ((m = /^BUILDING: (.+?) \([a-z0-9_]+\), .*?: ready in (\d+ moves?)\./.exec(line))) {
+      out.push({ icon: '⌂', text: `${m[1]}: ready in ${m[2]}`, tone: 'neutral' })
+    } else if ((m = /^BUILT: (.+?) \([a-z0-9_]+\) is finished/.exec(line))) {
+      out.push({ icon: '⌂', text: `${m[1]} is finished`, tone: 'good' })
     } else if ((m = /^PAID WITH: (\w+)$/.exec(line))) {
       out.push({ icon: ' ', text: `paid with ${title(m[1]!)}`, tone: 'neutral' })
     } else if ((m = /^GAINED: (\w+)/.exec(line))) {

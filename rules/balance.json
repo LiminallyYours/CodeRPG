@@ -60,7 +60,10 @@
       "light_weapon": 3,
       "weapon": 5,
       "tonic": 3
-    }
+    },
+    "build_price": 5,
+    "build_moves": 3,
+    "max_depth": 2
   },
   "world": {
     "weather_every_moves": 5,
@@ -74,7 +77,8 @@
     "prices": {
       "generate": 2,
       "world_turn": 2,
-      "craft": 2
+      "craft": 2,
+      "build": 3
     }
   }
 }

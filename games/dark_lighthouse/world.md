@@ -43,7 +43,7 @@ times:
 # what the world agent may create during a run
 generation:
   extras: yes
-  rooms: yes
+  rooms: anywhere
   items: yes
   characters: yes
   side_quests: yes

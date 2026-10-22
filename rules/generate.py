@@ -25,7 +25,8 @@ class Context:
 
     def __init__(self, *, location, taken_ids, taken_names, expand, policy, balance, count,
                  items_found_here, extras_here, characters_here, room_ids, generated_people,
-                 terrains=(), terrain_here=None, moves=0, maker=None, makes=()):
+                 terrains=(), terrain_here=None, moves=0, maker=None, makes=(), builder=None, build_spots=None,
+                 depth_here=0):
         self.location = location                    # the player's room id
         self.taken_ids = set(taken_ids)             # every id in use, any kind
         self.taken_names = {n.lower() for n in taken_names}
@@ -43,6 +44,9 @@ class Context:
         self.moves = moves                          # moves made this run
         self.maker = maker                          # who the player is ordering from (craft), or None
         self.makes = list(makes)                    # the item tiers that maker makes
+        self.builder = builder                      # who the player is ordering a building from, or None
+        self.build_spots = dict(build_spots or {})  # {direction: what fits there}: this room's free build spots
+        self.depth_here = depth_here                # how many generated rooms deep the player's room is (authored: 0)
 
 
 def empty_patch():
@@ -229,17 +233,30 @@ def character(p, ctx, patch=None, ids=None, room=None):
     return patch
 
 
-def room(p, ctx):
-    """A new place off the player's room, through one of the directions the room may grow in."""
-    _allowed(ctx, "rooms")
-    patch, ids = empty_patch(), set()
+def _place(p, ctx, ids, directions, made_by, what):
+    """The checks every new place passes, generated or built: a direction it may go in, a way back, a new id and
+    name, a terrain the map knows, a short description. Returns (id, direction, record)."""
     direction = p.get("direction")
-    if direction not in ctx.expand:
-        raise ValueError("this room can only grow %s" % (" or ".join(ctx.expand) if ctx.expand else "nowhere"))
+    if direction not in directions:
+        raise ValueError("%s can only go %s" % (what, " or ".join(directions) if directions else "nowhere from here"))
     back = OPPOSITE.get(direction)
     if not back:
         raise ValueError("no way back is known for direction %r" % direction)
     ident, name = _claim(p, ctx, ids)
+    terrain = p.get("terrain") or ctx.terrain_here
+    if terrain is not None and terrain not in ctx.terrains:
+        raise ValueError("terrain must be one of %s" % ", ".join(ctx.terrains))
+    meta = {"name": name, "generated": "yes", "made_by": made_by, "depth": ctx.depth_here + 1, "exits": {back: ctx.location}}
+    if terrain:
+        meta["terrain"] = terrain
+    return ident, direction, {"meta": meta, "body": _text(p, "description", 900)}
+
+
+def room(p, ctx):
+    """A new place off the player's room, through one of the directions the room may grow in."""
+    _allowed(ctx, "rooms")
+    patch, ids = empty_patch(), set()
+    ident, direction, record = _place(p, ctx, ids, ctx.expand, "world", "a new place here")
     _budget(ctx, 1)
     items = [_obj(x, "each of the room's items") for x in _list(p.get("items"), "items")]
     chars = [_obj(x, "each of the room's characters") for x in _list(p.get("characters"), "characters")]
@@ -250,15 +267,26 @@ def room(p, ctx):
         patch["room_items"].setdefault(ident, []).append(it["id"])
     for ch in chars:
         character(ch, ctx, patch, ids, room=ident)
-    terrain = p.get("terrain") or ctx.terrain_here
-    if terrain is not None and terrain not in ctx.terrains:
-        raise ValueError("terrain must be one of %s" % ", ".join(ctx.terrains))
-    meta = {"name": name, "generated": "yes", "made_by": "world", "exits": {back: ctx.location}}
-    if terrain:
-        meta["terrain"] = terrain
-    patch["rooms"][ident] = {"meta": meta,
-                             "body": _text(p, "description", 900)}
+    patch["rooms"][ident] = record
     patch["exits"][ctx.location] = {direction: ident}
+    return patch
+
+
+def build(p, ctx):
+    """A place the player ordered from a builder, at one of this room's build spots. It passes the same checks
+    as a generated room but starts empty. It waits, unbuilt, as an order (the record rides in the order) until
+    paid for; rpg.py adds it to the world when the work is done. The price comes from balance.json."""
+    if p.get("refuse") is not None:
+        raise Declined(_text(p, "refuse", 200))
+    if not ctx.builder:
+        raise ValueError("no order is open: run `world-brief build <builder>` first")
+    if p.get("items") or p.get("characters"):
+        raise ValueError("a built place starts empty: no items or characters")
+    ident, direction, record = _place(p, ctx, set(), list(ctx.build_spots), "player", "it")
+    patch = empty_patch()
+    patch["commissions"][ident] = {"kind": "room", "maker": ctx.builder, "price": int(ctx.balance["build_price"]),
+                                   "status": "ordered", "ordered_at": ctx.moves, "room": ctx.location,
+                                   "direction": direction, "record": record}
     return patch
 
 
@@ -315,4 +343,4 @@ def world_turn(p, ctx):
     return patch
 
 
-KINDS = {"extra": extra, "item": item, "character": character, "room": room, "quest": quest, "craft": craft}
+KINDS = {"extra": extra, "item": item, "character": character, "room": room, "quest": quest, "craft": craft, "build": build}

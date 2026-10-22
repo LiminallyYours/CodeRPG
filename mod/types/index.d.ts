@@ -18,7 +18,7 @@ export type CoderpgSave = {
     name: string; exits: Record<string, string>; neighbors?: Record<string, string>
     /** The room's terrain (a key of the look's `terrain`) and its own tile color, if it gives one (version 7+). */
     terrain?: string | null; color?: string | null
-    /** Who made the place: "world" for a generated room (version 7+). */
+    /** Who made the place: "world" for a generated room (version 7+), "player" for one the player had built (version 8+). */
     made_by?: string | null
   }>
   /** Characters the player has seen (save version 4+). */
@@ -84,6 +84,8 @@ export type CoderpgSettings = {
   generation: { on: boolean; max_per_run: number; kinds: string[] }
   /** Makers taking orders (version 8+). */
   crafting?: { on: boolean; max_per_run: number }
+  /** Builders taking orders (version 8+). */
+  building?: { on: boolean; max_per_run: number }
 }
 
 export type CoderpgPerson = { id: string; name: string; role: string; generated?: boolean; card?: string | null }

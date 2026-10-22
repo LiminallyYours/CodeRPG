@@ -361,7 +361,7 @@ class Engine(unittest.TestCase):
         v = self.save()["view"]
         self.assertEqual(set(v["meter"]), {"left", "capacity", "state"})
         self.assertEqual(v["settings"]["preset"], "normal")
-        self.assertEqual(v["settings"]["prices"], {"generate": 2, "world_turn": 2, "craft": 2})
+        self.assertEqual(v["settings"]["prices"], {"generate": 2, "world_turn": 2, "craft": 2, "build": 3})
         self.set_meter(9)
         self.rpg("world-brief", "turn")
         self.assertEqual(self.save()["view"]["meter"]["state"], "low")  # 7 of 30
@@ -544,7 +544,7 @@ class Engine(unittest.TestCase):
         self.rpg("newgame", seed=42)
         self.settings_tool("set", "crafting.on", "false")
         self.assertNotIn("MAKERS HERE", self.rpg("look"))
-        self.assertIn("no one takes orders", self.rpg("world-brief", "craft", "morwen", ok=False))
+        self.assertIn("no makers take orders", self.rpg("world-brief", "craft", "morwen", ok=False))
         self.assertEqual(self.meter(), 30)
         self.settings_tool("set", "crafting.on", "true")
         self.settings_tool("set", "crafting.max_per_run", "1")
@@ -579,6 +579,76 @@ class Engine(unittest.TestCase):
         self.write("rules/balance.json", json.dumps(kit))
         self.write(d, text)
         self.assertIn("no price for the item tier 'tonic'", self.rpg("validate", "--game", "dark_lighthouse", ok=False))
+
+
+    def test_a_builder_builds_where_they_stand_and_it_takes_a_few_moves(self):
+        self.rpg("game", "switch", "dark_lighthouse")
+        self.rpg("newgame", seed=50)
+        look = self.rpg("look")
+        self.assertIn("BUILD SPOTS HERE: southwest: the bare stone footing", look)
+        self.assertIn("may grow: south ", look)  # the quay steps; the footing is kept for the player
+        self.rpg("world-brief", "build", "morwen")
+        self.assertEqual(self.meter(), 27)
+        loft = {"id": "net_loft", "name": "The Net-Loft", "direction": "south", "description": "A tarred loft."}
+        self.write("proposals/b.json", json.dumps(loft))
+        self.assertIn("it can only go southwest", self.rpg("generate", "build", "proposals/b.json", ok=False))
+        self.write("proposals/b.json", json.dumps(dict(loft, direction="southwest", items=[{"id": "a_net"}])))
+        self.assertIn("starts empty", self.rpg("generate", "build", "proposals/b.json", ok=False))
+        self.write("proposals/b.json", json.dumps(dict(loft, direction="southwest")))
+        out = self.rpg("generate", "build", "proposals/b.json")
+        self.assertIn("COMMISSIONED: The Net-Loft (net_loft), to be built southwest of here by Morwen", out)
+        self.assertIn("PRICE: 5 coins.", out)
+        self.assertIn("not enough coins", self.rpg("pay", "net_loft", ok=False))
+        self.rpg("coins", "+5")
+        self.assertIn("builds for coins only", self.rpg("pay", "net_loft", "worn_dagger", ok=False))
+        self.assertIn("ready in 3 moves", self.rpg("pay", "net_loft"))
+        look = self.rpg("look")
+        self.assertIn("BEING BUILT: net_loft (The Net-Loft), southwest of harbor_square: ready in 3 moves", look)
+        self.assertNotIn("BUILD SPOTS HERE", look)  # the spot is taken
+        self.assertNotIn("net_loft", self.save()["run"]["rooms"])  # it doesn't exist yet
+        outs = [self.rpg("move", d) for d in ("north", "south", "north")]
+        self.assertNotIn("is finished", outs[0] + outs[1])
+        self.assertIn("BUILT: The Net-Loft (net_loft) is finished, southwest of Harbor Square, built for the player by Morwen", outs[2])
+        self.assertIn("exit southwest -> The Net-Loft", self.rpg("move", "south"))
+        self.rpg("move", "southwest")
+        s = self.save()
+        self.assertEqual(s["map"]["net_loft"]["made_by"], "player")
+        self.assertEqual(s["run"]["generated"], 0)
+        self.assertTrue(any("The Net-Loft is finished" in r for r in s["run"]["rumors"]))  # people hear of it
+        self.assertNotIn("BUILD SPOTS", self.rpg("look"))  # a built place offers no build spots of its own
+
+    def test_the_world_grows_anywhere_free_but_not_too_deep(self):
+        self.rpg("game", "switch", "dark_lighthouse")
+        self.rpg("newgame", seed=51)
+        self.rpg("move", "west")  # the Lighthouse lists no expand: so any free cardinal way
+        self.assertIn("may grow: north, west ", self.rpg("look"))  # south is the footing's square, kept for building
+        for n, d in enumerate(("north", "north")):
+            room = {"id": "cliff_path_%d" % n, "name": "Cliff Path %d" % n, "direction": d, "description": "A narrow path."}
+            self.write("proposals/r.json", json.dumps(room))
+            self.rpg("world-brief", "room")
+            self.rpg("generate", "room", "proposals/r.json")
+            self.rpg("move", d)
+        self.assertEqual(self.save()["run"]["rooms"]["cliff_path_1"]["meta"]["depth"], 2)
+        self.assertNotIn("may grow", self.rpg("look"))  # max_depth 2
+        self.rpg("move", "south")
+        self.assertIn("may grow: west ", self.rpg("look"))  # a generated room grows on: not back south, nor east onto the Gull
+        w = self.dir / "games/dark_lighthouse/world.md"
+        w.write_text(w.read_text().replace("rooms: anywhere", "rooms: yes"))
+        self.assertNotIn("may grow", self.rpg("look"))  # marked: only authored rooms' expand: directions
+
+    def test_validate_checks_build_spots(self):
+        d = "games/dark_lighthouse/rooms/harbor_square.md"
+        text = (self.dir / d).read_text()
+        self.write(d, text.replace("  southwest: the bare", "  north: the bare"))
+        self.assertIn("build direction 'north' is already an exit", self.rpg("validate", "--game", "dark_lighthouse", ok=False))
+        road = "games/dark_lighthouse/rooms/coast_road.md"
+        self.write(road, (self.dir / road).read_text().replace("expand: north\n", "expand: north\nbuild:\n  northwest: a lean-to\n"))
+        self.write(d, text)
+        out = self.rpg("validate", "--game", "dark_lighthouse", ok=False)
+        self.assertIn("coast_road.md: build direction 'northwest' would land on another room's map square", out)  # the Gull's
+        self.assertIn("coast_road.md: has build spots but no builder", out)
+        self.write(d, text.replace("  - morwen\n", ""))
+        self.assertIn("has build spots but no builder", self.rpg("validate", "--game", "dark_lighthouse", ok=False))
 
 
 if __name__ == "__main__":

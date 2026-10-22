@@ -395,6 +395,8 @@ test('ordinary story is never taken for a game-master note (QA finding 1)', () =
     'Saving her breath, Ysolde points at the stair.',
     'Now the tide turns, and the wind with it.',
     'Next to the hearth, an old man stirs.',
+    'The world turns grey as the fog rolls in.',
+    'In the corner, a lantern gutters and dies.',
   ]) {
     const text = `${first}\n\nYou climb the path.`
     expect(stripPreamble(text)).toBe(text)
@@ -407,6 +409,8 @@ test('ordinary story is never taken for a game-master note (QA finding 1)', () =
     "Now I'll spawn the world agent for the fisherman.",
     'Recording what Ysolde noticed. Her reply is the next thing you see.',
     'Updating her memory first.',
+    "Back on the Landing, I've finished the off-screen world update, and now I'm narrating.", // Stage 5 playtest
+    "Bucket's drawing up the Lookout Float; it's priced at 5 credits and isn't paid for yet.",
   ]) expect(isGmNote(note)).toBe(true)
   expect(stripPreamble('Recording what Ysolde noticed. Her reply is the next thing you see.\n\nYou skip up the path.'))
     .toBe('You skip up the path.')
@@ -515,11 +519,12 @@ test('a new game, or switching to another game, starts on a cleared screen; list
 })
 
 const SETTINGS = {
-  preset: 'normal', capacity: 30, prices: { generate: 2, world_turn: 2, craft: 2 },
+  preset: 'normal', capacity: 30, prices: { generate: 2, world_turn: 2, craft: 2, build: 3 },
   npc_agents: { on: true, lines_per_exchange: 4, off_for: ['grukk'] },
   world_turns: { on: false, every_moves: 5 },
   generation: { on: true, max_per_run: 16, kinds: ['extras', 'side_quests'] },
   crafting: { on: true, max_per_run: 5 },
+  building: { on: true, max_per_run: 3 },
 }
 const metered = (left: number, state: 'ok' | 'low' | 'spent'): CoderpgSave => ({
   ...STATION, view: { ...STATION.view!, meter: { left, capacity: 30, state }, settings: SETTINGS,
@@ -538,8 +543,9 @@ test("the pane shows the meter under the game's own name, colored when it runs l
 test('/budget tells the player what is left, what things cost and what is on, in plain words', () => {
   const text = budgetText(metered(22, 'ok'))
   expect(text).toContain('**ϟ Power:** 22/30.')
-  expect(text).toContain('something new appearing 2 · the world moving on by itself 2 · having something made 2. Playing the game as written is always free.')
+  expect(text).toContain('something new appearing 2 · the world moving on by itself 2 · having something made 2 · having something built 3. Playing the game as written is always free.')
   expect(text).toContain('**Having things made:** on, up to 5 orders per game.')
+  expect(text).toContain('**Having places built:** on, up to 3 per game.')
   expect(text).toContain('voiced by the storyteller: grukk')
   expect(text).toContain('**The world moving on by itself:** off')
   expect(text).toContain('(extras, side quests)')
@@ -694,6 +700,16 @@ test('the map tab draws the tiles as a live module on the terminal', async ($, o
   const after = (await ui.findAll({ type: 'Text', in: 'map' })).map(t => t.text).join('')
   expect(after).not.toBe(before)
   expect(await ui.find({ text: / water/ })).toBeDefined() // the key names the terrains seen
+  expect(await ui.find({ text: ' built for you' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test("the map's key explains the mark on a place built for the player", async ($, on) => {
+  const s: CoderpgSave = { ...SAVE, map: { ...MAP, gull_tavern: { ...MAP.gull_tavern!, made_by: 'player' } } }
+  on('state.get', { plugin: 'coderpg', key: 'save' }, () => ({ value: { value: s, version: 1 } }))
+  on('state.get', { plugin: 'coderpg', key: 'tab' }, () => ({ value: { value: 'map', version: 1 } }))
+  const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'Pane', requestId: 'coderpg-sheet', props: PANE_PROPS })
+  expect(await ui.find({ text: ' built for you' })).toBeDefined()
   await ui.unmount()
 })
 
@@ -762,4 +778,16 @@ test('paying a maker shows what was made, and how it was paid for', () => {
   expect(lines.map(l => l.text)).toEqual(['-3 coins · 0 left', 'Gaff Hook, made for you by Morwen'])
   expect(trayLines('PAID WITH: sardine_tin')[0]!.text).toBe('paid with Sardine Tin')
   expect(trayLines('COMMISSIONED: Gaff Hook (gaff_hook), light weapon, from Morwen')).toEqual([])
+})
+
+test('a place the player had built is marked on the map, and its building shows in the tray', () => {
+  const look = lookOf(null)
+  const map = { ...MAP, gull_tavern: { ...MAP.gull_tavern!, made_by: 'player' } }
+  const cells = tileGrid(map, 'harbor_square', 60, look).flat()
+  expect(cells.filter(c => c.ch === '⌂').length).toBe(1)
+  expect(tileGrid(MAP, 'harbor_square', 60, look).flat().some(c => c.ch === '⌂')).toBe(false)
+  expect(trayLines('BUILDING: The Net-Loft (net_loft), southwest of here, by Morwen: ready in 3 moves. It doesn\'t exist until then.')[0]!.text)
+    .toBe('The Net-Loft: ready in 3 moves')
+  expect(trayLines('BUILT: The Net-Loft (net_loft) is finished, southwest of Harbor Square, built for the player by Morwen.')[0]!.text)
+    .toBe('The Net-Loft is finished')
 })

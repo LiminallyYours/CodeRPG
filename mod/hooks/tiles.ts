@@ -1,6 +1,6 @@
 // The map as colored tiles: each room a block filled with its terrain's colors (from the game's look),
-// its name on the middle row, links between neighbours, the player's room marked, rooms heard of but not
-// visited drawn dim. Pure: the save's map in, a grid of cells out. tilemap.tsx animates it.
+// its name on the middle row, links between neighbours, the player's room marked, places the player had built
+// marked ⌂, rooms heard of but not visited drawn dim. Pure: the save's map in, a grid of cells out. tilemap.tsx animates it.
 
 import type { CoderpgLook, CoderpgSave } from '../types'
 import { fit, labelOf, layout, STEP } from './map'
@@ -55,6 +55,7 @@ export function tileGrid(map: RoomMap, here: string, columns: number, look: Code
       }
     }
     if (id === here) put(x0, y0, { ch: '◆', fg: look.palette.accent, bg, k: 'mark', b: true })
+    if (known && map[id]!.made_by === 'player') put(x0 + tileW - 1, y0 + 2, { ch: '⌂', fg: look.palette.accent, bg, k: 'tile', b: true })
   }
 
   for (const [id, r] of Object.entries(map)) {
