@@ -5,8 +5,8 @@ As of 2026-10-21. The state of the kit build for whoever picks it up next, human
 ## Where things are
 - **Requirements:** `IMPLEMENTATION-PLAN.md` (JW's game-owner requirements, Stages 1–8).
 - **Technical plan:** `~/.claude/plans/please-read-implementation-plan-md-in-sunny-cake.md` (approved). The decisions below override it where they differ.
-- **Done:** Stage 1 (kit split, second game, seeds), the clean-start follow-up, Stage 2 (the meter and switches), Stage 3 (look and feel). Everything is committed on `main`, and `sh tools/check.sh` passes.
-- **Next:** Stage 4, curses (the user said to continue after Stage 3's playtest fix).
+- **Done:** Stage 1 (kit split, second game, seeds), the clean-start follow-up, Stage 2 (the meter and switches), Stage 3 (look and feel), Stage 4 (curses). Everything is committed on `main`, and `sh tools/check.sh` passes.
+- **Next:** Stage 5, the player leaves a mark (crafting, building, the library, promoted agents). Stop for the user's playtest of Stage 4 first.
 
 | Commit | What |
 |---|---|
@@ -18,6 +18,8 @@ As of 2026-10-21. The state of the kit build for whoever picks it up next, human
 | `7c50996` | The meter charges only extras; baseline play is free |
 | `2ac55a1` | This file |
 | `c13e285` | Stage 3: block-letter banners, transitions, combat strip, tile map, sounds per beat, waiting phases, character cards, accent by time |
+| `a2280fe` | Handoff update |
+| `b8334c8` | Curses: content kind, transforms with shared vectors, the prompt hook tells the GM both versions, mod draws the cursed row |
 | `770f5e8` | Speaker cards: the speaker is named outside the quotes; a person without a card keeps the paragraph plain (playtest bug: Dunstan's line labelled Pell) |
 
 ## Decisions made with the user (keep to these)
@@ -50,8 +52,13 @@ As of 2026-10-21. The state of the kit build for whoever picks it up next, human
 - The player's real save (`state/save.json`) is still v6; the first `/newgame` replaces it.
 - The fixed prices for extras are estimates; recalibrate if `/cost` suggests they're off.
 
-## Next: Stage 4, curses (from the plan)
-Content: `games/<id>/curses/<id>.md` with an `effect:` (reverse_words, word_limit N, suffix "<phrase>", plus mirror), `caused_by:` and `cured_by:` conditions, and prose. The curse is active while caused_by holds and cured_by doesn't, so it can't outlive a new game. `rpg.py curse-text` prints the cursed form. The UserPromptSubmit hook adds context: the words as they came out, and what the player meant. The mod shows the cursed text in the player's row (a TS port of the transforms, with shared test vectors in `rules/curse_vectors.json`) and the curse in the status band. Procedure in `gm-turn/curses.md`. Add a curse and its cure to both games. Curses cost nothing (no meter price).
+## Stage 4 notes
+- Curses live in `games/<id>/curses/`; `rules/curse.py` holds the transforms and `rules/curse_vectors.json` the shared examples. Change one side, change both: `mod/hooks/curse.ts` and `mod/tests/curse_vectors.ts` (a copy; `test_rules.py` checks it matches).
+- No `gm-turn/curses.md` side file: reading it mid-game would need a Read permission and could prompt. `look`'s `CURSE:` line and the prompt hook carry the procedure instead. Use the same pattern for later stages' procedure where possible: put it in `rpg.py` output or the hook, only when the feature is active.
+- `validate` checks a curse's cure is reachable by searching the game's other `.md` files for the flag name (a heuristic).
+
+## Next: Stage 5, the player leaves a mark (from the plan)
+5.1 crafting (`makes:` tiers on makers; `world-brief craft`, `generate craft` priced from `balance.generation.craft_price`, a commission collected with `rpg.py collect`); 5.2 building (`build:` directions on rooms, `builds: yes` on characters, completes after N moves in `tick_move`, shown on the map as the player's); 5.3 the library (`state/library/<game>.json`, carry-over of player-built places and befriended generated people on `newgame`, reuse via `{"reuse": id}`, `tools/library.py` for keep or forget); 5.4 promotion (`rpg.py talk <id>` counts conversations, promotes a generated person to an agent). Each extra gets a meter price and a switch in all three presets (promotion: on, max_per_run, after_conversations). Add content for both games.
 
 ## Stage 3 notes
 - The title card's typing and the ending's lines can't be grepped whole in a `play.py` capture (the terminal redraws changed cells only); search for parts, e.g. `S T A T I O N`.
