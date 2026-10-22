@@ -6,13 +6,14 @@ As of 2026-10-22. The state of the kit build for whoever picks it up next, human
 - **Requirements:** `IMPLEMENTATION-PLAN.md` (JW's game-owner requirements, Stages 1–8).
 - **Technical plan:** `~/.claude/plans/please-read-implementation-plan-md-in-sunny-cake.md` (approved). The decisions below override it where they differ.
 - **Done:** Stages 1–5: kit split, second game and seeds; the meter and switches; look and feel; curses; the player leaves a mark (crafting, building, the library, promotion). Stage 7: people with plans, side scenes. Everything is committed on `main`; `sh tools/check.sh` passes (54 engine tests, 62 mod tests, both games validate).
-- **Now:** Stage 7 is built (7.1 plans, 7.2 side scenes); waiting for the user's playtest of Stages 5 and 7 (Stage 5 had no notes; the user will test it again). See **Stage 7 playtest checklist**.
-- **Stage order from here (decided 2026-10-22):** Stage 7 next, then Stage 6, then Stage 8. Stage 6 is deferred, not dropped. The plan allows Stages 3–7 in any order; Stage 7 depends only on Stages 1–2; Stage 8 must come after Stage 6, because every generated world needs an easy lock.
+- **Now:** the user playtested Stages 5 and 7 and had no notes. **Stage 6 (puzzles) is next**, then Stage 8.
+- **Stage order (decided 2026-10-22):** Stage 7 was built before Stage 6; Stage 8 must come after Stage 6, because every generated world needs an easy lock.
 
 ## Starting the next session
 1. The user starts dev sessions with `ooc:` (or says the whole session is development). Read `DEVELOPING.md`, then this file, then run `sh tools/check.sh` and report the state.
-2. **If the user brings playtest feedback (Stages 5 and 7):** diagnose from the session transcript (`DEVELOPING.md`, *Debugging a real session*), reproduce in a scratch copy, propose the fix and wait for an OK, then fix with a test. One commit per agreed fix, with a live check if players see it. The **Stage 5** and **Stage 7 playtest checklists** below say what was meant to happen.
-3. **Next build: Stage 6 (puzzles).** Propose its design and open decisions briefly, with a recommendation for each, and wait for answers (candidates under **Later stages**). Then Stage 8.
+2. **If the user brings new playtest feedback:** diagnose from the session transcript (`DEVELOPING.md`, *Debugging a real session*), reproduce in a scratch copy, propose the fix and wait for an OK, then fix with a test. One commit per agreed fix, with a live check if players see it. The playtest checklists below say what each stage was meant to do.
+3. **Next build: Stage 6 (puzzles).** Read the Stage 6 entry in `IMPLEMENTATION-PLAN.md`, the technical plan, and **Later stages** below, then the code it touches (`rules/rpg.py` flags, exits and conditions; `rules/content.py`; `validate_game`). Propose its design and open decisions **with context and downstream implications, assuming little knowledge of the project** (the user asked for this on Stage 7: say what exists today, the options, a recommendation, and what follows from each, including for Stage 8), and wait for answers before building.
+4. **Stage 6 must stay kit-generic** (invariant 7): blocks, commands and procedure name no game; each game's locks and mechanisms live in its own folder. Stage 8 will generate worlds that must each include an easy lock, plans and a side scene, so design puzzles a world-builder agent can write and `validate` can check.
 
 ## Commits
 | Commit | What |
@@ -33,8 +34,9 @@ As of 2026-10-22. The state of the kit build for whoever picks it up next, human
 | `f500269` | This file: Stage 5 done |
 | `ea79ba6` | 7.1 People with plans: `## Plan:` sections, world-turn `plans`, `SIGNAL`/`NOW HERE`, `view.signals` toast and chime, `world_turns.plans`; Ysolde, Grukk, Halloran, Bucket (now `minor: no`) |
 | `3002c5d` | 7.2 Side scenes: `scenes/`, `rpg.py scene start\|end`, scene part and reply count in `npc-brief`, `side_scenes`, price 2; The Shiniest Thing, The Mopping Dispute; `onlyRecords` and a note-filter case in the mod |
+| `26ce9d8` | Validate: a plan step may not leave a character nowhere; the gm-turn signal example names no game |
 
-Handoff-only commits (`2ac55a1`, `b6b523d`, `a2280fe`, `ab4dea9`, `7057684`) are left out.
+Handoff-only commits (`2ac55a1`, `b6b523d`, `a2280fe`, `ab4dea9`, `7057684`, `6a2a586`) are left out.
 
 ## Stage 7 decisions (agreed 2026-10-22)
 - **D1 plans as flags:** a plan step sets or clears one of the character's own flags (`<id>_<word>`); rooms place characters and bar ways with conditions on those flags, as they already did for story flags. Written as `## Plan: <step> (if <cond>)` sections in the character file (`does:`, `sets:`/`clears:`, `near:`, `rumor:`). Never a main-story flag; every set flag can be cleared; no combination puts a character in two rooms (validate).
@@ -60,7 +62,7 @@ Handoff-only commits (`2ac55a1`, `b6b523d`, `a2280fe`, `ab4dea9`, `7057684`) are
 - **Stage 8 (decided 2026-10-22):** every seeded world must include people with plans (at least one major character with `## Plan:` steps and the room conditions they need) and at least one side scene; `validate --kit-complete` requires both.
 - **Both games:** every stage adds its feature's content to The Dark Lighthouse **and** The Flooded Station.
 - **Parked, not to build yet:** an owner-run mode (maybe a `newgame` flag) that shows the owner's switches as in-game options.
-- **Process:** propose a stage's open decisions and wait for answers before building; one commit per agreed change; run the checks before and after; a live check with `tools/play.py` in a scratch copy before each commit that touches what players see; keep this file current; stop for the user's playtest after every stage. The user is the only user, so local single-user risks are low priority. **Visible machinery is always a bug.**
+- **Process:** propose a stage's open decisions (with context, options, a recommendation and downstream implications, assuming little project knowledge) and wait for answers before building; one commit per agreed change; run the checks before and after; a live check with `tools/play.py` in a scratch copy before each commit that touches what players see; keep this file current; stop for the user's playtest after every stage. The user is the only user, so local single-user risks are low priority. **Visible machinery is always a bug.**
 
 ## Design as built (so the next stage fits)
 - **Game selection:** the save's `game`, else `state/active.json`, else the first game. `rpg.py` calls `choose_game()` on every run, which sets `BALANCE` (kit + game) and `SETTINGS` (preset + overrides). Other games' saves wait in `state/shelf/<id>.json`.
