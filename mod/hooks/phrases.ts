@@ -35,7 +35,7 @@ export function phaseOf(tool: string, command: string | undefined, args: string,
   if (tool === 'Agent') return agentType === 'npc' ? 'considering' : lastBrief === 'turn' ? 'stirring' : 'shaping'
   if (tool !== 'Bash' || !command || QUIET.includes(command)) return undefined
   if (command === 'look' || command === 'show') return 'reading'
-  if (command === 'npc-brief') return 'considering'
+  if (command === 'npc-brief' || command === 'talk') return 'considering'
   if (command === 'world-brief') return /^\s*turn\b/.test(args) ? 'stirring' : 'shaping'
   if (command === 'world-turn') return 'stirring'
   if (command === 'generate') return 'shaping'

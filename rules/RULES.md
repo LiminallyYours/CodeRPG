@@ -91,10 +91,16 @@ Two kinds of names are automatic and can't be set: `has_<item>` is true while yo
 ## The library
 - Every generated person, place and thing, and everything the player had made or built, goes into the game's library (`state/library/<game>.json`). Side quests don't: they belong to one run's people. A person keeps their wares, a place what was in it.
 - **A new game** brings back the places the player built (at their build spots, if the content still has them) and the people they befriended, where they were, each remembering one line: their last memory of the player, or the job done. Authored characters, flags, inventory and quests reset, so the main quest is whole again.
-- **Befriended** means the player finished the side quest that person gave (and, from 5.4, that they were promoted).
+- **Befriended** means the player finished the side quest that person gave, or that they were promoted.
 - **Reuse:** a world brief lists at most `library.brief_entries` (5) fitting world-made entries, those first made where the player is first. A proposal `{"reuse": "<id>"}` brings one back with the same checks as something new; its stats come from today's tiers. It costs 1: the brief's 2, less 1 given back.
 - **Size:** at most `library.max_entries` (40) per game. When full, forgotten entries go first, then the least recently seen; the player's places, friends and anything marked for keeping stay.
 - **Keeping:** entries the player built, befriended people, and those the game master suggests (`rpg.py library suggest`) are marked worth keeping. Only the owner decides, with `tools/library.py list | keep <id> | forget <id> | unforget <id>`. `keep` writes the entry into the game's folder as authored content (and links it into its room) and validates; if the game no longer validates, nothing changes.
+
+## People who find their own voice
+- The game master runs `talk <id>` before voicing a generated person in a scene. It counts at most one conversation per scene (a scene lasts until the player moves).
+- After the owner's `promotion.after_conversations` (3 in the normal preset), the person is promoted: `minor: no` for the rest of the run, speaking through their own NPC agent with their own memory of the player. Promotion costs 2 once (price `promote`); the agent's replies are free, like an authored character's.
+- Not while promotion is off (thrifty), past `promotion.max_per_run` (2), while the owner has agents off, or when the meter can't pay.
+- A promoted person is befriended: they come back in later runs, still speaking for themselves, and `keep` writes them as `minor: no`.
 
 ## Places built to order
 - A **builder** (`builds: yes`) builds at the build spots (`build:`) of the room they stand in.
@@ -103,7 +109,7 @@ Two kinds of names are automatic and can't be set: `has_<item>` is true while yo
 - **Limits:** the owner's `building.max_per_run` (1, 3, 5 by preset). A newer order for the same spot replaces an unpaid one.
 
 ## The meter: what the extras cost
-Playing the game as written is free: every game-master turn, every rules command, and the authored characters speaking through their agents. Only extras beyond it have a price, set by the game (`meter.prices` in balance.json): generating something new 2, a world turn 2, having something made 2, having something built 3, bringing something back from the library 1. One point is roughly one extra round of game-master work. The game shows the meter as its own resource (lamp oil, power), with a capacity from the owner's settings (30 in the normal preset).
+Playing the game as written is free: every game-master turn, every rules command, and the authored characters speaking through their agents. Only extras beyond it have a price, set by the game (`meter.prices` in balance.json): generating something new 2, a world turn 2, having something made 2, having something built 3, bringing something back from the library 1, a person getting their own agent 2. One point is roughly one extra round of game-master work. The game shows the meter as its own resource (lamp oil, power), with a capacity from the owner's settings (30 in the normal preset).
 - **Paying:** `world-brief` pays for each generation or world turn after every check that could refuse, so a refused extra costs nothing and a retry pays again.
 - **Running low:** at `meter.low_at_percent` (25%) or below, the game warns once.
 - **Spent:** when the meter can't pay for an extra, it doesn't happen: nothing new is generated, no `may grow` ways are offered, and no world turns fall due. The game as written plays on, agents included.
@@ -117,6 +123,7 @@ Each game's `settings.json` picks a preset from `rules/presets.json` (`thrifty`,
 - `generation`: `on`, `max_per_run`, and `kinds` (extras, rooms, items, characters, side_quests). Something is generated only if the game's own `generation:` allows it **and** the switch is on.
 - `crafting`: `on` and `max_per_run` (orders placed with makers).
 - `building`: `on` and `max_per_run` (places ordered from builders).
+- `promotion`: `on`, `max_per_run` and `after_conversations` (generated people getting their own agent).
 
 `rpg.py settings` and the instant command `/budget` show them. Only the owner changes them, with `tools/settings.py`, which the game master can't run.
 

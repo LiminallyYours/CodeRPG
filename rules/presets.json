@@ -30,6 +30,11 @@
     "building": {
       "on": true,
       "max_per_run": 1
+    },
+    "promotion": {
+      "on": false,
+      "max_per_run": 0,
+      "after_conversations": 3
     }
   },
   "normal": {
@@ -63,6 +68,11 @@
     "building": {
       "on": true,
       "max_per_run": 3
+    },
+    "promotion": {
+      "on": true,
+      "max_per_run": 2,
+      "after_conversations": 3
     }
   },
   "rich": {
@@ -96,6 +106,11 @@
     "building": {
       "on": true,
       "max_per_run": 5
+    },
+    "promotion": {
+      "on": true,
+      "max_per_run": 4,
+      "after_conversations": 2
     }
   }
 }

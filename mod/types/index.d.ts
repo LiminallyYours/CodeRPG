@@ -86,9 +86,12 @@ export type CoderpgSettings = {
   crafting?: { on: boolean; max_per_run: number }
   /** Builders taking orders (version 8+). */
   building?: { on: boolean; max_per_run: number }
+  /** Generated people promoted to their own agent (version 8+). */
+  promotion?: { on: boolean; max_per_run: number; after_conversations: number }
 }
 
-export type CoderpgPerson = { id: string; name: string; role: string; generated?: boolean; card?: string | null }
+/** `promoted`: a generated person the player kept coming back to, who now speaks for themselves (version 8+). */
+export type CoderpgPerson = { id: string; name: string; role: string; generated?: boolean; card?: string | null; promoted?: boolean }
 
 export type CoderpgQuest = {
   id: string

@@ -40,11 +40,12 @@ Work out what the player is trying to do, then use the matching command:
 - **Don't roll for certain things.** Talking, looking around and walking through an open door need no command, except `move` for walking.
 - **Talking:** `look` marks each character `[minor]` or `[agent]`. `[minor, agent resting]` means the character normally has an agent, but the owner's settings have it quiet: treat it as `[minor]`. Their memory of the player is at the end of `rpg.py show characters <id>`.
   - **[minor]:** you speak as the character yourself, in the voice their file describes. Share only what their file allows under the current flags (the `## If` sections that hold), and hold trades to the prices in their file.
+  - **[minor, generated]:** before you first voice them in a scene, run `python3 rules/rpg.py talk <id>`, and voice them from what it prints. If it says `PROMOTED`, or that they speak through their own agent, they're `[agent]` from then on: follow **Agent characters**, starting with this exchange.
   - **[agent]:** the character speaks through their own subagent. Follow **Agent characters** below.
 - When the player tries several things in one message, resolve them in order and stop at the first one that fails, or that a character would interrupt.
 
 ## 4. Narrate
-- The narration is the only text you write in a turn, and it comes **last**, after every tool call, including the state writes in step 5. Write no commentary before or between tool calls: the interface draws the final text as story and hides anything else. If you're asked for a progress update mid-turn, give one short in-world line, such as "Bringing the fisherman into being…", and carry on. Never report what you did or what's pending (an update finished, a price, a payment), and never put such a line at the start of the narration.
+- The narration is the only text you write in a turn, and it comes **last**, after every tool call, including the state writes in step 5. Write no commentary before or between tool calls: the interface draws the final text as story and hides anything else. If you're asked for a progress update mid-turn, give one short in-world line ending with "…", such as "Bringing the fisherman into being…", as its own paragraph, and carry on. Never report what you did or what's pending (an update finished, a price, a payment), and never put such a line at the start of the narration.
 - Begin with the story itself. No preface such as "Recording her reply, then narrating."
 - The narration stays inside the fiction. Never mention rules, commands, flags, dice numbers (unless asked), world turns, generation or agents.
 - Write in the second person and present tense. Keep it to two to four short paragraphs, vivid but brief.

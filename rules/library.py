@@ -95,6 +95,18 @@ def befriend(data, ident, why, line):
     return True
 
 
+def promote(data, ident, line):
+    """A generated person the player kept coming back to, now speaking through their own agent: a friend,
+    and they come back that way in later runs."""
+    e = data["entries"].get(ident)
+    if not e or e["kind"] != "characters":
+        return False
+    e["promoted"] = True
+    e["friend"] = {"why": "promoted", "line": line}
+    e["worth_keeping"] = "promoted: the player kept coming back to them"
+    return True
+
+
 def fitting(data, kind, extra, here, exclude, most):
     """Up to `most` entries the world may reuse for a new `kind`: world-made, not forgotten, not already in play.
     Ones first made where the player is come first, then the most recently seen."""

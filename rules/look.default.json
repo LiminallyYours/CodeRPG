@@ -131,6 +131,10 @@
       "pay": [
         "Money changes hands",
         "The work is handed over"
+      ],
+      "talk": [
+        "Turning to listen",
+        "Finding the words"
       ]
     },
     "phases": {

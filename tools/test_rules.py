@@ -361,7 +361,7 @@ class Engine(unittest.TestCase):
         v = self.save()["view"]
         self.assertEqual(set(v["meter"]), {"left", "capacity", "state"})
         self.assertEqual(v["settings"]["preset"], "normal")
-        self.assertEqual(v["settings"]["prices"], {"generate": 2, "world_turn": 2, "craft": 2, "build": 3, "reuse": 1})
+        self.assertEqual(v["settings"]["prices"], {"generate": 2, "world_turn": 2, "craft": 2, "build": 3, "reuse": 1, "promote": 2})
         self.set_meter(9)
         self.rpg("world-brief", "turn")
         self.assertEqual(self.save()["view"]["meter"]["state"], "low")  # 7 of 30
@@ -782,6 +782,71 @@ class Engine(unittest.TestCase):
             self.write("proposals/i.json", json.dumps({"id": "shell_%d" % n, "name": "Shell %d" % n, "description": "A shell.", "tier": "trinket"}))
             self.rpg("generate", "item", "proposals/i.json")
         self.assertEqual(sorted(self.library()), ["shell_1", "shell_2"])  # the oldest went
+
+
+    # ---------------------------------------------------------------- 5.4 promotion
+
+    def hob(self):
+        """Old Hob, a generated extra in the Gull."""
+        self.rpg("move", "north")
+        self.write("proposals/e.json", json.dumps({"id": "hob_netman", "name": "Old Hob", "role": "an old fisherman",
+                                                  "look": "White beard.", "speech": "Slow.", "knows": ["He fished fifty years."]}))
+        self.rpg("generate", "extra", "proposals/e.json")
+
+    def test_a_generated_person_the_player_keeps_coming_back_to_gets_their_own_agent(self):
+        self.rpg("game", "switch", "dark_lighthouse")
+        self.rpg("newgame", seed=70)
+        self.hob()
+        out = self.rpg("talk", "hob_netman")
+        self.assertIn("TALK: voice Old Hob yourself, from this (conversation 1):", out)
+        self.assertIn("## How they speak", out)
+        self.assertIn("conversation 1", self.rpg("talk", "hob_netman"))  # the same scene counts once
+        self.assertIn("authored", self.rpg("talk", "pell", ok=False))
+        for d in ("south", "north"):
+            self.rpg("move", d)
+        self.assertIn("conversation 2", self.rpg("talk", "hob_netman"))
+        self.rpg("remember", "hob_netman", "Sat with me by the fire three nights running.")
+        for d in ("south", "north"):
+            self.rpg("move", d)
+        meter = self.meter()
+        out = self.rpg("talk", "hob_netman")
+        self.assertIn("PROMOTED: Old Hob now speaks through their own agent", out)
+        self.assertEqual(self.meter(), meter - 2)
+        self.assertIn("hob_netman [agent, generated]", self.rpg("look"))
+        brief = self.rpg("npc-brief", "hob_netman")
+        self.assertIn("You are Old Hob, an old fisherman.", brief)
+        self.assertIn("- Sat with me by the fire three nights running.", brief)
+        self.assertNotIn("GM only", brief)
+        self.assertIn("own agent", self.rpg("talk", "hob_netman"))
+        person = next(p for p in self.save()["view"]["people"] if p["id"] == "hob_netman")
+        self.assertTrue(person["promoted"])
+        e = self.library()["hob_netman"]
+        self.assertTrue(e["promoted"])
+        self.assertEqual(e["friend"]["line"], "Sat with me by the fire three nights running.")
+        out = self.rpg("newgame", seed=71)
+        self.assertIn("Old Hob (a friend, at gull_tavern", out)
+        self.rpg("move", "north")
+        self.assertIn("hob_netman [agent, generated]", self.rpg("look"))  # still their own voice
+
+    def test_the_owner_decides_whether_and_when_people_are_promoted(self):
+        self.rpg("game", "switch", "dark_lighthouse")
+        self.settings_tool("preset", "thrifty")
+        self.rpg("newgame", seed=72)
+        self.hob()
+        for _ in range(4):
+            self.assertIn("TALK: voice Old Hob yourself", self.rpg("talk", "hob_netman"))
+            self.rpg("move", "south")
+            self.rpg("move", "north")
+        self.settings_tool("preset", "normal")
+        self.settings_tool("set", "promotion.after_conversations", "1")
+        self.settings_tool("set", "promotion.max_per_run", "0")
+        self.assertIn("TALK: voice Old Hob yourself", self.rpg("talk", "hob_netman"))
+        self.settings_tool("set", "promotion.max_per_run", "1")
+        self.settings_tool("set", "npc_agents.on", "false")
+        self.assertIn("TALK: voice Old Hob yourself", self.rpg("talk", "hob_netman"))  # no agents: no promotion
+        self.settings_tool("set", "npc_agents.on", "true")
+        self.assertIn("PROMOTED", self.rpg("talk", "hob_netman"))
+        self.assertIn("PROMOTION: on, at most 1 per run, after 1 conversations", self.rpg("settings"))
 
 
 if __name__ == "__main__":

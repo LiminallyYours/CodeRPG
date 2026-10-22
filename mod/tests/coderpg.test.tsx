@@ -397,6 +397,7 @@ test('ordinary story is never taken for a game-master note (QA finding 1)', () =
     'Next to the hearth, an old man stirs.',
     'The world turns grey as the fog rolls in.',
     'In the corner, a lantern gutters and dies.',
+    'The fire is low now, and the room is quiet.',
   ]) {
     const text = `${first}\n\nYou climb the path.`
     expect(stripPreamble(text)).toBe(text)
@@ -411,6 +412,8 @@ test('ordinary story is never taken for a game-master note (QA finding 1)', () =
     'Updating her memory first.',
     "Back on the Landing, I've finished the off-screen world update, and now I'm narrating.", // Stage 5 playtest
     "Bucket's drawing up the Lookout Float; it's priced at 5 credits and isn't paid for yet.",
+    'Settling in beside Old Hob now.',
+    'Bringing the fisherman into being…',
   ]) expect(isGmNote(note)).toBe(true)
   expect(stripPreamble('Recording what Ysolde noticed. Her reply is the next thing you see.\n\nYou skip up the path.'))
     .toBe('You skip up the path.')
@@ -519,12 +522,13 @@ test('a new game, or switching to another game, starts on a cleared screen; list
 })
 
 const SETTINGS = {
-  preset: 'normal', capacity: 30, prices: { generate: 2, world_turn: 2, craft: 2, build: 3, reuse: 1 },
+  preset: 'normal', capacity: 30, prices: { generate: 2, world_turn: 2, craft: 2, build: 3, reuse: 1, promote: 2 },
   npc_agents: { on: true, lines_per_exchange: 4, off_for: ['grukk'] },
   world_turns: { on: false, every_moves: 5 },
   generation: { on: true, max_per_run: 16, kinds: ['extras', 'side_quests'] },
   crafting: { on: true, max_per_run: 5 },
   building: { on: true, max_per_run: 3 },
+  promotion: { on: true, max_per_run: 2, after_conversations: 3 },
 }
 const metered = (left: number, state: 'ok' | 'low' | 'spent'): CoderpgSave => ({
   ...STATION, view: { ...STATION.view!, meter: { left, capacity: 30, state }, settings: SETTINGS,
@@ -543,9 +547,10 @@ test("the pane shows the meter under the game's own name, colored when it runs l
 test('/budget tells the player what is left, what things cost and what is on, in plain words', () => {
   const text = budgetText(metered(22, 'ok'))
   expect(text).toContain('**ϟ Power:** 22/30.')
-  expect(text).toContain('something new appearing 2 · the world moving on by itself 2 · having something made 2 · having something built 3 · someone or something coming back from an earlier game 1. Playing the game as written is always free.')
+  expect(text).toContain('something new appearing 2 · the world moving on by itself 2 · having something made 2 · having something built 3 · someone or something coming back from an earlier game 1 · someone you keep coming back to finding their own voice 2. Playing the game as written is always free.')
   expect(text).toContain('**Having things made:** on, up to 5 orders per game.')
   expect(text).toContain('**Having places built:** on, up to 3 per game.')
+  expect(text).toContain('**People finding their own voice:** on, after 3 conversations, up to 2 per game.')
   expect(text).toContain('voiced by the storyteller: grukk')
   expect(text).toContain('**The world moving on by itself:** off')
   expect(text).toContain('(extras, side quests)')
@@ -716,6 +721,7 @@ test("the map's key explains the mark on a place built for the player", async ($
 test('waiting phases follow what the game master is doing, in the game\'s voice', () => {
   expect(phaseOf('Bash', 'look', '', '')).toBe('reading')
   expect(phaseOf('Bash', 'npc-brief', 'grukk', '')).toBe('considering')
+  expect(phaseOf('Bash', 'talk', 'old_tamsin', '')).toBe('considering')
   expect(phaseOf('Agent', undefined, '', 'npc')).toBe('considering')
   expect(phaseOf('Bash', 'world-brief', 'room', '')).toBe('shaping')
   expect(phaseOf('Bash', 'world-brief', 'turn', '')).toBe('stirring')
@@ -790,4 +796,20 @@ test('a place the player had built is marked on the map, and its building shows 
     .toBe('The Net-Loft: ready in 3 moves')
   expect(trayLines('BUILT: The Net-Loft (net_loft) is finished, southwest of Harbor Square, built for the player by Morwen.')[0]!.text)
     .toBe('The Net-Loft is finished')
+})
+
+test('the journal marks someone the player kept coming back to, who now speaks for themselves', async ($, on) => {
+  const people = [
+    { id: 'old_tamsin', name: 'Old Tamsin', role: 'a fishwife', generated: true, promoted: true, here: true, memory: [] },
+    { id: 'hob', name: 'Old Hob', role: 'a fisherman', generated: true, here: false, memory: [] },
+  ]
+  const s: CoderpgSave = { ...SAVE, view: { ...SAVE.view!, people } }
+  on('state.get', { plugin: 'coderpg', key: 'save' }, () => ({ value: { value: s, version: 1 } }))
+  on('state.get', { plugin: 'coderpg', key: 'tab' }, () => ({ value: { value: 'journal', version: 1 } }))
+  const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'Pane', requestId: 'coderpg-sheet', props: PANE_PROPS })
+  expect(await ui.find({ text: ' ★' })).toBeDefined()
+  expect(await ui.find({ text: ', a fishwife · here' })).toBeDefined()
+  expect((await ui.findAll({ type: 'Text', text: '  knows you well' })).length).toBe(1)
+  expect(await ui.find({ text: ', a fisherman' })).toBeDefined()
+  await ui.unmount()
 })

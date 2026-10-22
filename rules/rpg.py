@@ -456,6 +456,8 @@ def carry_over(state):
                 continue
             rec = generate.retier("characters", e["record"], BALANCE["generation"])
             rec["meta"]["carried"] = "yes"
+            if e.get("promoted"):  # they still speak for themselves
+                rec["meta"].update(minor="no", promoted="yes")
             run["characters"][ident] = dict(rec, made_at_move=0)
             for b in e.get("bundle") or []:  # their wares
                 if b["kind"] == "items" and not content.exists("items", b["id"]):
@@ -579,7 +581,7 @@ def refresh_view(state):
     def who(c):
         ch = ent("characters", c)
         return {"id": c, "name": ch.get("name", c), "role": ch.get("role", ""), "generated": is_generated("characters", c),
-                "card": ch.get("card")}
+                "card": ch.get("card"), "promoted": ch.get("promoted") == "yes"}
 
     art = content.game_dir() / "art" / ("%s.txt" % room["id"])
     run = state["run"]
@@ -625,6 +627,7 @@ def settings_view():
         "generation": {"on": gen["on"], "max_per_run": gen["max_per_run"], "kinds": [k for k, on in policy().items() if on]},
         "crafting": {"on": SETTINGS["crafting"]["on"], "max_per_run": SETTINGS["crafting"]["max_per_run"]},
         "building": {"on": SETTINGS["building"]["on"], "max_per_run": SETTINGS["building"]["max_per_run"]},
+        "promotion": {k: SETTINGS["promotion"][k] for k in ("on", "max_per_run", "after_conversations")},
     }
 
 
@@ -1616,6 +1619,57 @@ def cmd_pay(args):
           % (item(ident).get("name", ident), ident, who, carried_weight(state), carry_limit(state)))
 
 
+def why_not_promoted(state, ident, count):
+    """Why a generated person isn't promoted to their own agent now, or None when they are due."""
+    switch = SETTINGS["promotion"]
+    if not switch["on"]:
+        return "promotion is off in this game's settings"
+    if count < int(switch["after_conversations"]):
+        return "%d of %d conversations" % (count, int(switch["after_conversations"]))
+    if sum(1 for rec in state["run"]["characters"].values() if rec["meta"].get("promoted") == "yes"
+           and not rec["meta"].get("carried")) >= int(switch["max_per_run"]):
+        return "this run has promoted as many people as it may"
+    if agents_resting(ident):
+        return agents_resting(ident)
+    if not can_pay("promote"):
+        return "the meter can't pay for it"
+    return None
+
+
+def cmd_talk(args):
+    """talk <generated person>: run before voicing a generated person in a scene. Counts one conversation per
+    scene; after the owner's number of them, the person is promoted to their own agent, with their own memory
+    of the player, for the rest of the run (and comes back that way in later runs)."""
+    state = load_state()
+    require_playing(state)
+    ident, run = args[0], state["run"]
+    if ident not in characters_here(state):
+        raise Refused("%s isn't here" % ident)
+    if not is_generated("characters", ident):
+        raise Refused("%s is authored: voice them as `look` marks them, without `talk`" % ident)
+    t = run.setdefault("talks", {}).setdefault(ident, {"count": 0, "scene": None})
+    if t["scene"] != run["moves"]:  # one conversation per scene: a scene lasts until the player moves
+        t.update(count=t["count"] + 1, scene=run["moves"])
+    name = ent("characters", ident).get("name", ident)
+    promoted = is_minor(ident) and why_not_promoted(state, ident, t["count"]) is None
+    if promoted:
+        run["characters"][ident]["meta"].update(minor="no", promoted="yes")
+        charge("promote")
+        memory = state["npc_memory"].get(ident) or []
+        data = lib()
+        library.promote(data, ident, memory[-1] if memory else "Kept coming back to talk with me.")
+        lib_save(data)
+    save_state(state)
+    if promoted:
+        print("PROMOTED: %s now speaks through their own agent, with their own memory of the player. From this exchange on "
+              "they're [agent]: run `npc-brief %s` and spawn an npc agent (see gm-turn)." % (name, ident))
+    elif not is_minor(ident):
+        print("TALK: %s speaks through their own agent: run `npc-brief %s` and spawn an npc agent (see gm-turn)." % (name, ident))
+    else:
+        print("TALK: voice %s yourself, from this (conversation %d):" % (name, t["count"]))
+        cmd_show(["characters", ident])
+
+
 def cmd_library(args):
     """library suggest <id> <why>: tell the owner a generated or player-made thing deserves keeping for good.
     The owner decides (tools/library.py); this only marks the entry."""
@@ -2134,6 +2188,8 @@ def cmd_settings(args):
     print("GENERATION: %s, at most %d per run; kinds: %s" % (on(g["on"]), g["max_per_run"], ", ".join(g["kinds"]) or "none"))
     print("CRAFTING: %s, at most %d orders per run" % (on(v["crafting"]["on"]), v["crafting"]["max_per_run"]))
     print("BUILDING: %s, at most %d orders per run" % (on(v["building"]["on"]), v["building"]["max_per_run"]))
+    pr = v["promotion"]
+    print("PROMOTION: %s, at most %d per run, after %d conversations" % (on(pr["on"]), pr["max_per_run"], pr["after_conversations"]))
 
 
 # ---------------------------------------------------------------- games: list, show, switch
@@ -2216,6 +2272,7 @@ COMMANDS = {
     "generate": (cmd_generate, 2, "generate <extra|room|item|character|quest|craft|build> <file>   add a world-agent proposal (a JSON file)"),
     "pay": (cmd_pay, 1, "pay <order> [material]   the player pays a maker or builder for an order"),
     "world-turn": (cmd_world_turn, 1, "world-turn <file>   apply the world agent's off-screen turn (a JSON file)"),
+    "talk": (cmd_talk, 1, "talk <generated person>   before voicing a generated person: counts conversations, may promote them"),
     "library": (cmd_library, 1, "library suggest <id> <why>   tell the owner a generated or player-made thing deserves keeping"),
     "note": (cmd_note, 1, "note <text>   keep a detail you established about this room"),
     "chronicle": (cmd_chronicle, 1, "chronicle <text>   add a line to the story so far"),

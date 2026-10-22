@@ -75,15 +75,16 @@ Playing the game as written is free. The meter is a budget for the **extras** th
 | having something made (a maker shapes your order) | 2 | the maker takes no new work |
 | having something built (a builder shapes your order) | 3 | the builder takes no new work |
 | bringing something back from an earlier game, instead of inventing it | 1 (the brief costs 2; 1 comes back) | |
+| a person you keep coming back to getting their own agent (once; their replies are free) | 2 | they stay voiced by the storyteller |
 | every game-master turn, every rules command, the authored characters' agents | free | |
 
 One point is roughly one extra round of game-master work (about 10–15k tokens, weighted as the API prices them). Measured on Sonnet, an ordinary turn costs about 30k and an agent's reply about 5k; the turn is the cost of playing at all, so it's never charged. Prices are charged by the rules script where the extra happens (`world-brief`), after every check that could refuse. The owner's switches live in each game's `settings.json`, a preset from `rules/presets.json` with overrides:
 
-| Preset | Meter | NPC agents | World turns | Generation | Crafting | Building |
-|---|---|---|---|---|---|---|
-| `thrifty` | 10 | off: the GM voices everyone | off | extras, rooms and items only, 6 per run | 2 orders per run | 1 per run |
-| `normal` | 30 | on, 4 lines between two per turn | every 5 moves | everything the game allows, 16 per run | 5 orders | 3 |
-| `rich` | 60 | on, 6 lines | every 4 moves | everything the game allows, 24 per run | 10 orders | 5 |
+| Preset | Meter | NPC agents | World turns | Generation | Crafting | Building | Promotion |
+|---|---|---|---|---|---|---|---|
+| `thrifty` | 10 | off: the GM voices everyone | off | extras, rooms and items only, 6 per run | 2 orders per run | 1 per run | off |
+| `normal` | 30 | on, 4 lines between two per turn | every 5 moves | everything the game allows, 16 per run | 5 orders | 3 | 2 per run, after 3 conversations |
+| `rich` | 60 | on, 6 lines | every 4 moves | everything the game allows, 24 per run | 10 orders | 5 | 4, after 2 |
 
 Change them with `python3 tools/settings.py preset thrifty` or `set npc_agents.characters.grukk false`; `/budget` shows what's in effect. The station overrides one switch: its world turns come every 4 moves.
 
@@ -104,6 +105,7 @@ The authored world is fixed, but each run varies within limits the content sets,
 | **Items, minor characters and side quests:** stats come from the tier tables, never the agent; side quests use only their own `side_<id>_…` flags and can't touch the main quest | world agent / checks | `balance.json` `generation` | `run.items`, `run.characters`, `run.quests` |
 | **Things made to order:** you describe something to a maker (Morwen the net-mender, Bucket the drone); it's shaped within their trade, and once you pay it's yours, marked as made for you | world agent shapes it, `generate.py` checks its tier; the price comes from `balance.json` `craft_price` | character `makes:` and `accepts:` | `run.items` (`made_by: player`), `run.commissions` |
 | **The library:** everything generated or player-made goes into the game's library, which lasts across new games. A new game brings back the places you built and the people you befriended (finished their side quest), each friend remembering one line about you; the world reuses a fitting entry (the same dockhand turns up again) rather than inventing one | `rpg.py` records, carries over and reuses; the owner keeps or forgets entries with `tools/library.py` | `balance.json` `library` (`max_entries` 40, `brief_entries` 5) | `state/library/<game>.json`, outside every save |
+| **People who find their own voice:** a generated person you keep coming back to (3 conversations in the normal preset, one per scene) is promoted to their own NPC agent with their own memory of you, for the rest of the run and in later runs; the journal marks them ★ | `rpg.py talk` counts and promotes | `settings.json` `promotion` | the person's `minor`/`promoted` in `run.characters`; the library entry |
 | **World turns:** every few moves (the owner's `world_turns` setting) the world agent adds rumors and moves generated people around | world agent / checks | `settings.json` | `run.rumors` |
 | **Notes and chronicle:** small details the GM established, and one line per significant event | GM, through `rpg.py note` and `chronicle` | | `run.notes`, `run.chronicle` |
 

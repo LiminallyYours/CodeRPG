@@ -108,6 +108,9 @@ const GM_WORDS = /(narrat|generat|rpg\.py|world turn|world agent|subagent|npc ag
 // Anywhere in a note-shaped paragraph, these give it away however it opens: the machinery by name, the game
 // master speaking as "I" (narration is in the second person and dialogue is in quotes), or figures (narration
 // spells numbers out; a status line like "priced at 5 credits, not paid for yet" doesn't).
+// A progress line answering Claude Code's mid-turn nudge ("Settling in beside Old Hob now.", "Bringing the
+// fisherman into being…"): one short sentence that trails off or says it's happening now.
+const GM_PROGRESS = /^[^.!?…]{1,90}(…|\.\.\.|\bnow\.)$/
 const GM_ANYWHERE = /(narrating|\bnarration\b|rpg\.py|world agent|subagent|world update|\bworld turn\b|off-screen|proposal|tool calls?|\bI('ve|'m|'ll|'d)?\b|\d)/
 
 /**
@@ -120,7 +123,7 @@ const GM_ANYWHERE = /(narrating|\bnarration\b|rpg\.py|world agent|subagent|world
 export function isGmNote(text: string): boolean {
   const t = text.trim()
   if (t.length > 200 || t.includes('\n\n') || /["“”]/.test(t)) return false
-  return GM_ALWAYS.test(t) || GM_ANYWHERE.test(t) || (GM_MAYBE.test(t) && GM_WORDS.test(t))
+  return GM_ALWAYS.test(t) || GM_ANYWHERE.test(t) || GM_PROGRESS.test(t) || (GM_MAYBE.test(t) && GM_WORDS.test(t))
 }
 
 /** Narration with a game-master note removed from its start, when story follows it. */
@@ -213,6 +216,7 @@ function itemsOf(s: CoderpgSave): { id: string; name: string; equipped: boolean;
 const PRICE_NAMES: Record<string, string> = {
   generate: 'something new appearing', world_turn: 'the world moving on by itself', craft: 'having something made', build: 'having something built',
   reuse: 'someone or something coming back from an earlier game',
+  promote: 'someone you keep coming back to finding their own voice',
 }
 
 /** The meter's color: plain while there's plenty, then the warning and danger colors. */
@@ -236,6 +240,7 @@ export function budgetText(s: CoderpgSave): string {
     `**New things appearing:** ${on(v.generation.on && v.generation.kinds.length > 0)}, up to ${v.generation.max_per_run} per game${v.generation.kinds.length ? ` (${v.generation.kinds.join(', ').replace(/_/g, ' ')})` : ''}.`,
     ...(v.crafting ? [`**Having things made:** ${on(v.crafting.on)}, up to ${v.crafting.max_per_run} orders per game.`] : []),
     ...(v.building ? [`**Having places built:** ${on(v.building.on)}, up to ${v.building.max_per_run} per game.`] : []),
+    ...(v.promotion ? [`**People finding their own voice:** ${on(v.promotion.on)}${v.promotion.on ? `, after ${v.promotion.after_conversations} conversations, up to ${v.promotion.max_per_run} per game` : ''}.`] : []),
     `*Preset: ${v.preset}. The owner changes these with \`python3 tools/settings.py\`.*`,
   ].join('\n\n')
 }
@@ -970,9 +975,10 @@ export const register: Register = on => {
         {people.map(p => (
           <Box flexDirection="column" marginBottom={p.memory.length ? 1 : 0}>
             <Box flexDirection="row">
-              <Text bold>{p.name}</Text>
+              <Text bold>{p.name}{p.promoted && <Text color={accent}> ★</Text>}</Text>
               <Text dimColor wrap="truncate">, {p.role}{p.here ? ' · here' : ''}</Text>
             </Box>
+            {p.promoted && <Text color={accent} dimColor>  knows you well</Text>}
             {p.memory.map(m => <Text dimColor italic>  “{m}”</Text>)}
           </Box>
         ))}
