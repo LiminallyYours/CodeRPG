@@ -6,7 +6,8 @@
 import { blockLetters } from './font'
 import type { Seg } from './reveal'
 
-export type Card = { name: string; color: string }
+/** Someone in the scene: their name, and their card color if they have one. */
+export type Card = { name: string; color?: string }
 
 /** Words in a name that don't identify anyone ("the Shellback" is "Shellback"; "Dr. Ines Halloran" is either name). */
 const FILLER = new Set(['the', 'a', 'an', 'dr', 'mr', 'mrs', 'ms', 'old', 'young', 'of'])
@@ -21,19 +22,22 @@ export function paragraphsOf(text: string): string[] {
 }
 
 /**
- * Who speaks in a paragraph: the first card-styled character named in it, if the paragraph quotes
- * someone. Plain description that merely mentions a character stays plain.
+ * Who speaks in a paragraph that quotes someone: the first person in the scene named outside the
+ * quotation marks ("Pell looks up. 'Well now…'"). A name inside the quote is someone being talked about,
+ * not the speaker. The paragraph is drawn in their card color only if they have one: a person without
+ * a card (someone generated this run) keeps it plain rather than lending it to whoever is named next.
  */
 export function speakerOf(paragraph: string, cards: Card[]): Card | undefined {
   if (!/["“”]/.test(paragraph)) return undefined
+  const outside = paragraph.replace(/"[^"]*"|“[^”]*”/g, ' … ')
   let best: { card: Card; at: number } | undefined
   for (const card of cards) {
     for (const w of nameWords(card.name)) {
-      const m = new RegExp(`(^|[^\\p{L}])${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}])`, 'u').exec(paragraph)
+      const m = new RegExp(`(^|[^\\p{L}])${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}])`, 'u').exec(outside)
       if (m && (!best || m.index < best.at)) best = { card, at: m.index }
     }
   }
-  return best?.card
+  return best?.card.color ? best.card : undefined
 }
 
 /** The room banner's rows: block letters if they fit in `columns`, else the plain `── NAME ──` line. */

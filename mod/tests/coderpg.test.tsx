@@ -590,13 +590,14 @@ test('a fresh story card wipes its banner in on the terminal clock; an old one i
 })
 
 test("a character's lines are drawn in their own card color, under their name", async ($, on) => {
-  const text = 'The fog thickens over the quay.\n\n"Grukk not give glass!" the troll booms, thumping his chest.'
+  const text = 'The fog thickens over the quay.\n\n"Grukk not give glass!" Grukk booms, thumping his chest.\n\n"Mine!" the troll adds.'
   const cards = [{ name: 'Grukk', color: '#8fae4a' }, { name: 'Ysolde', color: '#7fb0d0' }]
   on('state.get', { plugin: 'coderpg', key: 'story' }, () => ({ value: { value: [{ key: storyKey(text), cards }], version: 1 } }))
   const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'AssistantMessage', requestId: 'm10', props: { text, isFirstOfReply: true } })
   const label = await ui.find({ type: 'Text', text: 'Grukk' })
   expect(label?.props.color).toBe('#8fae4a')
   expect(await ui.find({ type: 'Text', text: 'Ysolde' })).toBeUndefined()
+  expect((await ui.findAll({ type: 'Text', text: 'Grukk' })).length).toBe(1) // "the troll adds": no one named outside the quote, so plain
   await ui.unmount()
 })
 
@@ -608,6 +609,14 @@ test('who speaks a paragraph: a quote and a name; titles and articles are skippe
   expect(speakerOf('"Beep." Bucket rolls past Halloran.', cards)?.color).toBe('c') // the first named
   expect(speakerOf('"Mind the buckets," someone says.', cards)).toBeUndefined() // a word, not the name
   expect(paragraphsOf('One.\n\n  Two.\n\n\n')).toEqual(['One.', 'Two.'])
+  // the screenshot: a newly generated fisherman speaks, and his line mentions Pell
+  const tavern = [{ name: 'Pell', color: '#d19a5a' }, { name: 'Dunstan Tarry' }]
+  const dunstan = '"Two coins, friend, to go rolling about in the fog like a pup?" He shakes his head slowly. "Dunstan Tarry. ' +
+    'I mend nets. Keep your coin. Spend it on one of Pell\'s honey cakes, they\'re worth it."'
+  expect(speakerOf(dunstan, tavern)).toBeUndefined() // names inside the quotes are talked about, not speaking
+  expect(speakerOf('Dunstan Tarry grins. "Pell knows me." Pell rolls his eyes.', tavern)).toBeUndefined() // first named has no card
+  expect(speakerOf('Behind the bar, round-faced Pell looks up. "Well now, love."', tavern)?.name).toBe('Pell')
+  expect(speakerOf('“Mind the draught,” Pell says.', tavern)?.name).toBe('Pell') // curly quotes too
 })
 
 test('an ending card is its lines in order, in its colors', () => {

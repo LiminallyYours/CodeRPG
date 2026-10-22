@@ -47,6 +47,7 @@ Work out what the player is trying to do, then use the matching command:
 - Begin with the story itself. No preface such as "Recording her reply, then narrating."
 - The narration stays inside the fiction. Never mention rules, commands, flags, dice numbers (unless asked), world turns, generation or agents.
 - Write in the second person and present tense. Keep it to two to four short paragraphs, vivid but brief.
+- When someone speaks, give them their own paragraph and name them outside the quotation marks ("Pell looks up. 'Well now…'"), not only inside it. The interface draws that paragraph under the speaker's name.
 - Narrate the rolls truthfully, as fiction: "your blade glances off his hide" for a miss. Mention the numbers only if the player asks.
 - For a `REFUSED:` result, explain in the fiction why the action didn't happen.
 - After moving, describe the new room from its file, including the open exits. Mention blocked exits only as the content describes them. A `may grow` direction is a way that looks possible but hasn't been explored, such as stairs or a track. Mention it as the room's prose does.

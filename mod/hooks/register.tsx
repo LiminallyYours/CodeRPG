@@ -414,7 +414,9 @@ export const register: Register = on => {
       const shownAt = await nowMs($)
       const accent = accentOf(now)
       const present = [...(was?.view?.characters_here ?? []), ...(now?.view?.characters_here ?? [])]
-      const cards = present.filter((c, i) => c.card && present.findIndex(x => x.id === c.id) === i).map(c => ({ name: c.name, color: c.card! }))
+      // everyone in the scene, so a speaker without a card keeps their lines plain; stored only if anyone has one
+      const people = present.filter((c, i) => present.findIndex(x => x.id === c.id) === i).map(c => ({ name: c.name, ...(c.card ? { color: c.card } : {}) }))
+      const cards = people.some(c => c.color) ? people : []
       const told = { pending: false, shownAt, accent, ...(cards.length ? { cards } : {}) }
       await update($, story, list => list.map(s =>
         asides.has(s.key) ? { ...s, aside: true, pending: false }
@@ -557,7 +559,7 @@ export const register: Register = on => {
           {speakers.some(Boolean)
             ? paragraphs.map((par, i) => {
                 const who = speakers[i]
-                if (!who) return <Box marginTop={i ? 1 : 0}><Markdown text={par} /></Box>
+                if (!who?.color) return <Box marginTop={i ? 1 : 0}><Markdown text={par} /></Box>
                 return (
                   <Box flexDirection="row" marginTop={i ? 1 : 0}>
                     <Text color={who.color}>▌</Text>

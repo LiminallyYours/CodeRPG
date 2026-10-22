@@ -118,7 +118,7 @@ export type CoderpgStory = {
   /** The accent color when it was told (it follows the time of day). */
   accent?: string
   /** Who was there with a card style: their paragraphs are drawn in their colors. */
-  cards?: { name: string; color: string }[]
+  cards?: { name: string; color?: string }[]
 }
 
 export type CoderpgTab = 'here' | 'map' | 'journal'
