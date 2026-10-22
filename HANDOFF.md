@@ -11,13 +11,8 @@ As of 2026-10-22. The state of the kit build for whoever picks it up next, human
 
 ## Starting the next session
 1. The user starts dev sessions with `ooc:` (or says the whole session is development). Read `DEVELOPING.md`, then this file, then run `sh tools/check.sh` and report the state.
-2. **If the user brings Stage 5 playtest feedback:** diagnose from the session transcript (`DEVELOPING.md`, *Debugging a real session*), reproduce in a scratch copy, and fix with a test. One commit per agreed fix, with a live check if players see it. Use the **Stage 5 playtest checklist** below to know what was meant to happen.
-3. **Before building Stage 7:** propose its design and the open decisions to the user, briefly, with a recommendation for each, and wait for answers, as was done for Stage 5. Candidate decisions:
-   - **7.1 plans:** how a character's `plans:` are written (where they may go, what they may do, under which flags), which characters get plans in each game, how world turns choose and apply one (the world agent proposes, the rules check), and how the player notices (a line in the narration, a toast, a sound, a rumor);
-   - **7.1 cost:** whether plans ride on the existing world turn (price 2) or cost extra, and the switch (`plans` on/off, or part of `world_turns`);
-   - **7.2 side scenes:** how a scene is written (`scenes/`: the two characters, where, what triggers it, the at-most reward), `rpg.py scene start|end`, the price per scene, the `side_scenes` switch in all three presets, and how the line cap applies;
-   - **content:** a scene for each game. The lighthouse has two agent characters (Ysolde, Grukk); the station has only one (Halloran), so it needs a second agent (Bucket or Shellback made `minor: no`?) or a scene that pairs Halloran with a promoted person, which the station never generates. That's the user's call.
-4. **Stage 6 (deferred)** comes after Stage 7; its candidate decisions are under **Later stages**.
+2. **If the user brings playtest feedback (Stages 5 and 7):** diagnose from the session transcript (`DEVELOPING.md`, *Debugging a real session*), reproduce in a scratch copy, propose the fix and wait for an OK, then fix with a test. One commit per agreed fix, with a live check if players see it. The **Stage 5** and **Stage 7 playtest checklists** below say what was meant to happen.
+3. **Next build: Stage 6 (puzzles).** Propose its design and open decisions briefly, with a recommendation for each, and wait for answers (candidates under **Later stages**). Then Stage 8.
 
 ## Commits
 | Commit | What |
@@ -37,7 +32,7 @@ As of 2026-10-22. The state of the kit build for whoever picks it up next, human
 | `42a9e8a` | 5.4 Promotion: `rpg.py talk <id>`, promotion to an agent after N conversations, the journal's ★. Also the second progress-line filter fix |
 | `f500269` | This file: Stage 5 done |
 | `ea79ba6` | 7.1 People with plans: `## Plan:` sections, world-turn `plans`, `SIGNAL`/`NOW HERE`, `view.signals` toast and chime, `world_turns.plans`; Ysolde, Grukk, Halloran, Bucket (now `minor: no`) |
-| (next) | 7.2 Side scenes: `scenes/`, `rpg.py scene start\|end`, scene part and reply count in `npc-brief`, `side_scenes`, price 2; The Shiniest Thing, The Mopping Dispute |
+| `3002c5d` | 7.2 Side scenes: `scenes/`, `rpg.py scene start\|end`, scene part and reply count in `npc-brief`, `side_scenes`, price 2; The Shiniest Thing, The Mopping Dispute; `onlyRecords` and a note-filter case in the mod |
 
 Handoff-only commits (`2ac55a1`, `b6b523d`, `a2280fe`, `ab4dea9`, `7057684`) are left out.
 
@@ -140,6 +135,5 @@ Handoff-only commits (`2ac55a1`, `b6b523d`, `a2280fe`, `ab4dea9`, `7057684`) are
 - `/map` (the text command) still draws the box map; the pane's Map tab is the tile map.
 
 ## Later stages, in build order
-- **Stage 7, a living world (next):** major characters' `plans:` (`may_go`, `may_do` with in-world signals) applied on world turns; two-character side scenes (`scenes/`, `rpg.py scene start|end`). Decisions to propose: see **Starting the next session**.
-- **Stage 6, puzzles (deferred until after Stage 7):** the GM assembles prebuilt kit code blocks (`rules/blocks.py`, a JSON pipeline; `rpg.py solve` and `unlock` for locks, `inspect` and `repair` for a broken mechanism). No free-form code. Decisions to propose when it's next: the block set (which blocks, and what each may read and change), how a puzzle is written in content (a `puzzles/` kind, or a section of a room or item), what a solve costs (baseline play is free, so probably nothing unless an agent is spawned), the switch (if any), and one lock and one broken mechanism for each game.
+- **Stage 6, puzzles (next):** the GM assembles prebuilt kit code blocks (`rules/blocks.py`, a JSON pipeline; `rpg.py solve` and `unlock` for locks, `inspect` and `repair` for a broken mechanism). No free-form code. Decisions to propose when it's next: the block set (which blocks, and what each may read and change), how a puzzle is written in content (a `puzzles/` kind, or a section of a room or item), what a solve costs (baseline play is free, so probably nothing unless an agent is spawned), the switch (if any), and one lock and one broken mechanism for each game.
 - **Stage 8, new worlds (last; needs Stage 6):** `/newworld`; a background `worldsmith` agent with file tools confined to `state/forge/`; `validate --kit-complete`; `rpg.py forge quote|start|install`.
