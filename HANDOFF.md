@@ -7,11 +7,17 @@ As of 2026-10-22. The state of the kit build for whoever picks it up next, human
 - **Technical plan:** `~/.claude/plans/please-read-implementation-plan-md-in-sunny-cake.md` (approved). The decisions below override it where they differ.
 - **Done:** Stages 1–5: kit split, second game and seeds; the meter and switches; look and feel; curses; the player leaves a mark (crafting, building, the library, promotion). Everything is committed on `main`; `sh tools/check.sh` passes (46 engine tests, 61 mod tests, both games validate).
 - **Now:** waiting for the user's playtest of Stage 5. See **Starting the next session**.
+- **Stage order from here (decided 2026-10-22):** Stage 7 next, then Stage 6, then Stage 8. Stage 6 is deferred, not dropped. The plan allows Stages 3–7 in any order; Stage 7 depends only on Stages 1–2; Stage 8 must come after Stage 6, because every generated world needs an easy lock.
 
 ## Starting the next session
 1. The user starts dev sessions with `ooc:` (or says the whole session is development). Read `DEVELOPING.md`, then this file, then run `sh tools/check.sh` and report the state.
 2. **If the user brings Stage 5 playtest feedback:** diagnose from the session transcript (`DEVELOPING.md`, *Debugging a real session*), reproduce in a scratch copy, and fix with a test. One commit per agreed fix, with a live check if players see it. Use the **Stage 5 playtest checklist** below to know what was meant to happen.
-3. **Before building Stage 6:** propose its design and the open decisions to the user, briefly, and wait for answers, as was done for Stage 5. Candidate decisions: the block set (which kit blocks, and what each may read and change), how a puzzle is written in content (a `puzzles/` kind, or a section of a room or item), what a solve costs (baseline play is free, so probably nothing unless an agent is spawned), the switch (if any), and the content for each game (one lock and one broken mechanism in each).
+3. **Before building Stage 7:** propose its design and the open decisions to the user, briefly, with a recommendation for each, and wait for answers, as was done for Stage 5. Candidate decisions:
+   - **7.1 plans:** how a character's `plans:` are written (where they may go, what they may do, under which flags), which characters get plans in each game, how world turns choose and apply one (the world agent proposes, the rules check), and how the player notices (a line in the narration, a toast, a sound, a rumor);
+   - **7.1 cost:** whether plans ride on the existing world turn (price 2) or cost extra, and the switch (`plans` on/off, or part of `world_turns`);
+   - **7.2 side scenes:** how a scene is written (`scenes/`: the two characters, where, what triggers it, the at-most reward), `rpg.py scene start|end`, the price per scene, the `side_scenes` switch in all three presets, and how the line cap applies;
+   - **content:** a scene for each game. The lighthouse has two agent characters (Ysolde, Grukk); the station has only one (Halloran), so it needs a second agent (Bucket or Shellback made `minor: no`?) or a scene that pairs Halloran with a promoted person, which the station never generates. That's the user's call.
+4. **Stage 6 (deferred)** comes after Stage 7; its candidate decisions are under **Later stages**.
 
 ## Commits
 | Commit | What |
@@ -100,7 +106,7 @@ Handoff-only commits (`2ac55a1`, `b6b523d`, `a2280fe`, `ab4dea9`, `7057684`) are
 - **Speaker labels** (`speakerOf` in `mod/hooks/story.ts`): only names outside quotation marks count, and an unattributed line stays plain.
 - `/map` (the text command) still draws the box map; the pane's Map tab is the tile map.
 
-## Later stages (unchanged from the plan)
-- **Stage 6, puzzles:** the GM assembles prebuilt kit code blocks (`rules/blocks.py`, a JSON pipeline; `rpg.py solve` and `unlock` for locks, `inspect` and `repair` for a broken mechanism). No free-form code.
-- **Stage 7, a living world:** major characters' `plans:` (`may_go`, `may_do` with in-world signals) applied on world turns; two-character side scenes (`scenes/`, `rpg.py scene start|end`).
-- **Stage 8, new worlds:** `/newworld`; a background `worldsmith` agent with file tools confined to `state/forge/`; `validate --kit-complete`; `rpg.py forge quote|start|install`.
+## Later stages, in build order
+- **Stage 7, a living world (next):** major characters' `plans:` (`may_go`, `may_do` with in-world signals) applied on world turns; two-character side scenes (`scenes/`, `rpg.py scene start|end`). Decisions to propose: see **Starting the next session**.
+- **Stage 6, puzzles (deferred until after Stage 7):** the GM assembles prebuilt kit code blocks (`rules/blocks.py`, a JSON pipeline; `rpg.py solve` and `unlock` for locks, `inspect` and `repair` for a broken mechanism). No free-form code. Decisions to propose when it's next: the block set (which blocks, and what each may read and change), how a puzzle is written in content (a `puzzles/` kind, or a section of a room or item), what a solve costs (baseline play is free, so probably nothing unless an agent is spawned), the switch (if any), and one lock and one broken mechanism for each game.
+- **Stage 8, new worlds (last; needs Stage 6):** `/newworld`; a background `worldsmith` agent with file tools confined to `state/forge/`; `validate --kit-complete`; `rpg.py forge quote|start|install`.
