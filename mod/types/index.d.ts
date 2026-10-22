@@ -52,6 +52,8 @@ export type CoderpgSave = {
     clock?: { name: string; left: number; total: number } | null
     chronicle?: string[]
     rumors?: string[]
+    /** What the player noticed close by when someone acted off-screen, numbered in order (Stage 7). */
+    signals?: { n: number; text: string }[]
   }
 }
 
@@ -80,7 +82,8 @@ export type CoderpgSettings = {
   capacity: number
   prices: Record<string, number>
   npc_agents: { on: boolean; lines_per_exchange: number; off_for: string[] }
-  world_turns: { on: boolean; every_moves: number }
+  /** `plans`: major characters follow their own plans on world turns (Stage 7). */
+  world_turns: { on: boolean; every_moves: number; plans?: boolean }
   generation: { on: boolean; max_per_run: number; kinds: string[] }
   /** Makers taking orders (version 8+). */
   crafting?: { on: boolean; max_per_run: number }

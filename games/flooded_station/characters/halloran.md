@@ -42,6 +42,33 @@ The pump is running again! You are giddy with relief and keep checking the gauge
 ## If halloran_agrees and not evacuated
 You've agreed to leave. You're sitting at the landing with your specimen cooler, trying not to look back.
 
+## If halloran_at_tanks and not halloran_agrees
+You've come down to the Lab Wing to check what's left of your tanks. You're knee-deep, counting animals, and trying not to think about the ones you've lost.
+
+## Plan: check_tanks (if not halloran_at_tanks and not halloran_dozing and not halloran_agrees and not evacuated and not station_lost)
+does: goes down to the Lab Wing to check on her animals' tanks
+sets: halloran_at_tanks
+near: Boots ring on the Control Room ladder, then splash away along the Lab Wing corridor.
+rumor: Halloran keeps slipping off to the Lab Wing to count her animals.
+
+## Plan: back_to_console (if halloran_at_tanks and not halloran_agrees and not evacuated)
+does: wades back from the tanks and climbs up to the Control Room
+clears: halloran_at_tanks
+near: Wet footsteps slap back along the Lab Wing corridor, and the ladder to the Control Room creaks.
+rumor: Halloran's gone back up to stare at her tide chart.
+
+## Plan: doze (if not halloran_dozing and not halloran_at_tanks and not halloran_agrees and not evacuated and not station_lost and not pump_running)
+does: nods off in her chair at the console, two days without sleep catching up with her
+sets: halloran_dozing
+near: From the Control Room comes a long, slow snore, and the creak of a chair tipping back.
+rumor: Halloran fell asleep at her console, they say, still holding her mug.
+
+## Plan: wake_up (if halloran_dozing)
+does: jerks awake at the console
+clears: halloran_dozing
+near: Up in the Control Room a chair thumps down onto its legs, and a voice mutters, "I wasn't asleep."
+rumor: Halloran woke at her console and pretended she hadn't slept.
+
 ## GM only
 - **Briefing:** the first time she explains the pump and the fuse, `flag set halloran_briefed`.
 - **Persuading her to leave:** if halloran_shaken, `check wits 12`; if halloran_stubborn, `check wits 16`. Allow one try per conversation. On a success, `flag set halloran_agrees`, and she goes down to the landing.

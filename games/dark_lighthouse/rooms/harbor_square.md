@@ -2,13 +2,13 @@
 name: Harbor Square
 exits:
   north: gull_tavern
-  west: lighthouse
+  west: lighthouse (if not ysolde_asleep)
   east: coast_road
 items:
   - boarding_cutlass (if cutlass_in_nets)
 characters:
   - morwen
-  - ysolde (if lamp_lit)
+  - ysolde (if lamp_lit or ysolde_on_quay)
   - grukk (if lamp_lit and grukk_friend)
 expand: south
 build:
@@ -29,6 +29,12 @@ The fleet is home. Boats crowd the moorings, nets are being hauled up the steps,
 ## If not lamp_lit and not fleet_arrived
 The lighthouse is a black finger against the sky. People cross the square quickly with their heads down, glancing at the dark tower and then out to sea.
 
+## If ysolde_on_quay and not lamp_lit
+At the very end of the quay a grey-haired woman in oilskins stands beside a lantern, staring out at the rocks. It's Ysolde, the keeper, come down from her dark tower.
+
+## If ysolde_asleep
+At the top of the lighthouse path the tower door is shut and barred from inside. Through it, faintly, someone is snoring.
+
 ## If lamp_lit
 The lighthouse beam sweeps over the water again. Lanterns hang in doorways and someone is singing down by the boats. Ysolde stands at the end of the quay, watching for sails.
 
@@ -41,5 +47,6 @@ An old cutlass is tangled in the nets; anyone who looks closely will notice its 
 ## Details
 - Nets: a heap of old, half-rotted fishing nets. Morwen, Pell's cousin, is working through them and takes small jobs to order.
 - The footing: a square of blackened stone where a net-loft burned down years ago. Morwen says something could go up there again, for a price.
+- The lighthouse door: while it's barred, hammering on it wakes Ysolde. She unbars it, grumbling about strangers who can't let a woman sleep: `flag unset ysolde_asleep`. Then the way west is open.
 - Quay steps: they lead south down to the boats. Nothing is written about what's down there, so this is a place the world can grow.
 - Quay: if the player looks out to sea, they see dark water and rocks white with foam. There are no boats close in.

@@ -27,7 +27,7 @@ class Context:
     def __init__(self, *, location, taken_ids, taken_names, expand, policy, balance, count,
                  items_found_here, extras_here, characters_here, room_ids, generated_people,
                  terrains=(), terrain_here=None, moves=0, maker=None, makes=(), builder=None, build_spots=None,
-                 depth_here=0):
+                 depth_here=0, plan_steps=None):
         self.location = location                    # the player's room id
         self.taken_ids = set(taken_ids)             # every id in use, any kind
         self.taken_names = {n.lower() for n in taken_names}
@@ -48,11 +48,12 @@ class Context:
         self.builder = builder                      # who the player is ordering a building from, or None
         self.build_spots = dict(build_spots or {})  # {direction: what fits there}: this room's free build spots
         self.depth_here = depth_here                # how many generated rooms deep the player's room is (authored: 0)
+        self.plan_steps = dict(plan_steps or {})    # {character: [plan steps open now]}: who may act off-screen
 
 
 def empty_patch():
     return {"rooms": {}, "characters": {}, "items": {}, "quests": {},
-            "exits": {}, "placements": {}, "room_items": {}, "commissions": {}, "rumors": [], "moves": []}
+            "exits": {}, "placements": {}, "room_items": {}, "commissions": {}, "rumors": [], "moves": [], "plans": []}
 
 
 def _allowed(ctx, kind):
@@ -394,13 +395,21 @@ def reuse(ident, entry, ctx, request, direction=None):
 
 
 def world_turn(p, ctx):
-    """Off-screen life: new rumors, and generated people moving between rooms. Nothing mechanical."""
+    """Off-screen life: new rumors, generated people moving between rooms, and major characters' plan steps
+    (only ones open now; rpg.py applies them). Nothing mechanical."""
     patch = empty_patch()
     patch["rumors"] = _lines(p, "rumors", 3, 160, required=False)
     for mv in _list(p.get("moves"), "moves"):
         if not isinstance(mv, dict) or mv.get("id") not in ctx.generated_people or mv.get("room") not in ctx.room_ids:
             raise ValueError("moves may only send generated people to rooms that exist")
         patch["moves"].append({"id": mv["id"], "room": mv["room"]})
+    for pl in _list(p.get("plans"), "plans"):
+        if not isinstance(pl, dict) or pl.get("step") not in ctx.plan_steps.get(pl.get("who"), ()):
+            raise ValueError("plans may only pick a step listed as open for that person (%s)" % (
+                "; ".join("%s: %s" % (c, ", ".join(s)) for c, s in ctx.plan_steps.items()) or "nobody has one now"))
+        if any(x["who"] == pl["who"] for x in patch["plans"]):
+            raise ValueError("each person does at most one thing per world turn")
+        patch["plans"].append({"who": pl["who"], "step": pl["step"]})
     return patch
 
 

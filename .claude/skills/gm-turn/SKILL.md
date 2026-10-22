@@ -138,7 +138,7 @@ When a generated or player-made person, place or thing has come to matter (the p
 ## Orders
 A maker makes things to order within their trade; a builder builds a small place at one of the room's build spots.
 1. Run `python3 rules/rpg.py world-brief craft <maker>` (or `world-brief build <builder>`), spawn the `world` agent with it, and run `generate craft` (or `generate build`) on its reply, as in **How to generate**. If `world-brief` refuses, they turn the order away in character.
-2. If `generate` says they turn the order down, narrate that in their voice. Otherwise it reports what will be made and its `PRICE`: they describe it and name that price, never another.
+2. If `generate` says they turn the order down, narrate that in their voice. Otherwise it reports what will be made and its `PRICE`: they describe it and name that price, never another. When the maker is an `[agent]`, put what will be made and its price in that spawn's "What just happened", so they name it themselves.
 3. Only when the player pays, run `pay <id>` (or `pay <id> <item>` for an item `PRICE` lists in trade). Until then it isn't theirs. A made item is handed over at once; a building takes a few moves (`BEING BUILT` in `look`) and doesn't exist until `BUILT:` says so. An unpaid order waits (`ORDERS WAITING` in `look`).
 
 ## World turns
@@ -148,3 +148,10 @@ When `move` or `look` says `WORLD TURN DUE`, do this before writing the narratio
 3. Write its JSON to `proposals/world-turn.json`, then run `python3 rules/rpg.py world-turn proposals/world-turn.json`.
 
 Don't narrate the world turn. Its rumors surface later, when the player talks to people: minor and generated characters may repeat them, and agent NPCs already see them in their briefs.
+
+Some characters follow plans of their own on world turns: someone goes for a walk, falls asleep, bars a door. `world-turn` reports what the player can notice:
+- **`SIGNAL:`** happened close by. Work that line into the narration as one sentence of what the player sees or hears, without explaining it ("Up at the lighthouse a heavy bar thuds across the door.").
+- **`NOW HERE:`** that character has just arrived where the player is. Narrate them arriving, then play them as usual.
+- **`OFF-SCREEN:`** nothing the player could notice. Say nothing; the rooms and what people say will show it when the player gets there.
+
+Never tell the player what someone did off-screen, and never explain a signal. When they go and look, `look` and `show` already describe how things are now.

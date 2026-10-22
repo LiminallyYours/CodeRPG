@@ -33,8 +33,11 @@ Your favourite thing in the world is anything sweet: honey, cake, jam. Nobody ha
 ## If craves_fish
 Your favourite thing in the world is smoked fish: the smell, the salt, the crackly skin. Nobody ever brings Grukk fish, and that makes you very sad. A smoked fish would win you over completely.
 
-## If not grukk_friend and not grukk_cowed and not grukk_defeated and not grukk_scoffed
+## If not grukk_friend and not grukk_cowed and not grukk_defeated and not grukk_scoffed and not grukk_foraging
 You are squatting on the path down to your hollow, guarding it. This person is a stranger.
+
+## If grukk_foraging and not grukk_friend and not grukk_cowed and not grukk_defeated
+You've wandered up the coast road, sniffing the gorse for anything sweet. Before you left you rolled your big stone across the path down to the hollow, so nobody can get at your hoard.
 
 ## If grukk_scoffed and not grukk_friend
 This person tried to scare you and failed, and you laughed at them. You are not scared of them at all.
@@ -48,8 +51,20 @@ This person frightened you badly. You fled down into your hollow and you're sulk
 ## If lamp_lit and grukk_friend
 You followed your treat friend to the village. The children feed you treats and the big light on the tower shines every night. You love it now because "it shiny every night".
 
+## Plan: forage (if not grukk_foraging and not grukk_friend and not grukk_cowed and not grukk_defeated and not lamp_lit)
+does: rolls a boulder over the path to his hollow and wanders up the coast road, sniffing for sweets
+sets: grukk_foraging
+near: Heavy bare feet thud along the coast road, and something sniffs at the gorse, loudly.
+rumor: A carter swears he saw the troll up on the coast road, nose in the gorse, sniffing like a dog.
+
+## Plan: go_home (if grukk_foraging and not grukk_friend and not grukk_cowed and not grukk_defeated and not lamp_lit)
+does: lumbers back to his bridge and rolls the boulder off the path
+clears: grukk_foraging
+near: Heavy feet thud away along the road toward the bridge, and stone grinds on stone.
+rumor: The troll's back squatting on Greywater Bridge, they say, sulking.
+
 ## GM only
-- **Blocking:** while he is on the bridge he won't let anyone go down, and the exit stays blocked.
+- **Blocking:** while he is on the bridge he won't let anyone go down, and the exit stays blocked. While he's off foraging on the coast road, the boulder he rolled across the path blocks it instead: nobody but Grukk can shift it. He can be bribed, frightened or fought on the road just as on the bridge.
 - **Bribe:** only his favourite treat works. If craves_honey, that's the honey cake (`lose honey_cake`); if craves_fish, the smoked fish (`lose smoked_fish`). Then `flag set grukk_friend`.
 - **The wrong treat:** he sniffs it, pushes it back with a disappointed grunt, and grumbles about what he really wants. That's a hint, not a bribe, and nothing changes.
 - **Intimidate:** `check might 14`, and only if `grukk_scoffed` isn't set.

@@ -1,7 +1,7 @@
 ---
 name: Bucket
 role: the station's battered maintenance drone
-minor: yes
+minor: no
 card: #c8c8d0
 makes:
   - trinket
@@ -19,7 +19,7 @@ In short status messages in a flat synthetic voice, often starting with a beep: 
 ## What it knows
 - The main pump is OFFLINE. Fault: FUSE. Spare fuses: PARTS LOCKER, LOWER LAB.
 - The lower lab contains: ONE (1) CRAB, LARGE. Bucket will not go down there.
-- Dr. Halloran is in the Control Room, up the ladder.
+- Dr. Halloran works in the Control Room, up the ladder. Bucket rides the cargo hoist beside it.
 
 ## What it wants
 It wants the floor dry, and someone to fix the pump so it can stop mopping.
@@ -38,6 +38,21 @@ Its first-aid bay is empty: "Stock: ZERO."
 
 ## If pump_running
 It spins in a slow happy circle every time it passes a grate where water is draining.
+
+## If bucket_upstairs
+You have ridden the cargo hoist up to the Control Room, and you are mopping round the console in slow circles. The floor here: also wet.
+
+## Plan: mop_upstairs (if not bucket_upstairs and not station_lost)
+does: rides the cargo hoist up to mop the Control Room
+sets: bucket_upstairs
+near: The cargo hoist clanks and whines, and a flat voice echoes down the shaft: "Beep. Relocating. Mop: deployed."
+rumor: Bucket has been mopping round the Control Room console again, whether anyone likes it or not.
+
+## Plan: come_down (if bucket_upstairs)
+does: rides the cargo hoist back down to the Common Deck
+clears: bucket_upstairs
+near: The cargo hoist rattles down its shaft, and small wheels squeak across wet deck plate.
+rumor: Bucket is back on the Common Deck, mopping the galley again.
 
 ## GM only
 - **Orders:** it makes things to order from scrap. What it is and what it costs come from the rules; it states the price as a status message.

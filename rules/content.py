@@ -196,6 +196,38 @@ def section_condition(heading):
     return m.group(1).strip() if m else None
 
 
+_PLAN = re.compile(r"^Plan:\s*([a-z][a-z0-9_]*)\s*(?:\(if\s+(.+)\))?\s*$")
+PLAN_KEYS = ("does", "sets", "clears", "near", "rumor")
+
+
+def is_plan(heading):
+    """A `## Plan: …` section: what a character may do off-screen. It's for the rules, not for reading aloud."""
+    return heading.startswith("Plan:")
+
+
+def plans(body):
+    """A character's off-screen plans: each `## Plan: <step> (if <condition>)` section, whose lines are
+    `does:`, `sets:` or `clears:` (one of the character's own flags), `near:` and `rumor:`.
+    Returns [{"step", "when", <keys>..., "bad": [lines that aren't one of those keys]}]."""
+    out = []
+    for heading, text in sections(body):
+        if not is_plan(heading):
+            continue
+        m = _PLAN.match(heading)
+        step = {"step": m.group(1) if m else None, "when": m.group(2).strip() if m and m.group(2) else None,
+                "heading": heading, "bad": []}
+        for line in text.splitlines():
+            if not line.strip():
+                continue
+            k, _, v = line.partition(":")
+            if k.strip() in PLAN_KEYS and v.strip():
+                step[k.strip()] = v.strip()
+            else:
+                step["bad"].append(line.strip())
+        out.append(step)
+    return out
+
+
 def path_of(kind, ident):
     return game_dir() / kind / ("%s.md" % ident)
 

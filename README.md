@@ -58,7 +58,7 @@ DEVELOPING.md                 how to work on the game safely: checks, testing, i
 - **The GM prompt is split.** `CLAUDE.md` holds the short standing orders. The `gm-turn` skill holds the longer procedure. Neither contains any world facts.
 
 ## NPC agents (Phase 2)
-- **Who gets an agent:** every character whose file says `minor: no` speaks through its own `npc` subagent. Characters marked `minor: yes` (here, Pell) are played by the GM directly to save cost. Changing which is which is a one-line edit.
+- **Who gets an agent:** every character whose file says `minor: no` speaks through its own `npc` subagent. Characters marked `minor: yes` (here, Pell and Morwen) are played by the GM directly to save cost. Changing which is which is a one-line edit.
 - **What an NPC knows:** `rpg.py npc-brief <id>` builds the NPC's whole world from its character file. That's every section except `## GM only`, plus the `## If` sections that apply now (without the flag names). Then it adds who else is in the scene and the character's **memory of the player**, which is kept in state (`npc_memory`, at most 6 short lines).
 - **Each exchange is one fresh, blocking spawn.** The GM passes the brief, the last few lines of the scene, and what just happened. I tested continuing an agent with SendMessage, and it doesn't wait for the reply, so it can't keep turns in sync. A fresh spawn also means the NPC always sees current state.
 - **NPCs propose, the GM decides.** The NPC replies with `SAY` / `INTENT` / `REMEMBER`. The GM checks each intent against the character file's `## GM only` rules and applies it with `rpg.py`, or doesn't. If an NPC contradicts state, state wins. NPCs have no tools at all (`tools: []`), and they don't load CLAUDE.md, so they can't touch files.
@@ -71,7 +71,7 @@ Playing the game as written is free. The meter is a budget for the **extras** th
 | | Price (the game's `balance.json`) | When the meter can't pay |
 |---|---|---|
 | generating something new (a person, place, item, side quest) | 2 | it doesn't exist; no `may grow` ways are offered |
-| a world turn (life going on off-screen) | 2 | none falls due |
+| a world turn (life going on off-screen, people's plans included) | 2 | none falls due |
 | having something made (a maker shapes your order) | 2 | the maker takes no new work |
 | having something built (a builder shapes your order) | 3 | the builder takes no new work |
 | bringing something back from an earlier game, instead of inventing it | 1 (the brief costs 2; 1 comes back) | |
@@ -82,9 +82,9 @@ One point is roughly one extra round of game-master work (about 10–15k tokens,
 
 | Preset | Meter | NPC agents | World turns | Generation | Crafting | Building | Promotion |
 |---|---|---|---|---|---|---|---|
-| `thrifty` | 10 | off: the GM voices everyone | off | extras, rooms and items only, 6 per run | 2 orders per run | 1 per run | off |
-| `normal` | 30 | on, 4 lines between two per turn | every 5 moves | everything the game allows, 16 per run | 5 orders | 3 | 2 per run, after 3 conversations |
-| `rich` | 60 | on, 6 lines | every 4 moves | everything the game allows, 24 per run | 10 orders | 5 | 4, after 2 |
+| `thrifty` | 10 | off: the GM voices everyone | off (and no plans) | extras, rooms and items only, 6 per run | 2 orders per run | 1 per run | off |
+| `normal` | 30 | on, 4 lines between two per turn | every 5 moves, with plans | everything the game allows, 16 per run | 5 orders | 3 | 2 per run, after 3 conversations |
+| `rich` | 60 | on, 6 lines | every 4 moves, with plans | everything the game allows, 24 per run | 10 orders | 5 | 4, after 2 |
 
 Change them with `python3 tools/settings.py preset thrifty` or `set npc_agents.characters.grukk false`; `/budget` shows what's in effect. The station overrides one switch: its world turns come every 4 moves.
 
@@ -107,6 +107,7 @@ The authored world is fixed, but each run varies within limits the content sets,
 | **The library:** everything generated or player-made goes into the game's library, which lasts across new games. A new game brings back the places you built and the people you befriended (finished their side quest), each friend remembering one line about you; the world reuses a fitting entry (the same dockhand turns up again) rather than inventing one | `rpg.py` records, carries over and reuses; the owner keeps or forgets entries with `tools/library.py` | `balance.json` `library` (`max_entries` 40, `brief_entries` 5) | `state/library/<game>.json`, outside every save |
 | **People who find their own voice:** a generated person you keep coming back to (3 conversations in the normal preset, one per scene) is promoted to their own NPC agent with their own memory of you, for the rest of the run and in later runs; the journal marks them ★ | `rpg.py talk` counts and promotes | `settings.json` `promotion` | the person's `minor`/`promoted` in `run.characters`; the library entry |
 | **World turns:** every few moves (the owner's `world_turns` setting) the world agent adds rumors and moves generated people around | world agent / checks | `settings.json` | `run.rumors` |
+| **People with plans:** on a world turn, each major character the player isn't with may do one thing their file allows: Ysolde walks down to the quay or sleeps with her door barred, Grukk forages on the coast road, Halloran checks her tanks or dozes off, Bucket mops the Control Room. The change sticks until another step undoes it. Close by, the player notices a sign (a sentence in the story and a toast); further off, it becomes a rumor | the world agent picks among the steps open now; `rpg.py` checks and applies them | character `## Plan:` sections; room conditions on the plan flags; `world_turns.plans` | flags, `run.signals`, `run.rumors` |
 | **Notes and chronicle:** small details the GM established, and one line per significant event | GM, through `rpg.py note` and `chronicle` | | `run.notes`, `run.chronicle` |
 
 **How generation works:**
@@ -165,6 +166,7 @@ Extra prose shown only when that flag is set.
 - **Quests** may give `failed_by:` as well as `completed_by:`.
 - **Rooms** may give `terrain:` (a kind from the look's `terrain`, e.g. water, grass, stone, indoors; the station adds metal and flooded) and `color:` for their map tile. Generated rooms take a terrain too, or their neighbour's.
 - **Curses** (`games/<id>/curses/<id>.md`) give `effect:` (`reverse_words`, `mirror`, `word_limit <n>` or `suffix "<phrase>"`), `caused_by:` and `cured_by:` (conditions), and prose: how it shows, the cure, and a `## GM only` section. A curse is on the player while its cause holds and its cure doesn't, so none survives a new game. `validate` refuses a curse whose cure nothing in the game can bring about. The Dark Lighthouse has the Backwards Tongue (a cracked mirror in the troll's hoard; Pell's salt cures it); the station has Radio Habit (the comms headset; Halloran snaps you out of it).
+- **Plans** (major characters only): each `## Plan: <step> (if <condition>)` section in a character file is one thing they may do off-screen, with the lines `does:` (a few words, for the world agent), `sets:` or `clears:` (one of their own flags, `<id>_<word>`), `near:` (what the player notices in or next to the room it happens in) and `rumor:` (what people say otherwise). The rooms do the rest with conditions on those flags: who stands where (`- ysolde (if not lamp_lit and not ysolde_on_quay)`), which ways are barred, and `## If` prose for how a place looks while someone's away. `show` and the NPC's own brief leave plan sections out. `validate` checks that plan flags are the character's own and never the main story's, that each one set can be cleared again, that something outside the file uses it, and that no combination of them puts the character in two rooms at once.
 - **Characters** may give `card: #8fae4a`: the paragraphs where they speak are drawn under their name in that color.
 - **Makers** are characters with `makes:` (the item tiers they make to order) and optionally `accepts:` (items they take instead of money). A `## What <she|he|it|they> make(s)` section describes their trade; the world agent reads it when shaping an order. The Lighthouse has Morwen the net-mender on the square; on the station, Bucket makes things from scrap.
 - **`look.json`** may set `palette` (`accent`, `good`, `bad`, `warn`, `heal`, and `accent_by_time`, a color per time of day from world.md's `times`), `terrain` (each kind's tile `bg`, `fg`, and `moves` for water), `sounds` (which kit sound each beat plays, or `null`: step, dice, hit, miss, coin, heal, fanfare, defeat, wipe, type, meter_low, and `phase_<reading|considering|shaping|stirring|resolving>`), `stat_labels` and `stat_short` (names for might, agility and wits), `currency`, `tagline` (under the title card), `tabs` with `tab_labels` and `tab_keys`, and `phrases` (`idle`, `by_command`, and `phases`, what the waiting line says in each stage of a turn; `{name}` is who's thinking). Anything left out comes from `rules/look.default.json`. `validate` flags unknown keys.

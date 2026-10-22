@@ -61,6 +61,9 @@ export function feedback(prev: CoderpgSave | null, next: CoderpgSave): Feedback 
   for (const c of next.view?.curses ?? []) if (!cursesBefore.has(c.id)) { parts.push(`✶ cursed: ${c.name}`); fb.sounds.push('curse') }
   for (const c of prev.view?.curses ?? []) if (!cursesNow.has(c.id)) { parts.push(`✶ curse lifted: ${c.name}`); fb.sounds.push('curse_lifted') }
 
+  const heardUpTo = Math.max(0, ...(prev.view?.signals ?? []).map(x => x.n))
+  for (const x of next.view?.signals ?? []) if (x.n > heardUpTo) { parts.push(x.text); fb.sounds.push('signal') }
+
   if (next.status === 'defeated' && prev.status !== 'defeated') { parts.push('you have fallen'); fb.sounds = ['defeat'] }
 
   if (parts.length) fb.toast = parts.join('  ·  ')

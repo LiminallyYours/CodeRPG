@@ -371,6 +371,87 @@ def build_spots(state, room):
     return {d: str(t) for d, t in spots.items() if d not in (room.get("exits") or {}) and d not in busy}
 
 
+# ---------------------------------------------------------------- people with plans: life off-screen
+# A major character's content may list what they do when the player isn't with them (`## Plan:` sections).
+# Each step sets or clears one of their own flags, and the rooms' conditions do the rest: where they stand,
+# whether a door is barred. On a world turn the world agent may pick one open step per character; the rules
+# check it's open and apply it. The player learns of it only by its signal: the step's `near:` line when it
+# happens in or next to their room, otherwise its `rumor:`. Someone the player is with never acts.
+
+def plan_steps(ident):
+    """A character's plan steps (authored major characters only; others have none)."""
+    if not content.exists("characters", ident) or is_minor(ident):
+        return []
+    return [s for s in content.plans(ent("characters", ident)["body"]) if s["step"]]
+
+
+def where_is(ident, flags):
+    """The room a character stands in under these flags, or None."""
+    return next((r for r in ent_ids("rooms") if ident in content.visible(ent("rooms", r).get("characters"), flags)), None)
+
+
+def neighbours(room_id):
+    """Rooms joined to this one by an exit either way, open or not: close enough to hear through."""
+    out = {content.split_condition(t)[0] for t in (ent("rooms", room_id).get("exits") or {}).values()}
+    for r in ent_ids("rooms"):
+        if any(content.split_condition(t)[0] == room_id for t in (ent("rooms", r).get("exits") or {}).values()):
+            out.add(r)
+    return out
+
+
+def open_steps(state):
+    """{character: [steps open now]} for everyone who may act off-screen this world turn."""
+    if not (SETTINGS["world_turns"]["on"] and SETTINGS["world_turns"]["plans"]):
+        return {}
+    flags, here = condition_flags(state), characters_here(state)
+    out = {}
+    for c in content.ids("characters"):
+        if c in here:
+            continue
+        steps = [s for s in plan_steps(c) if content.condition_holds(s["when"], flags)]
+        if steps:
+            out[c] = steps
+    return out
+
+
+def apply_plan(state, who, step):
+    """Carry out one plan step. Returns the lines for the game master, or None when it would take someone
+    out of the player's sight (then it's undone: whoever the player is with stays)."""
+    flag = step.get("sets") or step.get("clears")
+    before_here = set(characters_here(state))
+    before = where_is(who, condition_flags(state))
+    had = flag in state["flags"]
+    if step.get("sets"):
+        set_flag(state, flag)
+    elif had:
+        state["flags"].remove(flag)
+    if not before_here <= set(characters_here(state)):
+        if had and flag not in state["flags"]:
+            state["flags"].append(flag)
+        elif not had and flag in state["flags"]:
+            state["flags"].remove(flag)
+        return None
+    after = where_is(who, condition_flags(state))
+    run, me = state["run"], state["location"]
+    near = any(r and (r == me or me in neighbours(r)) for r in (before, after))
+    out = []
+    if near:
+        run["signal_n"] = run.get("signal_n", 0) + 1
+        run.setdefault("signals", []).append({"n": run["signal_n"], "text": step["near"], "move": run["moves"]})
+        del run["signals"][:-3]
+        out.append("SIGNAL (the player notices this close by: one sentence of what they see or hear, woven into "
+                   "the narration; don't explain it): %s" % step["near"])
+    elif step.get("rumor"):
+        run["rumors"].append(step["rumor"])
+        del run["rumors"][:-BALANCE["world"]["rumors_kept"]]
+    if after == me and before != me:
+        out.append("NOW HERE: %s has just arrived where the player is (%s)" % (ent("characters", who).get("name", who), step["does"]))
+    if not out:
+        out.append("OFF-SCREEN: someone out of the player's sight did something; it shows only in the rooms and "
+                   "what people say. Don't mention it.")
+    return out
+
+
 # ---------------------------------------------------------------- the library: what lasts across runs
 # Everything generated or player-made in a run goes into the game's library (rules/library.py, kept in
 # state/library/<game>.json, outside every save). A new game brings back the places the player built and
@@ -611,6 +692,7 @@ def refresh_view(state):
         "settings": settings_view(),
         "chronicle": run["chronicle"][-BALANCE["world"]["chronicle_lines"]:],
         "rumors": run["rumors"][-BALANCE["world"]["rumors_kept"]:],
+        "signals": [{"n": x["n"], "text": x["text"]} for x in run.get("signals", [])],  # what the player noticed close by
     }
 
 
@@ -623,7 +705,7 @@ def settings_view():
         "prices": dict(BALANCE["meter"]["prices"]),
         "npc_agents": {"on": agents["on"], "lines_per_exchange": agents["lines_per_exchange"],
                        "off_for": sorted(c for c, on in agents["characters"].items() if not on)},
-        "world_turns": {"on": turns["on"], "every_moves": turns["every_moves"]},
+        "world_turns": {"on": turns["on"], "every_moves": turns["every_moves"], "plans": turns["plans"]},
         "generation": {"on": gen["on"], "max_per_run": gen["max_per_run"], "kinds": [k for k, on in policy().items() if on]},
         "crafting": {"on": SETTINGS["crafting"]["on"], "max_per_run": SETTINGS["crafting"]["max_per_run"]},
         "building": {"on": SETTINGS["building"]["on"], "max_per_run": SETTINGS["building"]["max_per_run"]},
@@ -1308,7 +1390,7 @@ def cmd_npc_brief(args):
     now = []
     for heading, text in content.sections(ch["body"]):
         cond = content.section_condition(heading)
-        if heading.lower().startswith("gm"):
+        if heading.lower().startswith("gm") or content.is_plan(heading):
             continue
         if cond is not None:
             if content.condition_holds(cond, flags):
@@ -1352,11 +1434,12 @@ def cmd_remember(args):
 # ---------------------------------------------------------------- run content: show, generate, notes, world turns
 
 def applicable(body, flags):
-    """A body with only the `## If` sections that hold now; every other section is kept."""
+    """A body with only the `## If` sections that hold now; every other section is kept, except plans (`## Plan:`),
+    which are for the rules alone."""
     out = []
     for heading, text in content.sections(body):
         cond = content.section_condition(heading)
-        if cond is not None and not content.condition_holds(cond, flags):
+        if content.is_plan(heading) or cond is not None and not content.condition_holds(cond, flags):
             continue
         out.append(("## %s\n%s" % (heading, text)) if heading else text)
     return "\n\n".join(out)
@@ -1435,7 +1518,8 @@ def gen_context(state):
         generated_people=list(run["characters"]),
         terrains=list(content.look().get("terrain") or {}), terrain_here=room.get("terrain"),
         moves=run["moves"], maker=maker if kind == "craft" else None, makes=makes(maker) if maker and kind == "craft" else (),
-        builder=maker if kind == "build" else None, build_spots=build_spots(state, room), depth_here=room_depth(room))
+        builder=maker if kind == "build" else None, build_spots=build_spots(state, room), depth_here=room_depth(room),
+        plan_steps={c: [st["step"] for st in steps] for c, steps in open_steps(state).items()})
 
 
 def apply_patch(state, patch):
@@ -1790,12 +1874,23 @@ def cmd_world_brief(args):
                                          next((r for r, ps in run["placements"].items() if c in ps), "?"))
                   for c in run["characters"]]
         built = ["%s (%s)" % (r, ent("rooms", r).get("name", r)) for r in run["rooms"] if made_by("rooms", r) == "player"]
+        planned = open_steps(state)
         out += ["Time passes off-screen. Write what people around here start saying, based only on the story so far",
                 "and public knowledge, and optionally move generated people to another room that exists.",
                 "Generated people: %s" % (", ".join(people) or "none"),
                 "Places the player had built (people may start using them, and talking about them): %s" % (", ".join(built) or "none"),
-                "Rooms: %s" % ", ".join(ent_ids("rooms")),
-                'JSON: {"rumors": ["<up to 3 short lines of gossip>"], "moves": [{"id": "<generated person>", "room": "<room id>"}]}']
+                "Rooms: %s" % ", ".join(ent_ids("rooms"))]
+        if planned:
+            out += ["", "People with plans may each do one of the things listed for them, or nothing. Choose only what fits",
+                    "the story so far and the moment; often most of them carry on as they are. Never invent a step."]
+            for c, steps in planned.items():
+                at = where_is(c, condition_flags(state))
+                out.append("- %s (%s), now at %s: %s" % (c, ent("characters", c).get("name", c),
+                                                       ent("rooms", at).get("name", at) if at else "somewhere out of the way",
+                                                       "; ".join("%s (%s)" % (st["step"], st["does"]) for st in steps)))
+            out += ["Their rumors are taken care of: don't write gossip about what they do.", ""]
+        out += ['JSON: {"rumors": ["<up to 3 short lines of gossip>"], "moves": [{"id": "<generated person>", "room": "<room id>"}]%s}'
+                % (', "plans": [{"who": "<character id>", "step": "<step>"}]' if planned else "")]
     elif request == "extra":
         out += ["Make the unnamed person the player is addressing into someone specific, consistent with this place.",
                 "They know ONLY public knowledge, what anyone here could see, and gossip; no secrets, no clues beyond that.",
@@ -1886,6 +1981,11 @@ def cmd_world_turn(args):
             if mv["id"] in people:
                 people.remove(mv["id"])
         run["placements"].setdefault(mv["room"], []).append(mv["id"])
+    done = []
+    for p in patch["plans"]:
+        lines = apply_plan(state, p["who"], next(st for st in plan_steps(p["who"]) if st["step"] == p["step"]))
+        if lines:
+            done += [l for l in lines if l not in done]
     run["world_turn_due"] = False
     save_state(state)
     print("WORLD TURN: %d rumors, %d moves" % (len(patch["rumors"]), len(patch["moves"])))
@@ -1893,6 +1993,8 @@ def cmd_world_turn(args):
         print("  rumor: %s" % r)
     for mv in patch["moves"]:
         print("  %s is now at %s" % (mv["id"], mv["room"]))
+    for line in done:
+        print(line)
 
 
 OPEN_KEYS = ("terrain", "by_command")  # a game may add its own terrain kinds and command phrases
@@ -2106,7 +2208,80 @@ def validate_game():
                 need("characters", term[4:], where + " cured_by")
             elif flag_text.replace(own, "").count(term) == 0:
                 problems.append("%s: nothing in the game sets %r, so the curse can't be cured" % (where, term))
+    validate_plans(w, flag_text, problems)
     return problems, "%d rooms, %d characters, %d items, %d quests, %d tables, %d curses" % tuple(len(content.ids(k)) for k in content.KINDS)
+
+
+def quest_flags(w):
+    """Every flag the main story turns on: quests' conditions, the clock's flags and the variants. Plans keep off them."""
+    out = set()
+    for q in content.ids("quests"):
+        meta = content.load("quests", q)
+        for k in ("started_by", "completed_by", "failed_by"):
+            out.update(generate.TERM.findall(str(meta.get(k) or "")))
+        for line in meta.get("objectives") or []:
+            m = _DONE.match(str(line))
+            if m:
+                out.update(generate.TERM.findall(m.group(2)))
+    clock = w.get("clock") or {}
+    out.update(x for x in (clock.get("flag"), clock.get("also_flag")) if x)
+    for opts in (w.get("variants") or {}).values():
+        out.update(options_of(opts))
+    return out
+
+
+def validate_plans(w, flag_text, problems):
+    """Plans: well formed, each on the character's own flags, each undoable, each showing somewhere, and never
+    leaving the character in two rooms at once (checked from the start of the game)."""
+    story = quest_flags(w)
+    for c in content.ids("characters"):
+        meta = content.load("characters", c)
+        steps, where = content.plans(meta["body"]), "characters/%s.md" % c
+        if not steps:
+            continue
+        if str(meta.get("minor", "no")).lower() == "yes":
+            problems.append("%s: plans are for major characters (minor: no); the game master plays minor ones on the spot" % where)
+        own = content.path_of("characters", c).read_text(encoding="utf-8")
+        seen, sets, clears = set(), set(), set()
+        for st in steps:
+            at = "%s ## %s" % (where, st["heading"])
+            if not st["step"]:
+                problems.append("%s: a plan heading is 'Plan: <step id> (if <condition>)', the id lowercase with underscores" % at)
+                continue
+            if st["step"] in seen:
+                problems.append("%s: two plan steps are called %r" % (at, st["step"]))
+            seen.add(st["step"])
+            for line in st["bad"]:
+                problems.append("%s: unknown line %r (plan lines: %s)" % (at, line, ", ".join(content.PLAN_KEYS)))
+            for k in ("does", "near"):
+                if not st.get(k):
+                    problems.append("%s: needs %s:" % (at, k))
+            for k in ("does", "near", "rumor"):
+                if len(st.get(k) or "") > 160:
+                    problems.append("%s: %s is longer than 160 characters" % (at, k))
+            if bool(st.get("sets")) == bool(st.get("clears")):
+                problems.append("%s: a step either sets or clears one flag" % at)
+                continue
+            flag = st.get("sets") or st.get("clears")
+            (sets if st.get("sets") else clears).add(flag)
+            if not re.fullmatch(r"%s_[a-z0-9_]+" % re.escape(c), flag):
+                problems.append("%s: plan flags are the character's own: %s_<word>, not %r" % (at, c, flag))
+            if flag in story:
+                problems.append("%s: %r is part of the main story; plans never touch it" % (at, flag))
+            if flag_text.replace(own, "").count(flag) == 0:
+                problems.append("%s: nothing outside this file uses %r, so the step would change nothing" % (at, flag))
+        for f in sorted(sets - clears):
+            problems.append("%s: no plan step clears %r, so once set it would stay for good" % (where, f))
+        for f in sorted(clears - sets):
+            problems.append("%s: no plan step sets %r" % (where, f))
+        own_flags = sorted(sets | clears)
+        start = list(w.get("flags") or [])
+        for n in range(2 ** len(own_flags)):
+            flags = start + [f for i, f in enumerate(own_flags) if n >> i & 1]
+            rooms = [r for r in content.ids("rooms") if c in content.visible(content.load("rooms", r).get("characters"), flags)]
+            if len(rooms) > 1:
+                problems.append("%s: with %s, %s stands in %s at once" % (
+                    where, ", ".join(f for f in own_flags if f in flags) or "none of their plan flags", c, " and ".join(rooms)))
 
 
 def cmd_validate(args):
@@ -2183,7 +2358,8 @@ def cmd_settings(args):
     a = v["npc_agents"]
     print("NPC AGENTS: %s, up to %d lines between two per turn%s" % (
         on(a["on"]), a["lines_per_exchange"], "; game master voices %s" % ", ".join(a["off_for"]) if a["off_for"] else ""))
-    print("WORLD TURNS: %s, every %s" % (on(v["world_turns"]["on"]), moves_text(v["world_turns"]["every_moves"])))
+    print("WORLD TURNS: %s, every %s; people with plans: %s" % (on(v["world_turns"]["on"]), moves_text(v["world_turns"]["every_moves"]),
+                                                             on(v["world_turns"]["on"] and v["world_turns"]["plans"])))
     g = v["generation"]
     print("GENERATION: %s, at most %d per run; kinds: %s" % (on(g["on"]), g["max_per_run"], ", ".join(g["kinds"]) or "none"))
     print("CRAFTING: %s, at most %d orders per run" % (on(v["crafting"]["on"]), v["crafting"]["max_per_run"]))

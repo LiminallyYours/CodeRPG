@@ -5,8 +5,8 @@ As of 2026-10-22. The state of the kit build for whoever picks it up next, human
 ## Where things are
 - **Requirements:** `IMPLEMENTATION-PLAN.md` (JW's game-owner requirements, Stages 1–8).
 - **Technical plan:** `~/.claude/plans/please-read-implementation-plan-md-in-sunny-cake.md` (approved). The decisions below override it where they differ.
-- **Done:** Stages 1–5: kit split, second game and seeds; the meter and switches; look and feel; curses; the player leaves a mark (crafting, building, the library, promotion). Everything is committed on `main`; `sh tools/check.sh` passes (46 engine tests, 61 mod tests, both games validate).
-- **Now:** waiting for the user's playtest of Stage 5. See **Starting the next session**.
+- **Done:** Stages 1–5: kit split, second game and seeds; the meter and switches; look and feel; curses; the player leaves a mark (crafting, building, the library, promotion). Stage 7.1, people with plans. Everything is committed on `main`; `sh tools/check.sh` passes (50 engine tests, 62 mod tests, both games validate).
+- **Now:** building Stage 7.2 (side scenes); the decisions are under **Stage 7 decisions**. Stage 5 had no playtest notes; the user will test it again with Stage 7.
 - **Stage order from here (decided 2026-10-22):** Stage 7 next, then Stage 6, then Stage 8. Stage 6 is deferred, not dropped. The plan allows Stages 3–7 in any order; Stage 7 depends only on Stages 1–2; Stage 8 must come after Stage 6, because every generated world needs an easy lock.
 
 ## Starting the next session
@@ -38,6 +38,17 @@ As of 2026-10-22. The state of the kit build for whoever picks it up next, human
 | `f500269` | This file: Stage 5 done |
 
 Handoff-only commits (`2ac55a1`, `b6b523d`, `a2280fe`, `ab4dea9`, `7057684`) are left out.
+
+## Stage 7 decisions (agreed 2026-10-22)
+- **D1 plans as flags:** a plan step sets or clears one of the character's own flags (`<id>_<word>`); rooms place characters and bar ways with conditions on those flags, as they already did for story flags. Written as `## Plan: <step> (if <cond>)` sections in the character file (`does:`, `sets:`/`clears:`, `near:`, `rumor:`). Never a main-story flag; every set flag can be cleared; no combination puts a character in two rooms (validate).
+- **D2 the world agent picks:** the world-turn brief lists the steps open now; the agent picks at most one per character, or none; `generate.world_turn` checks.
+- **D3 signals:** in or next to the player's room, the `near:` line is printed as `SIGNAL:` (one sentence in the narration) and shown as a toast with the `signal` sound (`view.signals`); further off it becomes a rumor. `NOW HERE:` when someone arrives in the player's room.
+- **D4 cost:** plans ride on the world turn (price 2, unchanged); switch `world_turns.plans` (thrifty off, normal and rich on); frequency is `world_turns.every_moves`.
+- **D5 scenes:** `scenes/<id>.md` (`with:` two agent characters, `where:`, `when:`, `reward:` at most 2 coins or none). `look` says when one is possible; the GM shows the two starting up; it starts only if the player engages (`scene start`), alternating one reply from each per player message, up to the scene's reply cap; `scene end` gives any reward and a chronicle line. No story flags; once per run.
+- **D6 scene cost:** price 2 per scene; `side_scenes {on, max_per_run, replies}`: thrifty off/0, normal on/2/6, rich on/4/10. Only when both agents are on.
+- **D7 lighthouse:** Ysolde walks to the quay and back, sleeps with the door barred (knocking wakes her); Grukk forages on the coast road and back (a boulder he rolls over the path keeps the hollow shut). Scene: Ysolde and Grukk after the friendship ending, in Harbor Square. Pell stays minor.
+- **D8 station:** Bucket is now `minor: no` (still the maker and builder); it rides the cargo hoist up to mop the Control Room and back. Halloran checks her tanks in the Lab Wing and back, and dozes at her console (talking wakes her). Scene: the mopping dispute in the Control Room, possible only when Bucket's plan has brought it up.
+- **As built, beyond the decisions:** someone the player is with doesn't act at all (not only "doesn't walk out"), so nobody dozes off mid-conversation; a step that would still take someone out of the player's room is undone.
 
 ## Decisions made with the user (keep to these)
 - **Old saves:** no migration before v7; those are refused with "start a new game". `MIGRATIONS` applies from v7 on (v7→v8 adds `run.commissions` and `run.ordering`). Later optional run fields (`brief`, `talks`, `befriended`) are read with `.get`/`setdefault`, so they needed no version bump.
@@ -89,6 +100,12 @@ Handoff-only commits (`2ac55a1`, `b6b523d`, `a2280fe`, `ab4dea9`, `7057684`) are
 - The fixed prices for extras are estimates; recalibrate if `/cost` suggests they're off.
 - The station's content generates no people (`extras: no`, `characters: no`), so befriending, carry-over of friends and promotion never come up there. That's the station's choice; changing it is a content decision for the user.
 - `validate` checks a curse's cure is reachable by searching the game's other `.md` files for the flag name (a heuristic).
+
+## Stage 7.1 notes (as built)
+- **Engine:** `content.plans(body)` parses `## Plan:` sections; `rpg.plan_steps`, `where_is` (first room whose conditions place the character), `neighbours` (exits either way, open or not), `open_steps` (switch on, the character not in the player's room, condition holds), `apply_plan` (sets/clears the flag, undoes it if anyone the player is with would vanish, then `SIGNAL:` + `run.signals` when the player's room is the before/after room or next to one, else the step's rumor; `NOW HERE:` on arrival; `OFF-SCREEN:` otherwise). `gen_context` passes `plan_steps`; `generate.world_turn` checks `plans` (open steps only, one per person). `applicable` (so `show`) and `npc-brief` leave plan sections out; `show --all` keeps them.
+- **Save:** `run.signals` (last 3, `{n, text, move}`) and `run.signal_n` are optional fields (read with `.get`/`setdefault`), so no version bump. `view.signals` is `[{n, text}]`; the mod toasts entries with a higher `n` than before and plays the `signal` beat (`chime_low`).
+- **Validate:** `quest_flags` (quests' conditions and objectives, the clock's flags, the variants) are off limits; flags must be `<id>_<word>`; every set flag needs a clearing step and vice versa; something outside the character file must use the flag; each subset of the character's plan flags, over world.md's starting flags, places them in at most one room.
+- **Live check (lighthouse, Sonnet):** world turn due on arriving in Harbor Square; the agent picked Ysolde's `to_quay`; the toast showed the `near:` line, the GM wove it into the narration as she arrived, and no machinery showed in any frame. The GM wrote "Applying the world turn…" as a progress line; the mod hid it.
 
 ## Stage 5 notes (as built)
 - **Orders:** `run.commissions[<id>] = {kind: item|room, maker, price, status: ordered|building|done, ordered_at, paid_at, [ready_at, room, direction, record]}`. `run.ordering = {maker, kind}` holds the order between `world-brief craft|build` (which charges) and `generate craft|build`, so nothing is ordered without a paid brief, and a rejected proposal can be retried without a new one. A maker's `{"refuse": …}` raises `generate.Declined` and clears the order. `pay` hands a made item over at once; a building gets `status: building` and `ready_at`, and `tick_move` → `finish_building` adds the room and its exit and a rumor. An unbuilt room's id and name are taken but it isn't in `run.rooms`. A newer order for a spot replaces an unpaid one. Orders don't count toward the generation cap, and the game's `generation:` policy doesn't apply to them.

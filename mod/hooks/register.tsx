@@ -236,7 +236,7 @@ export function budgetText(s: CoderpgSave): string {
     `**${r.icon} ${r.name}:** ${m.left}/${m.capacity}${m.state === 'spent' ? ' (spent)' : m.state === 'low' ? ' (running low)' : ''}. It refills each time you open Claude Code here.`,
     `**What the extras cost:** ${prices.join(' · ')}. Playing the game as written is always free.`,
     `**Characters' own voices:** ${on(v.npc_agents.on)}, up to ${v.npc_agents.lines_per_exchange} lines between two per turn${v.npc_agents.off_for.length ? `; voiced by the storyteller: ${v.npc_agents.off_for.join(', ')}` : ''}.`,
-    `**The world moving on by itself:** ${on(v.world_turns.on)}, every ${v.world_turns.every_moves} moves.`,
+    `**The world moving on by itself:** ${on(v.world_turns.on)}, every ${v.world_turns.every_moves} moves${v.world_turns.on && v.world_turns.plans ? ', with people following their own plans' : ''}.`,
     `**New things appearing:** ${on(v.generation.on && v.generation.kinds.length > 0)}, up to ${v.generation.max_per_run} per game${v.generation.kinds.length ? ` (${v.generation.kinds.join(', ').replace(/_/g, ' ')})` : ''}.`,
     ...(v.crafting ? [`**Having things made:** ${on(v.crafting.on)}, up to ${v.crafting.max_per_run} orders per game.`] : []),
     ...(v.building ? [`**Having places built:** ${on(v.building.on)}, up to ${v.building.max_per_run} per game.`] : []),

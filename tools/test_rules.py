@@ -848,6 +848,110 @@ class Engine(unittest.TestCase):
         self.assertIn("PROMOTED", self.rpg("talk", "hob_netman"))
         self.assertIn("PROMOTION: on, at most 1 per run, after 1 conversations", self.rpg("settings"))
 
+    # ---------------------------------------------------------------- Stage 7: people with plans
+
+    def world_turn(self, proposal, ok=True):
+        self.write("proposals/wt.json", json.dumps(proposal))
+        return self.rpg("world-turn", "proposals/wt.json", ok=ok)
+
+    def test_people_with_plans_act_off_screen_and_the_player_hears_only_whats_near(self):
+        self.rpg("game", "switch", "dark_lighthouse")
+        self.rpg("newgame", seed=80)
+        self.rpg("move", "east")  # the Coast Road, next to the bridge, far from the lighthouse
+        brief = self.rpg("world-brief", "turn")
+        self.assertIn("grukk (Grukk), now at Greywater Bridge: forage", brief)
+        self.assertIn("ysolde (Ysolde), now at The Lighthouse: to_quay", brief)
+        self.assertIn('"plans": [{"who"', brief)
+        out = self.world_turn({"plans": [{"who": "grukk", "step": "forage"}, {"who": "ysolde", "step": "sleep"}]})
+        self.assertIn("SIGNAL", out)
+        self.assertIn("Heavy bare feet thud", out)
+        self.assertIn("NOW HERE: Grukk", out)
+        self.assertNotIn("snoring", out, "the lighthouse is out of earshot")
+        s = self.save()
+        self.assertIn("grukk [agent]", self.rpg("look"))
+        self.assertEqual([x["text"][:16] for x in s["view"]["signals"]], ["Heavy bare feet "])
+        self.assertIn("They say Ysolde finally slept, barred in her tower like a hermit.", s["run"]["rumors"])
+        self.assertIn("lighthouse [BLOCKED: needs not ysolde_asleep]", self.rpg("move", "west").replace("The Lighthouse", "lighthouse"))
+        self.assertNotIn("Plan:", self.rpg("show", "characters", "ysolde"))
+        self.assertIn("Plan: sleep", self.rpg("show", "characters", "ysolde", "--all"))
+        # only open steps, one each, and nobody the player is with
+        self.assertIn("listed as open", self.world_turn({"plans": [{"who": "ysolde", "step": "to_quay"}]}, ok=False))
+        self.assertIn("at most one", self.world_turn({"plans": [{"who": "ysolde", "step": "wake"}] * 2}, ok=False))
+        self.assertIn("listed as open", self.world_turn({"plans": [{"who": "morwen", "step": "x"}]}, ok=False))
+        self.assertIn("must be a list", self.world_turn({"plans": "wake"}, ok=False))
+        self.rpg("flag", "unset", "ysolde_asleep")  # the player hammers on the door
+        self.rpg("move", "west")
+        self.assertNotIn("ysolde (Ysolde), now at", self.rpg("world-brief", "turn"), "someone the player is with never acts")
+        self.assertIn("listed as open", self.world_turn({"plans": [{"who": "ysolde", "step": "to_quay"}]}, ok=False))
+
+    def test_a_plan_moves_someone_and_the_rooms_follow(self):
+        self.rpg("game", "switch", "flooded_station")
+        self.rpg("newgame", seed=81)
+        self.rpg("move", "north")  # the Common Deck, with Bucket
+        self.assertIn("bucket [agent]", self.rpg("look"))
+        self.rpg("move", "south")
+        self.rpg("world-brief", "turn")
+        out = self.world_turn({"plans": [{"who": "bucket", "step": "mop_upstairs"}, {"who": "halloran", "step": "check_tanks"}]})
+        self.assertIn("OFF-SCREEN", out)  # the landing is two rooms away from both
+        self.rpg("move", "north")
+        self.assertIn("CHARACTERS HERE: none", self.rpg("look"))
+        self.assertIn("cargo hoist's cage is up", self.rpg("show", "rooms", "common_deck"))
+        look = self.rpg("move", "west")
+        self.assertIn("halloran [agent]", look)
+        self.rpg("move", "east")
+        look = self.rpg("move", "up")
+        self.assertIn("bucket [agent]", look)
+        self.assertNotIn("halloran", look.split("CHARACTERS HERE:")[1].split("\n")[0])
+
+    def test_the_owner_can_keep_people_from_following_plans(self):
+        self.rpg("game", "switch", "dark_lighthouse")
+        self.settings_tool("set", "world_turns.plans", "false")
+        self.rpg("newgame", seed=82)
+        self.assertNotIn("People with plans", self.rpg("world-brief", "turn"))
+        self.assertIn("nobody has one now", self.world_turn({"plans": [{"who": "grukk", "step": "forage"}]}, ok=False))
+        self.assertIn("people with plans: off", self.rpg("settings"))
+        self.settings_tool("preset", "thrifty")
+        self.assertIn("WORLD TURNS: off, every 8 moves; people with plans: off", self.rpg("settings"))
+
+    def test_validate_checks_plans(self):
+        g = "games/dark_lighthouse"
+        ch = (self.dir / g / "characters" / "grukk.md").read_text()
+        bad = ch.replace("## GM only", """## Plan: Nap time
+does: naps
+
+## Plan: steal (if not lamp_lit)
+does: grabs something
+sets: lamp_lit
+near: a crash
+
+## Plan: wander
+does: wanders off
+sets: troll_away
+near: footsteps
+mood: grumpy
+
+## Plan: forage
+does: twice
+sets: grukk_stuck
+near: stuck
+
+## GM only""")
+        self.write(g + "/characters/grukk.md", bad)
+        out = self.rpg("validate", "--game", "dark_lighthouse", ok=False)
+        for want in ("a plan heading is 'Plan: <step id>", "'lamp_lit' is part of the main story",
+                     "plan flags are the character's own: grukk_<word>, not 'troll_away'", "unknown line 'mood: grumpy'",
+                     "two plan steps are called 'forage'", "no plan step clears 'grukk_stuck'",
+                     "nothing outside this file uses 'grukk_stuck'"):
+            self.assertIn(want, out)
+        self.write(g + "/characters/grukk.md", ch)
+        room = (self.dir / g / "rooms" / "coast_road.md").read_text()
+        self.write(g + "/rooms/coast_road.md", room.replace("  - grukk (if grukk_foraging and not grukk_friend", "  - grukk (if not grukk_friend"))
+        self.assertIn("grukk stands in coast_road and greywater_bridge at once", self.rpg("validate", "--game", "dark_lighthouse", ok=False))
+        self.write(g + "/rooms/coast_road.md", room)
+        morwen = (self.dir / g / "characters" / "morwen.md").read_text()
+        self.write(g + "/characters/morwen.md", morwen + "\n## Plan: nap\ndoes: naps\nsets: morwen_nap\nnear: a snore\n")
+        self.assertIn("plans are for major characters", self.rpg("validate", "--game", "dark_lighthouse", ok=False))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

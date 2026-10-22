@@ -3,7 +3,7 @@ name: The Lighthouse
 exits:
   east: harbor_square
 characters:
-  - ysolde (if not lamp_lit)
+  - ysolde (if not lamp_lit and not ysolde_on_quay)
 terrain: stone
 ---
 The base of the lighthouse is a round stone room crowded with coils of rope, barrels of lamp oil and a narrow cot. An iron stair spirals up into darkness. At the top, the lamp sits cold in its empty brass cradle.
@@ -12,6 +12,9 @@ The door east leads back down the path to Harbor Square.
 
 ## If fleet_lost and not lamp_lit
 Ysolde sits on the bottom step with her head in her hands. Through the open door you can hear the keening from the quay.
+
+## If ysolde_on_quay and not lamp_lit
+The cot is empty and the keeper's oilskin coat is gone from its hook. Her lantern is missing too.
 
 ## If not lamp_lit
 The empty cradle can be seen from the foot of the stair. Something was wrenched out of it, and the brass brackets are bent.

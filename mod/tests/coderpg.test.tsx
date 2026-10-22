@@ -311,6 +311,16 @@ test('encounters, the clock and new generated things show in the tray', () => {
   expect(trayLines('  effect: HURT 1d2 → [2] = 2. Player HP 11/13')[0]!.text).toBe('Hurt for 2 · Player HP 11/13')
 })
 
+test('what the player notices of someone acting close by is a toast with a soft sound, once', () => {
+  const heard: CoderpgSave = { ...SAVE, view: { ...SAVE.view!, signals: [{ n: 1, text: 'Heavy bare feet thud along the coast road.' }] } }
+  const fb = feedback(SAVE, heard)
+  expect(fb.toast).toBe('Heavy bare feet thud along the coast road.')
+  expect(fb.sounds).toEqual(['signal'])
+  expect(feedback(heard, heard).toast).toBeUndefined() // already heard
+  const again: CoderpgSave = { ...SAVE, view: { ...SAVE.view!, signals: [...heard.view!.signals!, { n: 2, text: 'Heavy bare feet thud along the coast road.' }] } }
+  expect(feedback(heard, again).toast).toBe('Heavy bare feet thud along the coast road.') // the same thing heard again later
+})
+
 test('a failed quest and a new side quest are announced', () => {
   const failed: CoderpgSave = { ...SAVE, view: { ...SAVE.view!, quests: [{ ...SAVE.view!.quests![0]!, failed: true }] } }
   const fb = feedback(SAVE, failed)
@@ -554,6 +564,9 @@ test('/budget tells the player what is left, what things cost and what is on, in
   expect(text).toContain('voiced by the storyteller: grukk')
   expect(text).toContain('**The world moving on by itself:** off')
   expect(text).toContain('(extras, side quests)')
+  const lively = { ...metered(22, 'ok') }
+  lively.view = { ...lively.view!, settings: { ...SETTINGS, world_turns: { on: true, every_moves: 5, plans: true } } }
+  expect(budgetText(lively)).toContain('**The world moving on by itself:** on, every 5 moves, with people following their own plans.')
   expect(budgetText(metered(0, 'spent'))).toContain('0/30 (spent)')
   expect(budgetText(SAVE)).toContain('Nothing to show yet')
 })
