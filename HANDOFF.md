@@ -5,8 +5,8 @@ As of 2026-10-21. The state of the kit build for whoever picks it up next, human
 ## Where things are
 - **Requirements:** `IMPLEMENTATION-PLAN.md` (JW's game-owner requirements, Stages 1–8).
 - **Technical plan:** `~/.claude/plans/please-read-implementation-plan-md-in-sunny-cake.md` (approved). The decisions below override it where they differ.
-- **Done:** Stage 1 (kit split, second game, seeds), the clean-start follow-up, Stage 2 (the meter and switches). Everything is committed on `main`, and `sh tools/check.sh` passes.
-- **Next:** Stage 3, look and feel. The user hasn't yet confirmed a playtest of Stage 2's final form (extras-only meter); ask before starting Stage 3 if unsure.
+- **Done:** Stage 1 (kit split, second game, seeds), the clean-start follow-up, Stage 2 (the meter and switches), Stage 3 (look and feel). Everything is committed on `main`, and `sh tools/check.sh` passes.
+- **Next:** Stage 4, curses. Stop for the user's playtest of Stage 3 first, unless they've already said to go on.
 
 | Commit | What |
 |---|---|
@@ -16,6 +16,8 @@ As of 2026-10-21. The state of the kit build for whoever picks it up next, human
 | `81b9853` | `/newgame` and `/game <other>` clear the screen and conversation first |
 | `854bff8` | Stage 2: meter, presets, `settings.json`, `tools/settings.py`, `/budget` |
 | `7c50996` | The meter charges only extras; baseline play is free |
+| `2ac55a1` | This file |
+| `c13e285` | Stage 3: block-letter banners, transitions, combat strip, tile map, sounds per beat, waiting phases, character cards, accent by time |
 
 ## Decisions made with the user (keep to these)
 - **Old saves:** no migration. Saves before v7 are refused with "start a new game". `MIGRATIONS` applies from v7 on.
@@ -32,7 +34,9 @@ As of 2026-10-21. The state of the kit build for whoever picks it up next, human
 - **The mod reads only the save.** Per-game look, meter, settings and run label all arrive in `view` (`view.look`, `view.meter`, `view.settings`, `view.run_label`). `lookOf()` in `mod/hooks/look.ts` fills gaps from `DEFAULT_LOOK`.
 - **Charging an extra:** price in `rules/balance.json` `meter.prices`; `can_pay(kind)` before; `charge(kind)` after every check that could refuse; in-fiction refusal when it can't pay; a switch in `rules/presets.json`.
 - **The GM reads content only through `rpg.py show`**, never by path. `look` labels a non-minor character whose agent the owner switched off `[minor, agent resting]`.
-- **Tests:** `tools/test_rules.py` (24 engine tests, CLI-driven in a temp copy, both games) and `mod/tests/` (41). Both run from `tools/check.sh`.
+- **Animations** are surface modules (`mod/hooks/reveal.tsx`, `trayfx.tsx`, `tilemap.tsx`) drawn as a literal `<Client module="./x.tsx">` (an alias loads nothing). Their frame logic is pure and exported. They play once while fresh (`FRESH_MS`); otherwise they're drawn still. `ui.fault` marks a failed one so it's drawn still from then on. Props go through `plain()` (JSON only).
+- **Look keys added in Stage 3:** `palette.accent_by_time`, `terrain` (a game may add kinds), `sounds` (beat → kit sound or null), `phrases.phases`. Content gained `terrain:`/`color:` on rooms and `card:` on characters.
+- **Tests:** `tools/test_rules.py` (27 engine tests, CLI-driven in a temp copy, both games) and `mod/tests/` (54). Both run from `tools/check.sh`.
 
 ## Learned the hard way (also in DEVELOPING.md)
 - Skill commands raise no `command.run`; `$.command.run` is refused inside `prompt.submit`. A dropped prompt stays in the prompt box unless the mod empties it.
@@ -45,5 +49,10 @@ As of 2026-10-21. The state of the kit build for whoever picks it up next, human
 - The player's real save (`state/save.json`) is still v6; the first `/newgame` replaces it.
 - The fixed prices for extras are estimates; recalibrate if `/cost` suggests they're off.
 
-## Next: Stage 3, look and feel (from the plan)
-Per-game palette (done in 1.1), per-character card style (`card:` in character files), block-letter room banners (`mod/hooks/font.ts`), accent by time of day, transitions (move wipe under 250 ms, typed title card, line-by-line ending), the combat strip (an animated Raster `attack` tray), the animated tile map (`terrain:` per room, also on generated rooms), sounds for each beat (kit sound bank, chosen per game in `look.json`), and waiting phases in the game's voice. Mod API: `Raster` + `$.ui.blit` at about 60 fps; normal redraws are capped at 10/s (30/s for a visible pane).
+## Next: Stage 4, curses (from the plan)
+Content: `games/<id>/curses/<id>.md` with an `effect:` (reverse_words, word_limit N, suffix "<phrase>", plus mirror), `caused_by:` and `cured_by:` conditions, and prose. The curse is active while caused_by holds and cured_by doesn't, so it can't outlive a new game. `rpg.py curse-text` prints the cursed form. The UserPromptSubmit hook adds context: the words as they came out, and what the player meant. The mod shows the cursed text in the player's row (a TS port of the transforms, with shared test vectors in `rules/curse_vectors.json`) and the curse in the status band. Procedure in `gm-turn/curses.md`. Add a curse and its cure to both games. Curses cost nothing (no meter price).
+
+## Stage 3 notes
+- The title card's typing and the ending's lines can't be grepped whole in a `play.py` capture (the terminal redraws changed cells only); search for parts, e.g. `S T A T I O N`.
+- The 3x5 font's M and N are cramped but readable in context.
+- `/map` (the text command) still draws the box map; the pane's Map tab is the tile map.
