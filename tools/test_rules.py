@@ -947,6 +947,8 @@ near: stuck
         room = (self.dir / g / "rooms" / "coast_road.md").read_text()
         self.write(g + "/rooms/coast_road.md", room.replace("  - grukk (if grukk_foraging and not grukk_friend", "  - grukk (if not grukk_friend"))
         self.assertIn("grukk stands in coast_road and greywater_bridge at once", self.rpg("validate", "--game", "dark_lighthouse", ok=False))
+        self.write(g + "/rooms/coast_road.md", room.replace("  - grukk (if grukk_foraging", "  - pell (if grukk_foraging"))
+        self.assertIn("after forage (grukk_foraging), grukk stands nowhere", self.rpg("validate", "--game", "dark_lighthouse", ok=False))
         self.write(g + "/rooms/coast_road.md", room)
         morwen = (self.dir / g / "characters" / "morwen.md").read_text()
         self.write(g + "/characters/morwen.md", morwen + "\n## Plan: nap\ndoes: naps\nsets: morwen_nap\nnear: a snore\n")

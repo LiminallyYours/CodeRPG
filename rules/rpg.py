@@ -2409,12 +2409,33 @@ def validate_plans(w, flag_text, problems):
             problems.append("%s: no plan step sets %r" % (where, f))
         own_flags = sorted(sets | clears)
         start = list(w.get("flags") or [])
+
+        def rooms_with(flags):
+            return [r for r in content.ids("rooms") if c in content.visible(content.load("rooms", r).get("characters"), flags)]
+
         for n in range(2 ** len(own_flags)):
             flags = start + [f for i, f in enumerate(own_flags) if n >> i & 1]
-            rooms = [r for r in content.ids("rooms") if c in content.visible(content.load("rooms", r).get("characters"), flags)]
+            rooms = rooms_with(flags)
             if len(rooms) > 1:
                 problems.append("%s: with %s, %s stands in %s at once" % (
                     where, ", ".join(f for f in own_flags if f in flags) or "none of their plan flags", c, " and ".join(rooms)))
+        # Someone who stands somewhere at the start must stand somewhere after any run of their plan steps (followed
+        # from the start of the game), or a step would make them vanish: a room's condition forgotten.
+        if rooms_with(start):
+            seen_states, todo = {frozenset()}, [frozenset()]
+            while todo:
+                now = todo.pop()
+                for st in steps:
+                    flag = st.get("sets") or st.get("clears")
+                    if not st["step"] or not flag or not content.condition_holds(st["when"], start + sorted(now)):
+                        continue
+                    nxt = now | {flag} if st.get("sets") else now - {flag}
+                    if nxt not in seen_states:
+                        seen_states.add(nxt)
+                        todo.append(nxt)
+                        if not rooms_with(start + sorted(nxt)):
+                            problems.append("%s: after %s (%s), %s stands nowhere; a room's characters need a condition "
+                                            "for it" % (where, st["step"], ", ".join(sorted(nxt)) or "no plan flags", c))
 
 
 def validate_scenes(problems):

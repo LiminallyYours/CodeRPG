@@ -159,7 +159,7 @@ When `move` or `look` says `WORLD TURN DUE`, do this before writing the narratio
 Don't narrate the world turn. Its rumors surface later, when the player talks to people: minor and generated characters may repeat them, and agent NPCs already see them in their briefs.
 
 Some characters follow plans of their own on world turns: someone goes for a walk, falls asleep, bars a door. `world-turn` reports what the player can notice:
-- **`SIGNAL:`** happened close by. Work that line into the narration as one sentence of what the player sees or hears, without explaining it ("Up at the lighthouse a heavy bar thuds across the door.").
+- **`SIGNAL:`** happened close by. Work that line into the narration as one sentence of what the player sees or hears, without explaining it ("Somewhere above, a door slams and a bolt shoots home.").
 - **`NOW HERE:`** that character has just arrived where the player is. Narrate them arriving, then play them as usual.
 - **`OFF-SCREEN:`** nothing the player could notice. Say nothing; the rooms and what people say will show it when the player gets there.
 
