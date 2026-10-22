@@ -1,6 +1,7 @@
 ---
 name: gm-turn
 description: The game master's turn procedure for CodeRPG. Use on every player action (any in-character message) to read state and content, resolve outcomes with rules/rpg.py, narrate, and record changes.
+user-invocable: false
 ---
 
 # One game turn
