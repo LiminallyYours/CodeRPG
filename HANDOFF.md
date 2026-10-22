@@ -6,7 +6,7 @@ As of 2026-10-21. The state of the kit build for whoever picks it up next, human
 - **Requirements:** `IMPLEMENTATION-PLAN.md` (JW's game-owner requirements, Stages 1–8).
 - **Technical plan:** `~/.claude/plans/please-read-implementation-plan-md-in-sunny-cake.md` (approved). The decisions below override it where they differ.
 - **Done:** Stage 1 (kit split, second game, seeds), the clean-start follow-up, Stage 2 (the meter and switches), Stage 3 (look and feel). Everything is committed on `main`, and `sh tools/check.sh` passes.
-- **Next:** Stage 4, curses. Stop for the user's playtest of Stage 3 first, unless they've already said to go on.
+- **Next:** Stage 4, curses (the user said to continue after Stage 3's playtest fix).
 
 | Commit | What |
 |---|---|
@@ -18,6 +18,7 @@ As of 2026-10-21. The state of the kit build for whoever picks it up next, human
 | `7c50996` | The meter charges only extras; baseline play is free |
 | `2ac55a1` | This file |
 | `c13e285` | Stage 3: block-letter banners, transitions, combat strip, tile map, sounds per beat, waiting phases, character cards, accent by time |
+| `770f5e8` | Speaker cards: the speaker is named outside the quotes; a person without a card keeps the paragraph plain (playtest bug: Dunstan's line labelled Pell) |
 
 ## Decisions made with the user (keep to these)
 - **Old saves:** no migration. Saves before v7 are refused with "start a new game". `MIGRATIONS` applies from v7 on.
@@ -55,4 +56,5 @@ Content: `games/<id>/curses/<id>.md` with an `effect:` (reverse_words, word_limi
 ## Stage 3 notes
 - The title card's typing and the ending's lines can't be grepped whole in a `play.py` capture (the terminal redraws changed cells only); search for parts, e.g. `S T A T I O N`.
 - The 3x5 font's M and N are cramped but readable in context.
+- **Speaker labels** (`speakerOf` in `mod/hooks/story.ts`): only names outside quotation marks count, and an unattributed line stays plain. gm-turn asks the GM to name each speaker outside the quote, in their own paragraph.
 - `/map` (the text command) still draws the box map; the pane's Map tab is the tile map.
