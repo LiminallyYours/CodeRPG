@@ -51,6 +51,10 @@ python3 tools/play.py /tmp/rpg-test '[[12, "I walk north into the tavern.\r"], [
 - **What to check:** that wanted things appear (story card, banner, dice tray) and plumbing never does, in *any* frame. Every frame is in the capture, so brief flashes count too.
 - **`--trust`:** answers the trust prompt for a folder Claude Code hasn't seen. Accepting it records that folder as trusted in your Claude Code settings.
 - **Cost:** turns cost real tokens; `--model sonnet` (the default here) keeps it moderate.
+- **Setup:** play the scratch copy forward with `rpg.py` commands first (a hand-written proposal for `generate`, `talk`, `move`, `coins`), so the live session only plays the part being tested.
+- **Long runs:** several GM turns outlast Bash's 10-minute limit; run `play.py` in the background. With `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1` the session's transcript lands in `~/.claude/projects/<scratch path with dashes>/`, which shows the GM's calls and exact text far more readably than the capture.
+- **The pane:** its tab hotkeys work only while it has focus. Send `/sheet\r` first, then the tab key (each game names its own; the station's map tab is `p`).
+- **Leaks to expect:** during long turns Claude Code nudges the model to say what it's doing, and the GM may answer in the narration's first paragraph. The story filter (`isGmNote`) strips known shapes; add each new one to the mod tests.
 - **Headless:** for checking *what the GM does* rather than how it looks, use `claude -p --settings .claude/settings.json --output-format stream-json --verbose "<action>"` in the scratch copy and read the tool calls. Pass `--settings` explicitly, because an untrusted folder's project settings aren't loaded.
 
 ## Debugging a real session
@@ -102,6 +106,7 @@ This is the subtlest part of `mod/hooks/register.tsx`. If narration goes missing
 - **New `rpg.py` command:** add it to `COMMANDS`. If its output should show in the dice tray, add it to `TRAY_COMMANDS` and teach `trayLines` (`mod/hooks/tray.ts`) its format. If it only records something, add it to `WRITE_COMMANDS`.
 - **New save field:** bump `STATE_VERSION`, add a migration to `MIGRATIONS` (saves from version 7 on upgrade on load; older ones are refused), extend `refresh_view` if the mod needs it, and mirror it in `mod/types/index.d.ts`.
 - **New content field:** document it in the README, teach `rpg.py validate` to check it, and use it in both shipped games.
+- **Writing JSON from Python:** use `ensure_ascii=False`, or icons such as ✦ are written as `\u2726`.
 - **New look or balance setting:** add it with a default to `rules/look.default.json` or `rules/balance.json` (validate rejects keys the defaults don't have), mirror look keys in `CoderpgLook` and `DEFAULT_LOOK` (`mod/hooks/look.ts`), and read it from the save's `view.look`, never from a game folder.
 - **New game:** a folder in `games/` with a `world.md`; everything else is optional. `validate` and `test_rules.py` pick it up automatically.
 - **The GM's behaviour:** `CLAUDE.md` holds standing orders (keep it short), `.claude/skills/gm-turn/SKILL.md` the procedure, and `.claude/hooks/turn_reminder.py` the per-message reminder. Sonnet at medium effort cuts corners on short turns, so test procedure changes with it.
