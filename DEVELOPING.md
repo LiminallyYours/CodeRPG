@@ -13,7 +13,7 @@ Notes for whoever works on the game next, human or Claude. `README.md` covers th
 ## The invariants
 
 Break these and the design falls apart:
-1. **Only `rules/rpg.py` writes `state/save.json`.** Claude, agents and the mod never do.
+1. **Only `rules/rpg.py` writes `state/save.json`.** Claude, agents and the mod never do. The library (`state/library/`) is written only by `rpg.py` and the owner's `tools/library.py`.
 2. **Code decides uncertain outcomes.** Claude never rolls or does damage math. Generated content gets its stats from tier tables in `balance.json`, never from the world agent.
 3. **Content holds world facts; instructions hold procedure.** No world facts in `CLAUDE.md`, the skills or the agent definitions. Story branching lives in content flags.
 4. **The mod is presentation only.** It reads the save and `rpg.py`'s printed output, and never writes game files. The game must work without it.

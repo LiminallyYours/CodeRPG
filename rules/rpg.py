@@ -26,6 +26,7 @@ import content  # noqa: E402
 import curse  # noqa: E402
 import dice  # noqa: E402
 import generate  # noqa: E402
+import library  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 SAVE = ROOT / "state" / "save.json"
@@ -201,7 +202,8 @@ def ent(kind, ident):
         raise Refused("no %s named %r in content or in this run" % (kind[:-1], ident))
     if kind == "rooms":
         e["exits"] = dict(e.get("exits") or {}, **_RUN.get("exits", {}).get(ident, {}))
-        e["characters"] = list(e.get("characters") or []) + list(_RUN.get("placements", {}).get(ident, []))
+        # once: someone the owner kept for good (tools/library.py) may still be placed by this run too
+        e["characters"] = list(dict.fromkeys(list(e.get("characters") or []) + list(_RUN.get("placements", {}).get(ident, []))))
     return e
 
 
@@ -369,6 +371,112 @@ def build_spots(state, room):
     return {d: str(t) for d, t in spots.items() if d not in (room.get("exits") or {}) and d not in busy}
 
 
+# ---------------------------------------------------------------- the library: what lasts across runs
+# Everything generated or player-made in a run goes into the game's library (rules/library.py, kept in
+# state/library/<game>.json, outside every save). A new game brings back the places the player built and
+# the people they befriended; the world agent is shown a few fitting entries and may bring one back instead
+# of inventing. Only the owner keeps an entry for good or forgets it (tools/library.py).
+
+def lib():
+    return library.load(content.game_id())
+
+
+def lib_save(data):
+    library.save(content.game_id(), data)
+
+
+def lib_limit():
+    return int(BALANCE["library"]["max_entries"])
+
+
+REQUEST_KIND = {"extra": "characters", "character": "characters", "room": "rooms", "item": "items"}
+
+
+def record_patch(state, request, patch):
+    """Put what one generation made into the library: one entry, with what came with it."""
+    kind = REQUEST_KIND.get(request)
+    if not kind or not patch[kind]:
+        return
+    ident = next(iter(patch[kind]))
+    placed = {i for items in patch["room_items"].values() for i in items}
+    bundle = [{"kind": k, "id": i, "record": patch[k][i], "placed": i in placed}
+              for k in library.KINDS for i in patch[k] if i != ident]
+    attach = None
+    if kind == "rooms":
+        attach = {"room": state["location"], "direction": next(iter(patch["exits"][state["location"]]))}
+    data = lib()
+    library.add(data, lib_limit(), ident, kind, "world", patch[kind][ident], bundle, state["location"], attach)
+    lib_save(data)
+
+
+def note_friends(state):
+    """People the player befriended by finishing the side quest they gave: the library brings them back in
+    later runs, remembering one line (their last memory of the player, or the job done)."""
+    run = state["run"]
+    done = run.setdefault("befriended", [])
+    flags = condition_flags(state)
+    new = [(q, rec["meta"].get("giver")) for q, rec in run["quests"].items()
+           if rec["meta"].get("giver") in run["characters"] and rec["meta"].get("giver") not in done
+           and quest_view(q, flags)["complete"]]
+    if not new:
+        return
+    data = lib()
+    for q, giver in new:
+        name = ent("quests", q).get("name", q)
+        memory = state.get("npc_memory", {}).get(giver) or []
+        library.befriend(data, giver, "finished their side quest (%s)" % name, memory[-1] if memory else "Did right by me once: %s." % name)
+        done.append(giver)
+    lib_save(data)
+
+
+def carry_over(state):
+    """Bring back what lasts from earlier runs: places the player had built (at their build spots, if the
+    content still has them) and the people they befriended (where they were, remembering one line). Stats
+    come from today's tiers. Returns a line for each."""
+    data, run, back = lib(), state["run"], []
+    order = sorted(data["entries"].items(), key=lambda kv: kv[1]["kind"] != "rooms")  # places first: friends may live there
+    for ident, e in order:
+        if e.get("forgotten") or content.exists(e["kind"], ident):
+            continue
+        if e["kind"] == "rooms" and e["origin"] == "player":
+            a = e.get("attach") or {}
+            if not content.exists("rooms", a.get("room", "")):
+                continue
+            parent = content.load("rooms", a["room"])
+            if a.get("direction") not in (parent.get("build") or {}) or a["direction"] in (parent.get("exits") or {}):
+                continue
+            rec = generate.retier("rooms", e["record"], BALANCE["generation"])
+            rec["meta"]["carried"] = "yes"
+            run["rooms"][ident] = dict(rec, made_at_move=0)
+            run["exits"].setdefault(a["room"], {})[a["direction"]] = ident
+            back.append("%s (the player's, %s of %s)" % (rec["meta"]["name"], a["direction"], parent.get("name", a["room"])))
+        elif e["kind"] == "characters" and e.get("friend"):
+            where = e.get("where")
+            if not (content.exists("rooms", where or "") or where in run["rooms"]):
+                continue
+            rec = generate.retier("characters", e["record"], BALANCE["generation"])
+            rec["meta"]["carried"] = "yes"
+            run["characters"][ident] = dict(rec, made_at_move=0)
+            for b in e.get("bundle") or []:  # their wares
+                if b["kind"] == "items" and not content.exists("items", b["id"]):
+                    run["items"][b["id"]] = dict(generate.retier("items", b["record"], BALANCE["generation"]), made_at_move=0)
+            run["placements"].setdefault(where, []).append(ident)
+            state["npc_memory"][ident] = [e["friend"]["line"]]
+            run.setdefault("befriended", []).append(ident)
+            back.append("%s (a friend, at %s, remembers: %s)" % (rec["meta"].get("name", ident), where, e["friend"]["line"]))
+        else:
+            continue
+        library.seen(data, ident)
+    lib_save(data)
+    return back
+
+
+def refund(amount):
+    """Give back part of an extra's price (a world brief answered by reusing a library entry)."""
+    m = meter()
+    write_json(METER, {"left": min(m["capacity"], m["left"] + amount)})
+
+
 # ---------------------------------------------------------------- state I/O
 
 def load_state():
@@ -531,6 +639,7 @@ def run_label(state):
 def save_state(state):
     if dice.position() is not None:
         state["run"]["dice_n"] = dice.position()
+    note_friends(state)
     refresh_view(state)
     write_json(SAVE, state)
 
@@ -786,6 +895,10 @@ def finish_building(state, ident, com):
     name, where = record["meta"]["name"], ent("rooms", com["room"]).get("name", com["room"])
     run["rumors"].append("%s is finished, %s of %s, and folk are curious to see it." % (name, com["direction"], where))
     del run["rumors"][:-BALANCE["world"]["rumors_kept"]]
+    data = lib()
+    library.add(data, lib_limit(), ident, "rooms", "player", record, where=com["room"],
+                attach={"room": com["room"], "direction": com["direction"]}, worth_keeping="built by the player")
+    lib_save(data)
     return ("BUILT: %s (%s) is finished, %s of %s, built for the player by %s. It's open now; describe it when the "
             "player next sees it." % (name, ident, com["direction"], where, ent("characters", com["maker"]).get("name", com["maker"])))
 
@@ -848,6 +961,7 @@ def cmd_newgame(args):
         "met": [],
         "run": run,
     }
+    back = carry_over(state)
     save_state(state)
     write_json(ACTIVE, {"game": state["game"]})
     for stale in (ROOT / "proposals").glob("*.json"):
@@ -860,6 +974,8 @@ def cmd_newgame(args):
         print("THIS RUN (secret from the player): %s" % ", ".join("%s=%s" % kv for kv in run["variants"].items()))
     if run["clock"]:
         print("CLOCK: %s in %s" % (run["clock"]["name"], moves_text(run["clock"]["total"])))
+    if back:
+        print("FROM EARLIER RUNS (they're part of this world now): %s" % "; ".join(back))
     cmd_look([])
 
 
@@ -1335,7 +1451,7 @@ def apply_patch(state, patch):
         run["commissions"][ident] = com
     # the world's own inventions count toward the run's limit; what the player ordered has its own limits
     run["generated"] = sum(1 for k in ("rooms", "characters", "items", "quests") for rec in run[k].values()
-                           if rec["meta"].get("made_by", "world") == "world")
+                           if rec["meta"].get("made_by", "world") == "world" and not rec["meta"].get("carried"))
 
 
 def read_json_arg(args):
@@ -1377,8 +1493,18 @@ def cmd_generate(args):
         if kind in ORDER_KINDS and maker and maker not in characters_here(state):
             raise Refused("the order was being placed with %s, who isn't here any more; nothing is made" % maker)
         proposal = read_json_arg(args[1:])
+        reused = proposal.get("reuse") if kind in generate.REUSE_KINDS else None
         try:
-            patch = generate.KINDS[kind](proposal, gen_context(state))
+            if reused is not None:
+                if state["run"].get("brief") != kind and not can_pay("reuse"):
+                    raise Refused("the %s is spent until the next session, so no one comes back: it doesn't happen"
+                                  % resource()["name"].lower())
+                entry = lib()["entries"].get(reused) if isinstance(reused, str) else None
+                if not entry or entry.get("forgotten"):
+                    raise ValueError("%r isn't in the library" % (reused,))
+                patch = generate.reuse(reused, entry, gen_context(state), kind, proposal.get("direction"))
+            else:
+                patch = generate.KINDS[kind](proposal, gen_context(state))
         except generate.Declined as e:
             state["run"]["ordering"] = None
             save_state(state)
@@ -1411,7 +1537,19 @@ def cmd_generate(args):
                 print("PRICE: %s. The builder names it in character. When the player pays, run `pay %s`; it takes %s to build, "
                       "and until then it doesn't exist." % (price_text(com), i, moves_text(int(BALANCE["generation"]["build_moves"]))))
         return
+    paid_for = state["run"].get("brief") == kind
+    state["run"]["brief"] = None
     save_state(state)
+    if reused is not None:
+        data = lib()
+        library.seen(data, reused)
+        lib_save(data)
+        if paid_for:  # bringing something back is cheaper than inventing it
+            refund(price("generate") - price("reuse"))
+        else:
+            charge("reuse")
+    else:
+        record_patch(state, kind, patch)
     made = ["%s %s (%s)" % (k[:-1], patch[k][i]["meta"].get("name", i), i)
             for k in ("rooms", "characters", "items", "quests") for i in patch[k]]
     print("GENERATED: %s" % ", ".join(made))
@@ -1422,6 +1560,8 @@ def cmd_generate(args):
         print("  placed in %s: %s" % (room, ", ".join(items)))
     for room, people in patch["placements"].items():
         print("  present in %s: %s" % (room, ", ".join(people)))
+    if reused is not None:
+        print("  (brought back from an earlier run; the player hasn't met them in this one)")
     print("Read them with `rpg.py show <kind> <id>`. Run total: %d/%d" % (state["run"]["generated"], SETTINGS["generation"]["max_per_run"]))
 
 
@@ -1468,9 +1608,26 @@ def cmd_pay(args):
     check_carry(state, ident)
     state["inventory"].append(ident)
     save_state(state)
+    data = lib()
+    library.add(data, lib_limit(), ident, "items", "player", run["items"][ident], where=None)
+    lib_save(data)
     print(paid)
     print("MADE: %s (%s), made for the player by %s. It's theirs now.  [weight %d/%d]"
           % (item(ident).get("name", ident), ident, who, carried_weight(state), carry_limit(state)))
+
+
+def cmd_library(args):
+    """library suggest <id> <why>: tell the owner a generated or player-made thing deserves keeping for good.
+    The owner decides (tools/library.py); this only marks the entry."""
+    if args[0] != "suggest" or len(args) < 3:
+        raise Refused("use: library suggest <id> <one short line why>")
+    data = lib()
+    e = data["entries"].get(args[1])
+    if not e:
+        raise Refused("%s isn't in the library (only generated and player-made things are)" % args[1])
+    e["suggested"] = short_line(" ".join(args[2:]), "library suggest")
+    lib_save(data)
+    print("SUGGESTED for keeping: %s (%s). The owner decides." % (e["record"]["meta"].get("name", args[1]), e["suggested"]))
 
 
 def cmd_note(args):
@@ -1560,6 +1717,16 @@ def cmd_world_brief(args):
         out.append("- %s: %s" % (kind, ", ".join("%s (%s)" % (i, ent(kind, i).get("name", i)) for i in ent_ids(kind))))
     if run["chronicle"]:
         out += ["", "## The story so far"] + ["- " + c for c in run["chronicle"][-6:]]
+    fits, lib_data = [], None
+    if request in REQUEST_KIND:
+        kind = REQUEST_KIND[request]
+        lib_data = lib()
+        fits = library.fitting(lib_data, kind, request == "extra", room["id"], set(ent_ids(kind)),
+                               int(BALANCE["library"]["brief_entries"]))
+        if fits:
+            out += ["", "## From earlier runs (bring one back if it fits here, rather than inventing)"]
+            out += ["- %s: %s" % (i, library.summary(lib_data["entries"][i])) for i in fits]
+        run["brief"] = request
     out += ["", "## Your task"]
     g = BALANCE["generation"]
     out += ["Limits: ids 3-30 characters; names up to 40; each line of 'knows' or 'rumors' up to 160 characters, at most 3 lines;",
@@ -1635,6 +1802,9 @@ def cmd_world_brief(args):
                 "Reward: 0-%d coins and optionally one new item (a tier)." % g["side_quest_max_coins"],
                 'JSON: {"id": "...", "name": "...", "giver": "<id>", "summary": "...",',
                 '       "objectives": [{"text": "...", "done_when": "side_<id>_<word>"}], "reward": {"coins": 2, "item": null}}']
+    if fits:
+        out.append('or, to bring one back from earlier runs: {"reuse": "<id from that list>"%s}'
+                   % (', "direction": "<%s>"' % "|".join(unused_expansions(room)) if request == "room" else ""))
     out += ["", "Reply with the JSON object only."]
     charge(cost)
     save_state(state)
@@ -2046,6 +2216,7 @@ COMMANDS = {
     "generate": (cmd_generate, 2, "generate <extra|room|item|character|quest|craft|build> <file>   add a world-agent proposal (a JSON file)"),
     "pay": (cmd_pay, 1, "pay <order> [material]   the player pays a maker or builder for an order"),
     "world-turn": (cmd_world_turn, 1, "world-turn <file>   apply the world agent's off-screen turn (a JSON file)"),
+    "library": (cmd_library, 1, "library suggest <id> <why>   tell the owner a generated or player-made thing deserves keeping"),
     "note": (cmd_note, 1, "note <text>   keep a detail you established about this room"),
     "chronicle": (cmd_chronicle, 1, "chronicle <text>   add a line to the story so far"),
     "validate": (cmd_validate, 0, "validate [--game <id>]   check every game's content references and settings"),

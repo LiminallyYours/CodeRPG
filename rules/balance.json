@@ -78,7 +78,12 @@
       "generate": 2,
       "world_turn": 2,
       "craft": 2,
-      "build": 3
+      "build": 3,
+      "reuse": 1
     }
+  },
+  "library": {
+    "max_entries": 40,
+    "brief_entries": 5
   }
 }

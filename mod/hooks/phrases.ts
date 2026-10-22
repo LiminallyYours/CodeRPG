@@ -23,7 +23,7 @@ export function npcPhrase(prompt: string): string {
 }
 
 /** Rules-script commands that only record what happened: they don't change the waiting phase. */
-const QUIET = ['chronicle', 'remember', 'note', 'flag', 'coins', 'gain', 'lose', 'equip', 'meter', 'settings']
+const QUIET = ['chronicle', 'remember', 'note', 'flag', 'coins', 'gain', 'lose', 'equip', 'meter', 'settings', 'library']
 
 /**
  * Which stage a play turn is in, from the game tool being called: reading the room, a character

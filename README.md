@@ -74,6 +74,7 @@ Playing the game as written is free. The meter is a budget for the **extras** th
 | a world turn (life going on off-screen) | 2 | none falls due |
 | having something made (a maker shapes your order) | 2 | the maker takes no new work |
 | having something built (a builder shapes your order) | 3 | the builder takes no new work |
+| bringing something back from an earlier game, instead of inventing it | 1 (the brief costs 2; 1 comes back) | |
 | every game-master turn, every rules command, the authored characters' agents | free | |
 
 One point is roughly one extra round of game-master work (about 10–15k tokens, weighted as the API prices them). Measured on Sonnet, an ordinary turn costs about 30k and an agent's reply about 5k; the turn is the cost of playing at all, so it's never charged. Prices are charged by the rules script where the extra happens (`world-brief`), after every check that could refuse. The owner's switches live in each game's `settings.json`, a preset from `rules/presets.json` with overrides:
@@ -102,6 +103,7 @@ The authored world is fixed, but each run varies within limits the content sets,
 | **Places you have built:** a builder standing at a build spot (Morwen at the net-loft footing, Bucket at the railing gap) builds what you describe; you pay, it's done a few moves later, and the map marks it ⌂ | world agent shapes it, `generate.py` checks it like a generated room; the price is `balance.json` `build_price` | room `build:`, character `builds:` | `run.commissions`, then `run.rooms` (`made_by: player`) |
 | **Items, minor characters and side quests:** stats come from the tier tables, never the agent; side quests use only their own `side_<id>_…` flags and can't touch the main quest | world agent / checks | `balance.json` `generation` | `run.items`, `run.characters`, `run.quests` |
 | **Things made to order:** you describe something to a maker (Morwen the net-mender, Bucket the drone); it's shaped within their trade, and once you pay it's yours, marked as made for you | world agent shapes it, `generate.py` checks its tier; the price comes from `balance.json` `craft_price` | character `makes:` and `accepts:` | `run.items` (`made_by: player`), `run.commissions` |
+| **The library:** everything generated or player-made goes into the game's library, which lasts across new games. A new game brings back the places you built and the people you befriended (finished their side quest), each friend remembering one line about you; the world reuses a fitting entry (the same dockhand turns up again) rather than inventing one | `rpg.py` records, carries over and reuses; the owner keeps or forgets entries with `tools/library.py` | `balance.json` `library` (`max_entries` 40, `brief_entries` 5) | `state/library/<game>.json`, outside every save |
 | **World turns:** every few moves (the owner's `world_turns` setting) the world agent adds rumors and moves generated people around | world agent / checks | `settings.json` | `run.rumors` |
 | **Notes and chronicle:** small details the GM established, and one line per significant event | GM, through `rpg.py note` and `chronicle` | | `run.notes`, `run.chronicle` |
 

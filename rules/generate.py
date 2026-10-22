@@ -7,6 +7,7 @@ Numbers never come from the proposal: item and foe stats come from the tiers in 
 Everything made here is marked `made_by`: "world" when the world invented it, "player" when the player
 ordered it from a maker or builder. Both go through the same checks; only the tag and the gate differ.
 """
+import copy
 import re
 
 OPPOSITE = {"north": "south", "south": "north", "east": "west", "west": "east",
@@ -225,7 +226,7 @@ def character(p, ctx, patch=None, ids=None, room=None):
         tiers = ctx.balance["foe_tiers"]
         if tier not in tiers:
             raise ValueError("tier must be one of %s, or left out for someone who won't fight" % ", ".join(tiers))
-        meta.update(tiers[tier])
+        meta.update(tiers[tier], fights=tier)
         gm.append("- Fights (as a %s foe) only if attacked or badly provoked." % tier)
     patch["characters"][ident] = {"meta": meta, "body": "\n".join(body + gm)}
     patch["placements"].setdefault(room or ctx.location, []).append(ident)
@@ -329,6 +330,66 @@ def quest(p, ctx):
                                        "completed_by": _text(last, "done_when", 160)},
                               "body": "\n".join(["## Summary", _text(p, "summary", 300)] + gm)}
     _budget(ctx, 1)
+    return patch
+
+
+REUSE_KINDS = {"extra": ("characters", "extras"), "character": ("characters", "characters"),
+               "room": ("rooms", "rooms"), "item": ("items", "items")}
+
+
+def retier(kind, record, balance):
+    """A copy of a library record with its stats taken afresh from today's tiers (balance.json `generation`)."""
+    rec = copy.deepcopy(record)
+    meta = rec["meta"]
+    if kind == "items" and meta.get("tier") in balance["item_tiers"]:
+        for k in ("weight", "damage", "heal"):
+            meta.pop(k, None)
+        meta.update(balance["item_tiers"][meta["tier"]])
+    if kind == "characters" and meta.get("fights") in balance["foe_tiers"]:
+        for k in ("hp", "defense", "attack", "damage"):
+            meta.pop(k, None)
+        meta.update(balance["foe_tiers"][meta["fights"]])
+    meta.pop("carried", None)
+    return rec
+
+
+def reuse(ident, entry, ctx, request, direction=None):
+    """A library entry brought back into this run instead of something new (the same dockhand turns up again),
+    with what came with it. The same checks as new: where it may go, how much this run may generate, ids and
+    names still free. Stats come from today's tiers, never from the old record."""
+    if request not in REUSE_KINDS:
+        raise ValueError("only people, places and things can be brought back")
+    kind, allowed = REUSE_KINDS[request]
+    _allowed(ctx, allowed)
+    if entry["kind"] != kind or (kind == "characters" and (entry["record"]["meta"].get("extra") == "yes") != (request == "extra")):
+        raise ValueError("%s isn't a fitting %s" % (ident, request))
+    patch = empty_patch()
+    parts = [(kind, ident, entry["record"], True)] + [(b["kind"], b["id"], b["record"], b.get("placed", False))
+                                                      for b in entry.get("bundle") or []]
+    for k, i, rec, _ in parts:
+        if i in ctx.taken_ids or str(rec["meta"].get("name", "")).lower() in ctx.taken_names:
+            raise ValueError("%s is already part of this run" % i)
+        patch[k][i] = retier(k, rec, ctx.balance)
+        patch[k][i]["meta"].update(generated="yes", made_by="world")
+    if request == "room":
+        if direction not in ctx.expand:
+            raise ValueError("a new place here can only go %s" % (" or ".join(ctx.expand) if ctx.expand else "nowhere from here"))
+        patch["rooms"][ident]["meta"].update(exits={OPPOSITE[direction]: ctx.location}, depth=ctx.depth_here + 1)
+        patch["exits"][ctx.location] = {direction: ident}
+        for k, i, _, placed in parts[1:]:
+            if k == "characters":
+                patch["placements"].setdefault(ident, []).append(i)
+            elif placed:
+                patch["room_items"].setdefault(ident, []).append(i)
+    elif kind == "characters":
+        if request == "extra" and ctx.extras_here >= ctx.balance["extras_per_room"]:
+            raise ValueError("this room already has as many generated extras as it may")
+        patch["placements"].setdefault(ctx.location, []).append(ident)
+    else:
+        if ctx.items_found_here >= ctx.balance["items_found_per_room"]:
+            raise ValueError("this room has already yielded a generated item")
+        patch["room_items"].setdefault(ctx.location, []).append(ident)
+    _budget(ctx, len(parts))
     return patch
 
 

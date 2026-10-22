@@ -140,7 +140,7 @@ export function startsAfresh(command: string, args: string, currentGame: string 
 }
 
 /** Rules-script commands that only record what happened; the narration may come before them. */
-const WRITE_COMMANDS = ['chronicle', 'remember', 'note', 'flag', 'coins', 'gain', 'lose', 'equip']
+const WRITE_COMMANDS = ['chronicle', 'remember', 'note', 'flag', 'coins', 'gain', 'lose', 'equip', 'library']
 
 /** Dice-tray lines for a finished rules-script call, or none. */
 export function trayFor(tool: string, input: unknown, output: unknown, look?: CoderpgLook): TrayLine[] {
@@ -212,6 +212,7 @@ function itemsOf(s: CoderpgSave): { id: string; name: string; equipped: boolean;
 /** What each priced extra is, in the player's words, for /budget. Playing the game as written is free. */
 const PRICE_NAMES: Record<string, string> = {
   generate: 'something new appearing', world_turn: 'the world moving on by itself', craft: 'having something made', build: 'having something built',
+  reuse: 'someone or something coming back from an earlier game',
 }
 
 /** The meter's color: plain while there's plenty, then the warning and danger colors. */

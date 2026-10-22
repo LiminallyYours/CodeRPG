@@ -361,7 +361,7 @@ class Engine(unittest.TestCase):
         v = self.save()["view"]
         self.assertEqual(set(v["meter"]), {"left", "capacity", "state"})
         self.assertEqual(v["settings"]["preset"], "normal")
-        self.assertEqual(v["settings"]["prices"], {"generate": 2, "world_turn": 2, "craft": 2, "build": 3})
+        self.assertEqual(v["settings"]["prices"], {"generate": 2, "world_turn": 2, "craft": 2, "build": 3, "reuse": 1})
         self.set_meter(9)
         self.rpg("world-brief", "turn")
         self.assertEqual(self.save()["view"]["meter"]["state"], "low")  # 7 of 30
@@ -649,6 +649,139 @@ class Engine(unittest.TestCase):
         self.assertIn("coast_road.md: has build spots but no builder", out)
         self.write(d, text.replace("  - morwen\n", ""))
         self.assertIn("has build spots but no builder", self.rpg("validate", "--game", "dark_lighthouse", ok=False))
+
+
+    # ---------------------------------------------------------------- 5.3 the library
+
+    def library(self, game="dark_lighthouse"):
+        return json.loads((self.dir / "state" / "library" / ("%s.json" % game)).read_text())["entries"]
+
+    def tamsin(self):
+        """Generate Old Tamsin (with wares) and her side quest, and finish it."""
+        self.write("proposals/c.json", json.dumps({
+            "id": "old_tamsin", "name": "Old Tamsin", "role": "a fishwife mending creels", "personality": "Sharp and kind.",
+            "speech": "Clipped.", "knows": ["The light has been out three nights."], "wants": "Her creels mended.",
+            "trades": [{"item": {"id": "creel_charm", "name": "Creel Charm", "description": "A knot of red wool.", "tier": "trinket"}, "price": 2}],
+            "tier": "weak"}))
+        self.rpg("generate", "character", "proposals/c.json")
+        self.write("proposals/q.json", json.dumps({
+            "id": "tamsins_creels", "name": "Tamsin's Creels", "giver": "old_tamsin", "summary": "Fetch twine.",
+            "objectives": [{"text": "Bring her twine", "done_when": "side_tamsins_creels_done"}], "reward": {"coins": 1, "item": None}}))
+        self.rpg("generate", "quest", "proposals/q.json")
+
+    def test_a_befriended_person_comes_back_in_the_next_game_remembering_one_line(self):
+        self.rpg("game", "switch", "dark_lighthouse")
+        self.rpg("newgame", seed=60)
+        self.tamsin()
+        lib = self.library()
+        self.assertEqual(sorted(lib), ["old_tamsin"])  # one entry; her wares ride with her; side quests aren't kept
+        self.assertEqual([b["id"] for b in lib["old_tamsin"]["bundle"]], ["creel_charm"])
+        self.assertIsNone(lib["old_tamsin"]["friend"])
+        self.rpg("remember", "old_tamsin", "Brought twine for my creels without being asked twice.")
+        self.rpg("flag", "set", "side_tamsins_creels_done")
+        self.assertEqual(self.library()["old_tamsin"]["friend"]["line"], "Brought twine for my creels without being asked twice.")
+        out = self.rpg("newgame", seed=61)
+        self.assertIn("FROM EARLIER RUNS (they're part of this world now): Old Tamsin (a friend, at harbor_square", out)
+        self.assertIn("old_tamsin [minor, generated]", out)
+        s = self.save()
+        self.assertEqual(s["npc_memory"]["old_tamsin"], ["Brought twine for my creels without being asked twice."])
+        self.assertIn("creel_charm", s["run"]["items"])  # her wares
+        self.assertNotIn("tamsins_creels", s["run"]["quests"])  # the quest was that run's
+        self.assertEqual(s["run"]["generated"], 0)  # what comes back doesn't use up this run's allowance
+        self.assertNotIn("side_tamsins_creels_done", s["flags"])
+
+    def test_the_world_brings_back_a_library_entry_for_less(self):
+        self.rpg("game", "switch", "dark_lighthouse")
+        self.rpg("newgame", seed=62)
+        self.rpg("world-brief", "extra")
+        self.write("proposals/e.json", json.dumps({"id": "jory_dockhand", "name": "Jory", "role": "a young dockhand", "look": "Freckled.",
+                                                  "speech": "Fast.", "knows": ["The boats are late."]}))
+        self.rpg("generate", "extra", "proposals/e.json")
+        self.rpg("newgame", seed=63)
+        self.rpg("meter", "refill")
+        self.assertNotIn("jory", self.rpg("world-brief", "character"))  # an extra isn't offered as a character
+        brief = self.rpg("world-brief", "extra")
+        self.assertIn("- jory_dockhand: Jory (a young dockhand): Freckled", brief)
+        self.assertIn('{"reuse": "<id from that list>"}', brief)
+        self.assertEqual(self.meter(), 26)
+        self.write("proposals/e.json", json.dumps({"reuse": "jory_dockhand"}))
+        out = self.rpg("generate", "extra", "proposals/e.json")
+        self.assertIn("brought back from an earlier run", out)
+        self.assertEqual(self.meter_file(), 27)  # 2 for the brief, 1 back: reuse costs 1
+        self.assertEqual(self.library()["jory_dockhand"]["runs"], 2)
+        self.rpg("newgame", seed=69)
+        self.write("proposals/e.json", json.dumps({"reuse": "jory_dockhand"}))
+        self.rpg("generate", "extra", "proposals/e.json")  # without a brief, reuse costs its own price
+        self.assertEqual(self.meter_file(), 26)
+        self.rpg("newgame", seed=64)
+        self.assertIn("FORGOTTEN", self.run_py("tools/library.py", "forget", "jory_dockhand").stdout)
+        self.assertNotIn("jory", self.rpg("world-brief", "extra"))
+        self.write("proposals/e.json", json.dumps({"reuse": "jory_dockhand"}))
+        self.assertIn("isn't in the library", self.rpg("generate", "extra", "proposals/e.json", ok=False))
+
+    def test_a_place_the_player_built_stands_in_the_next_game(self):
+        self.rpg("game", "switch", "dark_lighthouse")
+        self.rpg("newgame", seed=65)
+        self.rpg("world-brief", "build", "morwen")
+        self.write("proposals/b.json", json.dumps({"id": "net_loft", "name": "The Net-Loft", "direction": "southwest", "description": "A tarred loft."}))
+        self.rpg("generate", "build", "proposals/b.json")
+        self.rpg("coins", "+5")
+        self.rpg("pay", "net_loft")
+        for d in ("north", "south", "north", "south"):
+            self.rpg("move", d)
+        self.assertEqual(self.library()["net_loft"]["worth_keeping"], "built by the player")
+        out = self.rpg("newgame", seed=66)
+        self.assertIn("The Net-Loft (the player's, southwest of Harbor Square)", out)
+        self.assertIn("exit southwest -> The Net-Loft", out)
+        self.assertNotIn("BUILD SPOTS HERE", out)
+        self.rpg("move", "southwest")
+        self.assertEqual(self.save()["map"]["net_loft"]["made_by"], "player")
+
+    def test_the_owner_keeps_an_entry_for_good_and_a_bad_keep_changes_nothing(self):
+        self.rpg("game", "switch", "dark_lighthouse")
+        self.rpg("newgame", seed=67)
+        self.write("proposals/r.json", json.dumps({"id": "mooring_steps", "name": "The Mooring Steps", "direction": "south",
+                                                  "description": "Slick stone steps.", "items": [{"id": "boat_hook", "name": "Boat Hook",
+                                                  "description": "A long hook.", "tier": "weapon"}]}))
+        self.rpg("generate", "room", "proposals/r.json")
+        self.rpg("library", "suggest", "mooring_steps", "The player keeps coming back to fish here.")
+        listing = self.run_py("tools/library.py", "list").stdout
+        self.assertIn("the game master suggests keeping: The player keeps coming back to fish here.", listing)
+        lib_file = self.dir / "state/library/dark_lighthouse.json"
+        good = lib_file.read_text()
+        bad = json.loads(good)
+        bad["entries"]["mooring_steps"]["bundle"][0]["record"]["meta"]["damage"] = "lots"
+        lib_file.write_text(json.dumps(bad))
+        square = (self.dir / "games/dark_lighthouse/rooms/harbor_square.md").read_text()
+        r = self.run_py("tools/library.py", "keep", "mooring_steps")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("nothing was changed", r.stdout)
+        self.assertEqual((self.dir / "games/dark_lighthouse/rooms/harbor_square.md").read_text(), square)
+        self.assertFalse((self.dir / "games/dark_lighthouse/rooms/mooring_steps.md").exists())
+        lib_file.write_text(good)
+        r = self.run_py("tools/library.py", "keep", "mooring_steps")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        square = (self.dir / "games/dark_lighthouse/rooms/harbor_square.md").read_text()
+        self.assertIn("  south: mooring_steps", square)
+        self.assertIn("expand: no\n", square)  # its only expand: direction is an exit now
+        room = (self.dir / "games/dark_lighthouse/rooms/mooring_steps.md").read_text()
+        self.assertIn("exits:\n  north: harbor_square", room)
+        self.assertIn("items:\n  - boat_hook", room)
+        self.assertNotIn("generated", room)
+        self.assertIn("damage: 1d6", (self.dir / "games/dark_lighthouse/items/boat_hook.md").read_text())
+        self.assertNotIn("mooring_steps", self.library())
+        self.assertIn("CONTENT OK: dark_lighthouse", self.rpg("validate"))
+
+    def test_the_library_keeps_to_its_size(self):
+        self.rpg("game", "switch", "dark_lighthouse")
+        self.write("games/dark_lighthouse/balance.json", json.dumps({"library": {"max_entries": 2}}))
+        self.rpg("newgame", seed=68)
+        for n, ways in enumerate(((), ("north",), ("south", "east"))):  # one find each in three rooms
+            for d in ways:
+                self.rpg("move", d)
+            self.write("proposals/i.json", json.dumps({"id": "shell_%d" % n, "name": "Shell %d" % n, "description": "A shell.", "tier": "trinket"}))
+            self.rpg("generate", "item", "proposals/i.json")
+        self.assertEqual(sorted(self.library()), ["shell_1", "shell_2"])  # the oldest went
 
 
 if __name__ == "__main__":

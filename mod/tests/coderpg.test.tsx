@@ -519,7 +519,7 @@ test('a new game, or switching to another game, starts on a cleared screen; list
 })
 
 const SETTINGS = {
-  preset: 'normal', capacity: 30, prices: { generate: 2, world_turn: 2, craft: 2, build: 3 },
+  preset: 'normal', capacity: 30, prices: { generate: 2, world_turn: 2, craft: 2, build: 3, reuse: 1 },
   npc_agents: { on: true, lines_per_exchange: 4, off_for: ['grukk'] },
   world_turns: { on: false, every_moves: 5 },
   generation: { on: true, max_per_run: 16, kinds: ['extras', 'side_quests'] },
@@ -543,7 +543,7 @@ test("the pane shows the meter under the game's own name, colored when it runs l
 test('/budget tells the player what is left, what things cost and what is on, in plain words', () => {
   const text = budgetText(metered(22, 'ok'))
   expect(text).toContain('**ϟ Power:** 22/30.')
-  expect(text).toContain('something new appearing 2 · the world moving on by itself 2 · having something made 2 · having something built 3. Playing the game as written is always free.')
+  expect(text).toContain('something new appearing 2 · the world moving on by itself 2 · having something made 2 · having something built 3 · someone or something coming back from an earlier game 1. Playing the game as written is always free.')
   expect(text).toContain('**Having things made:** on, up to 5 orders per game.')
   expect(text).toContain('**Having places built:** on, up to 3 per game.')
   expect(text).toContain('voiced by the storyteller: grukk')

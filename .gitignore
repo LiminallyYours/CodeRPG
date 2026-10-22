@@ -5,6 +5,8 @@ state/shelf/
 state/active.json
 # the meter: what's left to spend this session
 state/meter.json
+# each game's library: what lasts across its runs (the owner manages it with tools/library.py)
+state/library/
 state/*.tmp
 # world-agent proposals waiting to be applied; the script deletes them
 proposals/*.json

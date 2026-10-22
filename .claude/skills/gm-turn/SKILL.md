@@ -128,7 +128,11 @@ Never generate anything that would solve, shortcut or replace part of the main q
    - The script deletes the file once it's applied.
 4. Then use the result:
    - **`REFUSED: proposal rejected`:** spawn the agent once more, adding the reason. If it fails again, the thing doesn't exist; narrate accordingly.
-   - **Success:** read the new entity with `rpg.py show`, then play it like authored content. Generated people are `[minor]`: you voice them, from their file only. Their sales and rewards follow their `## GM only` lines.
+   - **Success:** read the new entity with `rpg.py show`, then play it like authored content. Generated people are `[minor]`: you voice them, from their file only. Their sales and rewards follow their `## GM only` lines. Something `brought back from an earlier run` is new to the player in this one: they haven't met.
+
+The brief may list things from earlier runs; the world agent may bring one back instead of inventing (`{"reuse": "<id>"}`). Save and apply that reply the same way. When one listed is plainly who or what the player means, you may write that reuse reply yourself instead of spawning the agent.
+
+When a generated or player-made person, place or thing has come to matter (the player keeps coming back to it, or it was part of a big moment), you may tell the owner it deserves keeping for good: `python3 rules/rpg.py library suggest <id> "<one short line why>"`. It costs nothing and changes nothing in play; the owner decides.
 
 ## Orders
 A maker makes things to order within their trade; a builder builds a small place at one of the room's build spots.

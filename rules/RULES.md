@@ -88,6 +88,14 @@ Two kinds of names are automatic and can't be set: `has_<item>` is true while yo
 - **Paying:** `pay <id>` takes the tier's price from `generation.craft_price` (trinket 2, light weapon 3, tonic 3, weapon 5), or `pay <id> <item>` takes one item the maker accepts. The item is handed over at once and is the player's own.
 - **Limits:** the owner's `crafting.max_per_run` orders per run (2, 5, 10 by preset); orders don't count toward the generation limit, and a game's `generation:` policy doesn't apply to them.
 
+## The library
+- Every generated person, place and thing, and everything the player had made or built, goes into the game's library (`state/library/<game>.json`). Side quests don't: they belong to one run's people. A person keeps their wares, a place what was in it.
+- **A new game** brings back the places the player built (at their build spots, if the content still has them) and the people they befriended, where they were, each remembering one line: their last memory of the player, or the job done. Authored characters, flags, inventory and quests reset, so the main quest is whole again.
+- **Befriended** means the player finished the side quest that person gave (and, from 5.4, that they were promoted).
+- **Reuse:** a world brief lists at most `library.brief_entries` (5) fitting world-made entries, those first made where the player is first. A proposal `{"reuse": "<id>"}` brings one back with the same checks as something new; its stats come from today's tiers. It costs 1: the brief's 2, less 1 given back.
+- **Size:** at most `library.max_entries` (40) per game. When full, forgotten entries go first, then the least recently seen; the player's places, friends and anything marked for keeping stay.
+- **Keeping:** entries the player built, befriended people, and those the game master suggests (`rpg.py library suggest`) are marked worth keeping. Only the owner decides, with `tools/library.py list | keep <id> | forget <id> | unforget <id>`. `keep` writes the entry into the game's folder as authored content (and links it into its room) and validates; if the game no longer validates, nothing changes.
+
 ## Places built to order
 - A **builder** (`builds: yes`) builds at the build spots (`build:`) of the room they stand in.
 - **Ordering:** `world-brief build <builder>` (price `build`, 3); the world agent shapes the player's request into one small, empty place at a build spot, checked like a generated room by `generate build`.
@@ -95,7 +103,7 @@ Two kinds of names are automatic and can't be set: `has_<item>` is true while yo
 - **Limits:** the owner's `building.max_per_run` (1, 3, 5 by preset). A newer order for the same spot replaces an unpaid one.
 
 ## The meter: what the extras cost
-Playing the game as written is free: every game-master turn, every rules command, and the authored characters speaking through their agents. Only extras beyond it have a price, set by the game (`meter.prices` in balance.json): generating something new 2, a world turn 2, having something made 2, having something built 3. One point is roughly one extra round of game-master work. The game shows the meter as its own resource (lamp oil, power), with a capacity from the owner's settings (30 in the normal preset).
+Playing the game as written is free: every game-master turn, every rules command, and the authored characters speaking through their agents. Only extras beyond it have a price, set by the game (`meter.prices` in balance.json): generating something new 2, a world turn 2, having something made 2, having something built 3, bringing something back from the library 1. One point is roughly one extra round of game-master work. The game shows the meter as its own resource (lamp oil, power), with a capacity from the owner's settings (30 in the normal preset).
 - **Paying:** `world-brief` pays for each generation or world turn after every check that could refuse, so a refused extra costs nothing and a retry pays again.
 - **Running low:** at `meter.low_at_percent` (25%) or below, the game warns once.
 - **Spent:** when the meter can't pay for an extra, it doesn't happen: nothing new is generated, no `may grow` ways are offered, and no world turns fall due. The game as written plays on, agents included.
