@@ -5,7 +5,7 @@ import { exitsOf, keyText, mapText } from '../hooks/map'
 import { feedback, isReset } from '../hooks/feedback'
 import { DEFAULT_LOOK, lookOf, money, tabsOf } from '../hooks/look'
 import { commandPhrase, idlePhrase, npcPhrase } from '../hooks/phrases'
-import { currentObjective, fitCells, isGmNote, isPendingPlumbing, isPlumbing, pipBar, smoothBar, spaced, storyKey, stripPreamble, trayFor } from '../hooks/register'
+import { currentObjective, fitCells, startsAfresh, isGmNote, isPendingPlumbing, isPlumbing, pipBar, smoothBar, spaced, storyKey, stripPreamble, trayFor } from '../hooks/register'
 import { trayLines, traySound } from '../hooks/tray'
 
 const MAP: NonNullable<CoderpgSave['map']> = {
@@ -490,4 +490,14 @@ test("the dice tray uses the game's names for stats and money", () => {
   expect(trayLines('CHECK might vs DC 12: d20 9 +0 = 9 -> FAILURE', look)[0]!.text).toBe('Grit check: d20 9 +0 = 9 vs DC 12')
   expect(trayLines('COINS -2 -> 2', look)[0]!.text).toBe('-2 credits · 2 left')
   expect(trayLines('CHECK might vs DC 12: d20 9 +0 = 9 -> FAILURE')[0]!.text).toBe('Might check: d20 9 +0 = 9 vs DC 12')
+})
+
+test('a new game, or switching to another game, starts on a cleared screen; listing games does not', () => {
+  expect(startsAfresh('newgame', '', 'dark_lighthouse')).toBe(true)
+  expect(startsAfresh('newgame', 'daily', undefined)).toBe(true)
+  expect(startsAfresh('game', 'flooded_station', 'dark_lighthouse')).toBe(true)
+  expect(startsAfresh('game', ' The Flooded Station ', 'dark_lighthouse')).toBe(true) // a title: the skill resolves it
+  expect(startsAfresh('game', '', 'dark_lighthouse')).toBe(false) // only lists
+  expect(startsAfresh('game', 'dark_lighthouse', 'dark_lighthouse')).toBe(false) // already playing it
+  expect(startsAfresh('inventory', '', 'dark_lighthouse')).toBe(false)
 })

@@ -116,6 +116,15 @@ export function stripPreamble(text: string): string {
   return text
 }
 
+/**
+ * Whether a typed slash command starts a different game, so the screen and the conversation are
+ * cleared first: every /newgame, and /game naming a game other than the one being played.
+ */
+export function startsAfresh(command: string, args: string, currentGame: string | undefined): boolean {
+  const a = args.trim()
+  return command === 'newgame' || (command === 'game' && a !== '' && a !== currentGame)
+}
+
 /** Rules-script commands that only record what happened; the narration may come before them. */
 const WRITE_COMMANDS = ['chronicle', 'remember', 'note', 'flag', 'coins', 'gain', 'lose', 'equip']
 
@@ -556,6 +565,29 @@ export const register: Register = on => {
       </Box>
     )
   })
+
+  // ---- a fresh screen and a fresh conversation for a new game or another game
+  // The save holds everything that matters, so /clear loses nothing; the old game's text would only
+  // cost tokens on every later turn and leak stale details. /game with no argument only lists, and
+  // /game naming the game already being played changes nothing, so neither clears.
+  // Skill commands raise no command.run, and a prompt.submit hook may not run commands itself, so the
+  // typed command is dropped and run again, after /clear, from a timer. Claude Code shows the drop's
+  // reason for a moment before the screen clears; it reads as part of the story.
+
+  on('prompt.submit', async ($, e, next) => {
+    const c = e.command
+    if (!isGame || !c || e.origin.kind === 'plugin') return next(e)
+    const args = c.args.trim()
+    if (!startsAfresh(c.name, args, (await read($, save))?.game)) return next(e)
+    $.clock.after(50, async () => {
+      // a dropped prompt stays in the prompt box; empty it, or the next thing typed is appended to it
+      await $.prompt.fill({ text: '', mode: 'replace' }).catch(() => undefined)
+      await $.command.run({ command: 'clear' }).catch(() => undefined) // if it fails, the command still runs
+      await $.command.run({ command: c.name, args })
+        .catch(() => $.ui.toast(`Type /${c.name}${args ? ' ' + args : ''} again to begin.`))
+    })
+    return { drop: 'The page turns…' }
+  }).catch(($, e, next) => next(e)) // on any failure the command runs as typed, without the clear
 
   // ---- instant commands
 

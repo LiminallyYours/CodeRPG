@@ -97,6 +97,7 @@ Generated things are then as real as authored ones for the rest of the run: `loo
 | **Living world.** The status band and pane show the clock (`⧗ 14`, red when 3 moves or fewer are left), time and weather. The dice tray shows encounters and "✧ The world grows: …" when something is generated. The Journal adds side quests, failed quests, "The story so far" and "Heard around". Losing the main quest ends with a quieter "THE END" card. | |
 | **Feedback.** One toast per change (`-3 HP · +5 coins · gained Brass Lens · ✓ objective`), the HP bar flashes red or cyan, and sound effects play for dice, hits, misses, coins, healing, footsteps, the quest fanfare and defeat. | `/sound` toggles sound, and the setting is remembered. Sounds play through macOS `afplay`. `mod/sounds/generate.py` rebuilds them. |
 | **Instant commands:** `/inventory`, `/map`, `/sheet`, `/sound`. | No Claude turn, no cost. |
+| **A clean start.** `/newgame`, and `/game <id>` when it switches to another game, first clear the screen and Claude's conversation, so the new game starts lean. The save keeps everything that matters. | The mod runs `/clear` first. Without the mod, nothing is cleared. |
 
 Checks: `sh tools/check.sh` runs everything, including `claude plugin test mod` (37 tests) and `python3 tools/test_rules.py`.
 

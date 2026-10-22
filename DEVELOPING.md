@@ -85,6 +85,8 @@ This is the subtlest part of `mod/hooks/register.tsx`. If narration goes missing
   - a variable named `on` (it shadows the registrar);
   - a function that receives `$` unless it's declared at the top of the file.
 - **Slash commands the mod registers don't raise `prompt.submit` or `turn.start`.** They're answered without a Claude turn.
+- **Skill commands (`/newgame`, `/game`) raise no `command.run`**, only `prompt.submit` with `e.command` set. And `$.command.run` is refused inside a hook the turn waits on, such as `prompt.submit`. To run `/clear` before a skill, the mod drops the submission and runs `/clear` and then the skill from `$.clock.after`. Claude Code always shows "Prompt dropped by a hook: <reason>" for a moment (even with an empty reason), and a dropped prompt **stays in the prompt box** unless the mod empties it with `$.prompt.fill`.
+- **`tools/play.py` sessions keep no transcript** (a child session: "Transcript saving is off"). Set `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1` to keep them, or diagnose from the capture.
 - **Ink boxes have no per-side borders.** The vitals frame is drawn by hand, row by row, with `fitCells` keeping rows inside the frame.
 - **Mod tests:**
   - seed state with `on('state.get', { plugin: 'coderpg', key: 'save' }, () => ({ value: { value: SAVE, version: 1 } }))`. A test hook answering a `$` call wraps its answer in `{ value: … }`;
