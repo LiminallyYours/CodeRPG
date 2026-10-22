@@ -54,6 +54,12 @@
         "attack": 2,
         "damage": "1d8"
       }
+    },
+    "craft_price": {
+      "trinket": 2,
+      "light_weapon": 3,
+      "weapon": 5,
+      "tonic": 3
     }
   },
   "world": {
@@ -67,7 +73,8 @@
     "low_at_percent": 25,
     "prices": {
       "generate": 2,
-      "world_turn": 2
+      "world_turn": 2,
+      "craft": 2
     }
   }
 }

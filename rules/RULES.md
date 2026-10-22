@@ -79,9 +79,16 @@ Two kinds of names are automatic and can't be set: `has_<item>` is true while yo
   - Foes: weak (5 HP, defense 9, +0, 1d4); average (8, 11, +1, 1d6); tough (12, 12, +2, 1d8).
   - Generated prices are 1–6 coins, and side-quest rewards at most 4 coins.
 - **Side quests** may only use their own `side_<id>_<word>` flags, plus `has_` and `met_` names.
+- Everything generated is tagged `made_by: world`; what the player orders is tagged `made_by: player`. Both pass the same checks.
+
+## Things made to order
+- A **maker** is a character whose content gives `makes:` (item tiers) and maybe `accepts:` (items taken instead of money).
+- **Ordering:** the player describes what they want; `world-brief craft <maker>` (price `craft`, 2) asks the world agent to shape it into one item of a tier the maker makes, or to turn it down if it's outside the trade. `generate craft` checks it and stores it as an unpaid order.
+- **Paying:** `pay <id>` takes the tier's price from `generation.craft_price` (trinket 2, light weapon 3, tonic 3, weapon 5), or `pay <id> <item>` takes one item the maker accepts. The item is handed over at once and is the player's own.
+- **Limits:** the owner's `crafting.max_per_run` orders per run (2, 5, 10 by preset); orders don't count toward the generation limit, and a game's `generation:` policy doesn't apply to them.
 
 ## The meter: what the extras cost
-Playing the game as written is free: every game-master turn, every rules command, and the authored characters speaking through their agents. Only extras beyond it have a price, set by the game (`meter.prices` in balance.json): generating something new 2, a world turn 2. One point is roughly one extra round of game-master work. The game shows the meter as its own resource (lamp oil, power), with a capacity from the owner's settings (30 in the normal preset).
+Playing the game as written is free: every game-master turn, every rules command, and the authored characters speaking through their agents. Only extras beyond it have a price, set by the game (`meter.prices` in balance.json): generating something new 2, a world turn 2, having something made 2. One point is roughly one extra round of game-master work. The game shows the meter as its own resource (lamp oil, power), with a capacity from the owner's settings (30 in the normal preset).
 - **Paying:** `world-brief` pays for each generation or world turn after every check that could refuse, so a refused extra costs nothing and a retry pays again.
 - **Running low:** at `meter.low_at_percent` (25%) or below, the game warns once.
 - **Spent:** when the meter can't pay for an extra, it doesn't happen: nothing new is generated, no `may grow` ways are offered, and no world turns fall due. The game as written plays on, agents included.
@@ -93,6 +100,7 @@ Each game's `settings.json` picks a preset from `rules/presets.json` (`thrifty`,
 - `npc_agents`: `on` (off: the game master voices everyone), `lines_per_exchange`, and `characters` to switch single characters off;
 - `world_turns`: `on` and `every_moves`;
 - `generation`: `on`, `max_per_run`, and `kinds` (extras, rooms, items, characters, side_quests). Something is generated only if the game's own `generation:` allows it **and** the switch is on.
+- `crafting`: `on` and `max_per_run` (orders placed with makers).
 
 `rpg.py settings` and the instant command `/budget` show them. Only the owner changes them, with `tools/settings.py`, which the game master can't run.
 

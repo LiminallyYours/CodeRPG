@@ -3,6 +3,9 @@
 Every function takes the proposal (parsed JSON) and a Context and returns a Patch: the entities
 to add to the save's `run` section. Anything out of bounds raises ValueError with the reason.
 Numbers never come from the proposal: item and foe stats come from the tiers in balance.json.
+
+Everything made here is marked `made_by`: "world" when the world invented it, "player" when the player
+ordered it from a maker or builder. Both go through the same checks; only the tag and the gate differ.
 """
 import re
 
@@ -13,12 +16,16 @@ ID = re.compile(r"^[a-z][a-z0-9_]{2,29}$")
 TERM = re.compile(r"\b(?!and\b|or\b|not\b)([a-z][a-z0-9_]*)\b")
 
 
+class Declined(ValueError):
+    """The maker turns the order down (outside their trade): not a malformed proposal, so no retry."""
+
+
 class Context:
     """What a proposal is checked against. Built by rpg.py from content and the save."""
 
     def __init__(self, *, location, taken_ids, taken_names, expand, policy, balance, count,
                  items_found_here, extras_here, characters_here, room_ids, generated_people,
-                 terrains=(), terrain_here=None):
+                 terrains=(), terrain_here=None, moves=0, maker=None, makes=()):
         self.location = location                    # the player's room id
         self.taken_ids = set(taken_ids)             # every id in use, any kind
         self.taken_names = {n.lower() for n in taken_names}
@@ -33,11 +40,14 @@ class Context:
         self.generated_people = set(generated_people)
         self.terrains = list(terrains)              # the look's terrain kinds, for the map
         self.terrain_here = terrain_here            # the player's room's terrain: a new room's default
+        self.moves = moves                          # moves made this run
+        self.maker = maker                          # who the player is ordering from (craft), or None
+        self.makes = list(makes)                    # the item tiers that maker makes
 
 
 def empty_patch():
     return {"rooms": {}, "characters": {}, "items": {}, "quests": {},
-            "exits": {}, "placements": {}, "room_items": {}, "rumors": [], "moves": []}
+            "exits": {}, "placements": {}, "room_items": {}, "commissions": {}, "rumors": [], "moves": []}
 
 
 def _allowed(ctx, kind):
@@ -109,23 +119,45 @@ def _budget(ctx, n):
 
 # ---------------------------------------------------------------- kinds
 
+def _tiered_item(p, ctx, patch, ids, made_by, tiers=None):
+    """An item whose stats come from its tier (one of `tiers`, by default every item tier). Returns its id."""
+    tiers = tiers or list(ctx.balance["item_tiers"])
+    tier = p.get("tier")
+    if tier not in tiers:
+        raise ValueError("tier must be one of %s" % ", ".join(tiers))
+    ident, name = _claim(p, ctx, ids)
+    meta = dict(name=name, generated="yes", made_by=made_by, tier=tier, **ctx.balance["item_tiers"][tier])
+    patch["items"][ident] = {"meta": meta, "body": _text(p, "description", 400)}
+    return ident
+
+
 def item(p, ctx, patch=None, ids=None, place=True):
     """A found or traded item. `tier` picks its stats: trinket, light_weapon, weapon or tonic."""
     _allowed(ctx, "items")
     patch = patch if patch is not None else empty_patch()
     ids = ids if ids is not None else set()
-    ident, name = _claim(p, ctx, ids)
-    tiers = ctx.balance["item_tiers"]
-    tier = p.get("tier")
-    if tier not in tiers:
-        raise ValueError("tier must be one of %s" % ", ".join(tiers))
-    meta = dict(name=name, generated="yes", tier=tier, **tiers[tier])
-    patch["items"][ident] = {"meta": meta, "body": _text(p, "description", 400)}
+    ident = _tiered_item(p, ctx, patch, ids, "world")
     _budget(ctx, 1)
     if place:
         if ctx.items_found_here >= ctx.balance["items_found_per_room"]:
             raise ValueError("this room has already yielded a generated item")
         patch["room_items"].setdefault(ctx.location, []).append(ident)
+    return patch
+
+
+def craft(p, ctx):
+    """An item the player ordered from a maker, within the maker's tiers. It waits as a commission until
+    paid for; the price comes from balance.json, never the proposal. It doesn't count toward the run's
+    generation limit (crafting has its own), and the content's generation policy doesn't apply."""
+    if p.get("refuse") is not None:
+        raise Declined(_text(p, "refuse", 200))
+    if not ctx.maker:
+        raise ValueError("no order is open: run `world-brief craft <maker>` first")
+    patch = empty_patch()
+    ident = _tiered_item(p, ctx, patch, set(), "player", tiers=ctx.makes)
+    tier = p["tier"]
+    patch["commissions"][ident] = {"kind": "item", "maker": ctx.maker, "price": int(ctx.balance["craft_price"][tier]),
+                                   "status": "ordered", "ordered_at": ctx.moves}
     return patch
 
 
@@ -154,7 +186,7 @@ def extra(p, ctx):
         "- A generated extra: no items, no trades, no combat, no flags. They only know public things and gossip.",
     ]
     patch["characters"][ident] = {"meta": {"name": name, "role": _text(p, "role", 80), "minor": "yes", "generated": "yes",
-                                           "extra": "yes"}, "body": "\n".join(body)}
+                                           "made_by": "world", "extra": "yes"}, "body": "\n".join(body)}
     patch["placements"].setdefault(ctx.location, []).append(ident)
     _budget(ctx, 1)
     return patch
@@ -166,7 +198,7 @@ def character(p, ctx, patch=None, ids=None, room=None):
     patch = patch if patch is not None else empty_patch()
     ids = ids if ids is not None else set()
     ident, name = _claim(p, ctx, ids)
-    meta = {"name": name, "role": _text(p, "role", 80), "minor": "yes", "generated": "yes"}
+    meta = {"name": name, "role": _text(p, "role", 80), "minor": "yes", "generated": "yes", "made_by": "world"}
     body = _character_body(p, "character")
     gm = ["## GM only", "- Generated for this run."]
     trades = _list(p.get("trades"), "trades")
@@ -221,7 +253,7 @@ def room(p, ctx):
     terrain = p.get("terrain") or ctx.terrain_here
     if terrain is not None and terrain not in ctx.terrains:
         raise ValueError("terrain must be one of %s" % ", ".join(ctx.terrains))
-    meta = {"name": name, "generated": "yes", "exits": {back: ctx.location}}
+    meta = {"name": name, "generated": "yes", "made_by": "world", "exits": {back: ctx.location}}
     if terrain:
         meta["terrain"] = terrain
     patch["rooms"][ident] = {"meta": meta,
@@ -265,7 +297,7 @@ def quest(p, ctx):
         pay.append("`gain %s`" % reward["item"]["id"])
     gm.append("- When complete, %s gives the reward: %s." % (giver, ", ".join(pay) or "thanks only"))
     last = objectives[-1]
-    patch["quests"][ident] = {"meta": {"name": name, "giver": giver, "generated": "yes", "objectives": lines,
+    patch["quests"][ident] = {"meta": {"name": name, "giver": giver, "generated": "yes", "made_by": "world", "objectives": lines,
                                        "completed_by": _text(last, "done_when", 160)},
                               "body": "\n".join(["## Summary", _text(p, "summary", 300)] + gm)}
     _budget(ctx, 1)
@@ -283,4 +315,4 @@ def world_turn(p, ctx):
     return patch
 
 
-KINDS = {"extra": extra, "item": item, "character": character, "room": room, "quest": quest}
+KINDS = {"extra": extra, "item": item, "character": character, "room": room, "quest": quest, "craft": craft}

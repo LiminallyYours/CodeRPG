@@ -1,12 +1,12 @@
 # Handoff: building IMPLEMENTATION-PLAN.md
 
-As of 2026-10-21. The state of the kit build for whoever picks it up next, human or Claude. Read `DEVELOPING.md` first (invariants, checks, testing, API gotchas). This file covers only where the build stands and what was decided along the way. Update it at the end of each stage.
+As of 2026-10-22. The state of the kit build for whoever picks it up next, human or Claude. Read `DEVELOPING.md` first (invariants, checks, testing, API gotchas). This file covers only where the build stands and what was decided along the way. Update it at the end of each stage.
 
 ## Where things are
 - **Requirements:** `IMPLEMENTATION-PLAN.md` (JW's game-owner requirements, Stages 1–8).
 - **Technical plan:** `~/.claude/plans/please-read-implementation-plan-md-in-sunny-cake.md` (approved). The decisions below override it where they differ.
 - **Done:** Stage 1 (kit split, second game, seeds), the clean-start follow-up, Stage 2 (the meter and switches), Stage 3 (look and feel), Stage 4 (curses). Everything is committed on `main`, and `sh tools/check.sh` passes.
-- **Next:** Stage 5, the player leaves a mark (crafting, building, the library, promoted agents). Stop for the user's playtest of Stage 4 first.
+- **In progress:** Stage 5, the player leaves a mark. 5.1 (crafting) is done; 5.2 (building), 5.3 (the library) and 5.4 (promotion) are next. Stop for the user's playtest when all four are in.
 
 | Commit | What |
 |---|---|
@@ -20,6 +20,7 @@ As of 2026-10-21. The state of the kit build for whoever picks it up next, human
 | `c13e285` | Stage 3: block-letter banners, transitions, combat strip, tile map, sounds per beat, waiting phases, character cards, accent by time |
 | `a2280fe` | Handoff update |
 | `b8334c8` | Curses: content kind, transforms with shared vectors, the prompt hook tells the GM both versions, mod draws the cursed row |
+| (5.1) | Crafting: makers (`makes:`/`accepts:`), `world-brief craft`, `generate craft`, `pay`, `made_by` on every run entity, save v8, Morwen the net-mender, Bucket makes from scrap |
 | `770f5e8` | Speaker cards: the speaker is named outside the quotes; a person without a card keeps the paragraph plain (playtest bug: Dunstan's line labelled Pell) |
 
 ## Decisions made with the user (keep to these)
@@ -49,7 +50,7 @@ As of 2026-10-21. The state of the kit build for whoever picks it up next, human
 
 ## Open observations (not bugs, or not yet fixed)
 - Under the thrifty preset, Sonnet still calls `npc-brief` once for a resting agent before voicing them. It's refused at no cost and hidden from the player.
-- The player's real save (`state/save.json`) is still v6; the first `/newgame` replaces it.
+- The player's real save is v7; it upgrades to v8 on load (Stage 5 adds `run.commissions`).
 - The fixed prices for extras are estimates; recalibrate if `/cost` suggests they're off.
 
 ## Stage 4 notes
@@ -65,12 +66,19 @@ Build it in four commits (5.1–5.4), live-check each player-visible part, then 
 - **5.3 The library:** `state/library/<game>.json` holds every generated or player-made entry (`origin: player|world`, kept, forgotten, friend_line), with a size cap per game. `newgame` carries over player-built places and befriended generated people (one remembered line each). Authored characters, flags, inventory and quests reset. `world-brief` lists at most 5 fitting entries; a proposal `{"reuse": "<id>"}` re-creates one with stats re-tiered from the current tables. Owner tool `tools/library.py list | keep <id> | forget <id>`; `keep` writes it into `games/<id>/` and validates. The GM can't run it.
 - **5.4 Promotion:** `rpg.py talk <id>` (the GM runs it before voicing any generated person) prints their voice brief and counts at most one conversation per scene. After the game's number of conversations, the person becomes `minor: no` for the run and speaks through `npc-brief` with their own memory. The journal marks promoted people.
 
-**Proposed to the user on 2026-10-22, not yet confirmed (ask before building):**
-- Prices: crafting 2, building 3, reusing a library entry 1, promoting free, but **each promoted character's agent reply costs 1** (unlike authored agents, which stay free).
-- Switches in all three presets: `crafting` {on, max_per_run}, `building` {on, max_per_run}, `promotion` {on, max_per_run, after_conversations}.
-- "Befriended" is rule-based: you completed their side quest, or they were promoted.
-- Keeping a library entry is an owner tool only.
-- Content: Lighthouse, a net-mender maker (Pell's cousin) and a buildable plot on the quay; station, Bucket as a maker and the storage float as a buildable spot.
+**Confirmed with the user on 2026-10-22 (these override the bullets above where they differ):**
+- **Prices:** crafting 2, building 3, reusing a library entry 1, promotion 2 once; a promoted person's replies are free (an agent reply is ~5k tokens, a point ~30k).
+- **Switches** (all three presets): `crafting` {on, max_per_run: 2/5/10}, `building` {on, max_per_run: 1/3/5}, `promotion` {on: off/on/on, max_per_run: -/2/4, after_conversations: -/3/2}. Separate from the generation cap; the meter applies on top.
+- **One path:** building and crafting are generation with a `made_by: player` tag and a gate (an order, paid with `pay`). Everything generated carries `made_by: world`.
+- **Growth vs. building:** the world may grow anywhere sensible (`growth:` in world.md: `anywhere` | `marked` | `no`; both shipped games `anywhere`; the code finds free map squares, rooms may opt out, generated rooms may grow further up to a depth limit). Building is narrow and visible: content marks where building makes sense in the story (`build:` on rooms), the room's prose tells the player, and the world never grows into a reserved build spot. Built rooms offer no build spots of their own for now.
+- **Builders** work only where they stand, but the order records its target (room + direction) so a later remote effect (a spell) can name somewhere else.
+- **Befriended** = finished their side quest, or promoted. They carry over with one remembered line.
+- **The library:** `keep` writes the entry into `games/<id>/` (permanent, survives a wiped library); the library alone only decides what may come back. `rpg.py` marks entries "worth keeping" by rule (promoted, side quest finished, player-built), the GM may add a one-line reason (`rpg.py library suggest <id> "<why>"`, free), and `tools/library.py list` shows suggestions first. Only the owner keeps or forgets.
+- **Content:** Lighthouse: Morwen the net-mender (Pell's cousin) on Harbor Square, plus a build spot there. Station: Bucket makes (trinket, light weapon; not tonics, which would bypass its once-only med-patch sale) and builds; build spot: a float lashed to the pontoon south of The Landing (east stays for generation).
+- **Parked, not to build yet:** an owner-run mode (maybe a `newgame` flag) that shows the switches as in-game options.
+
+## Stage 5 notes
+- **5.1 as built:** an order is `run.commissions[<item id>] = {kind, maker, price, status: ordered|done, ordered_at, paid_at}`; `run.ordering` holds the maker between `world-brief craft` (which charges) and `generate craft`, so an order can't be generated without a paid brief, and a rejected proposal can be retried without a new brief. A maker's `{"refuse": …}` raises `generate.Declined`, which clears the order. `pay` hands the item over at once (no waiting); payment is the tier's `craft_price` or one `accepts:` item. `look` prints `MAKERS HERE` (only while an order is possible) and `ORDERS WAITING`. The craft brief includes the maker's `## What <pronoun> make(s)` section. The tray shows `MADE:`/`PAID WITH:`; the pane and `/inventory` mark the item "(made for you)".
 
 ## Later stages (unchanged from the plan)
 - **Stage 6, puzzles:** the GM assembles prebuilt kit code blocks (`rules/blocks.py`, a JSON pipeline; `rpg.py solve` and `unlock` for locks, `inspect` and `repair` for a broken mechanism). No free-form code.

@@ -34,7 +34,7 @@ ACTIVE = ROOT / "state" / "active.json"
 METER = ROOT / "state" / "meter.json"
 BALANCE = {}  # the active game's rule numbers; set by choose_game()
 SETTINGS = {}  # the owner's switches for the active game (preset + overrides); set by choose_game()
-STATE_VERSION = 7
+STATE_VERSION = 8
 OLDEST_VERSION = 7  # older saves are from before the game kit and aren't upgraded
 STATS = ("might", "agility", "wits")
 GEN_KINDS = ("extras", "rooms", "items", "characters", "side_quests")
@@ -49,11 +49,19 @@ def empty_run():
     return {"id": uuid.uuid4().hex[:12], "variants": {}, "rolls": {}, "clock": None, "moves": 0, "weather": None,
             "rooms": {}, "characters": {}, "items": {}, "quests": {},
             "exits": {}, "placements": {}, "notes": {}, "chronicle": [], "rumors": [],
-            "used_encounters": [], "world_turn_due": False, "generated": 0}
+            "used_encounters": [], "world_turn_due": False, "generated": 0,
+            "commissions": {}, "ordering": None}
 
 
-# Each entry upgrades a save from version N to N+1 (none yet since version 7).
-MIGRATIONS = {}
+def _v7_to_v8(state):
+    """Version 8: orders placed with makers (`run.commissions`, `run.ordering`)."""
+    state["run"].setdefault("commissions", {})
+    state["run"].setdefault("ordering", None)
+    return state
+
+
+# Each entry upgrades a save from version N to N+1.
+MIGRATIONS = {7: _v7_to_v8}
 
 
 class Refused(Exception):
@@ -209,6 +217,13 @@ def is_generated(kind, ident):
     return not content.exists(kind, ident) and ident in _RUN.get(kind, {})
 
 
+def made_by(kind, ident):
+    """Who made a run entity: "player" (ordered from a maker or builder), "world" (generated), or None (authored)."""
+    if not is_generated(kind, ident):
+        return None
+    return _RUN[kind][ident]["meta"].get("made_by", "world")
+
+
 def world():
     return content.load_world()
 
@@ -218,6 +233,42 @@ def policy():
     gen = world().get("generation") or {}
     owner = SETTINGS["generation"]
     return {k: str(gen.get(k, "no")).lower() == "yes" and owner["on"] and owner["kinds"].get(k, False) for k in GEN_KINDS}
+
+
+# ---------------------------------------------------------------- orders: what the player has made
+# A maker is a character whose content gives `makes:` (item tiers) and maybe `accepts:` (material items
+# that pay for the work instead of money). The player describes what they want; the world agent shapes
+# it within the maker's tiers (`world-brief craft <maker>`, then `generate craft`). It waits as an order
+# in `run.commissions` until the player pays (`pay <id>`); then it's theirs, marked made_by: player.
+# Prices come from balance.json, never from an agent.
+
+def makes(ident):
+    """The item tiers a character makes to order (none for anyone else)."""
+    tiers = BALANCE["generation"]["item_tiers"]
+    return [t for t in options_of(ent("characters", ident).get("makes") or "") if t in tiers]
+
+
+def accepts(ident):
+    """The items a maker takes as payment instead of money."""
+    return options_of(ent("characters", ident).get("accepts") or "")
+
+
+def why_no_order(state):
+    """Why no maker takes a new order now (the owner's switches, this run's orders, the meter), or None."""
+    switch = SETTINGS["crafting"]
+    if not switch["on"]:
+        return "no one takes orders in this game (the owner's settings)"
+    if sum(1 for c in state["run"]["commissions"].values() if c["kind"] == "item") >= int(switch["max_per_run"]):
+        return "the makers have taken as much work as they will this run (%d orders)" % int(switch["max_per_run"])
+    if not can_pay("craft"):
+        return "the %s is spent until the next session, so no new work is taken on" % resource()["name"].lower()
+    return None
+
+
+def price_text(com):
+    """'3 coins, or in trade: smoked_fish' for an order."""
+    trade = accepts(com["maker"]) if ent_exists("characters", com["maker"]) else []
+    return "%d %s%s" % (com["price"], currency(), ", or in trade: %s" % ", ".join(trade) if trade else "")
 
 
 # ---------------------------------------------------------------- state I/O
@@ -311,7 +362,7 @@ def refresh_view(state):
     state.setdefault("map", {})[room["id"]] = {
         "name": room.get("name", room["id"]), "exits": exits,
         "terrain": room.get("terrain"), "color": room.get("color"),  # how the map tile looks
-        "made_by": "world" if is_generated("rooms", room["id"]) else None,
+        "made_by": made_by("rooms", room["id"]),
         # where those exits lead, by name: the player can see or has been told, even before visiting
         "neighbors": {dest: ent("rooms", dest).get("name", dest) for dest in exits.values() if ent_exists("rooms", dest)},
     }
@@ -333,8 +384,8 @@ def refresh_view(state):
         "look": content.look(),
         "location_name": room.get("name", room["id"]),
         "location_generated": is_generated("rooms", room["id"]),
-        "items": [{"id": i, "name": item(i).get("name", i) if ent_exists("items", i) else i, "equipped": i == state["equipped"]}
-                  for i in state["inventory"]],
+        "items": [{"id": i, "name": item(i).get("name", i) if ent_exists("items", i) else i, "equipped": i == state["equipped"],
+                   "own": made_by("items", i) == "player"} for i in state["inventory"]],
         "weight": carried_weight(state),
         "carry_limit": carry_limit(state),
         "characters_here": [who(c) for c in here],
@@ -366,6 +417,7 @@ def settings_view():
                        "off_for": sorted(c for c, on in agents["characters"].items() if not on)},
         "world_turns": {"on": turns["on"], "every_moves": turns["every_moves"]},
         "generation": {"on": gen["on"], "max_per_run": gen["max_per_run"], "kinds": [k for k, on in policy().items() if on]},
+        "crafting": {"on": SETTINGS["crafting"]["on"], "max_per_run": SETTINGS["crafting"]["max_per_run"]},
     }
 
 
@@ -718,6 +770,14 @@ def cmd_look(args):
     voice = {c: "minor" if is_minor(c) else "minor, agent resting" if agents_resting(c) else "agent" for c in here}
     chars = ["%s [%s%s]" % (c, voice[c], ", generated" if is_generated("characters", c) else "") for c in here]
     print("CHARACTERS HERE: %s" % (", ".join(chars) or "none"))
+    makers = [c for c in here if makes(c)]
+    if makers and not why_no_order(state):
+        print("MAKERS HERE: %s. If the player orders something made: `world-brief craft <maker>` (see gm-turn)."
+              % "; ".join("%s makes %s" % (c, ", ".join(t.replace("_", " ") for t in makes(c))) for c in makers))
+    waiting = [(i, c) for i, c in run["commissions"].items() if c["status"] == "ordered"]
+    if waiting:
+        print("ORDERS WAITING: %s. When the player pays the maker: `pay <id>` or `pay <id> <material>`." % " | ".join(
+            "%s (%s) from %s, unpaid: %s" % (i, item(i).get("name", i), c["maker"], price_text(c)) for i, c in waiting))
     if sum(1 for v in voice.values() if v == "agent") >= 2:
         print("AGENT LINES PER TURN: at most %d between them" % SETTINGS["npc_agents"]["lines_per_exchange"])
     notes = run["notes"].get(room["id"], [])
@@ -1097,6 +1157,9 @@ def gen_context(state):
     names = [ent(k, i).get("name", i) for k in ("rooms", "characters", "items", "quests") for i in ent_ids(k)]
     ids = [i for k in content.KINDS for i in ent_ids(k)]
     run = state["run"]
+    maker = (run.get("ordering") or {}).get("maker")
+    if maker and not ent_exists("characters", maker):
+        maker = None
     return generate.Context(
         location=state["location"], taken_ids=ids, taken_names=names, expand=unused_expansions(room),
         policy=policy(), balance=dict(BALANCE["generation"], max_per_run=SETTINGS["generation"]["max_per_run"]),
@@ -1106,7 +1169,8 @@ def gen_context(state):
                         if ent("characters", c).get("extra") == "yes"),
         characters_here=characters_here(state), room_ids=ent_ids("rooms"),
         generated_people=list(run["characters"]),
-        terrains=list(content.look().get("terrain") or {}), terrain_here=room.get("terrain"))
+        terrains=list(content.look().get("terrain") or {}), terrain_here=room.get("terrain"),
+        moves=run["moves"], maker=maker, makes=makes(maker) if maker else ())
 
 
 def apply_patch(state, patch):
@@ -1121,7 +1185,11 @@ def apply_patch(state, patch):
         run["placements"].setdefault(room, []).extend(people)
     for room, items in patch["room_items"].items():
         state["room_items"].setdefault(room, []).extend(items)
-    run["generated"] = sum(len(run[k]) for k in ("rooms", "characters", "items", "quests"))
+    for ident, com in patch["commissions"].items():
+        run["commissions"][ident] = com
+    # the world's own inventions count toward the run's limit; what the player ordered has its own limits
+    run["generated"] = sum(1 for k in ("rooms", "characters", "items", "quests") for rec in run[k].values()
+                           if rec["meta"].get("made_by", "world") == "world")
 
 
 def read_json_arg(args):
@@ -1154,10 +1222,18 @@ def cmd_generate(args):
     kind = args[0]
     if kind not in generate.KINDS:
         raise Refused("kind must be one of %s" % ", ".join(generate.KINDS))
+    maker = (state["run"].get("ordering") or {}).get("maker")
     try:
+        if kind == "craft" and maker and maker not in characters_here(state):
+            raise Refused("the order was being placed with %s, who isn't here any more; nothing is made" % maker)
         proposal = read_json_arg(args[1:])
         try:
             patch = generate.KINDS[kind](proposal, gen_context(state))
+        except generate.Declined as e:
+            state["run"]["ordering"] = None
+            save_state(state)
+            raise Refused("%s turns the order down: %s. Narrate it in character; nothing is made"
+                          % (ent("characters", maker).get("name", maker), e))
         except ValueError as e:
             raise Refused("proposal rejected: %s" % e)
         except MALFORMED[1:] as e:
@@ -1165,6 +1241,16 @@ def cmd_generate(args):
     finally:
         done_with(args[1:])
     apply_patch(state, patch)
+    if kind == "craft":
+        state["run"]["ordering"] = None
+        save_state(state)
+        for i, com in patch["commissions"].items():
+            meta = patch["items"][i]["meta"]
+            print("COMMISSIONED: %s (%s), %s, from %s" % (meta["name"], i, meta["tier"].replace("_", " "),
+                                                         ent("characters", com["maker"]).get("name", com["maker"])))
+            print("PRICE: %s. The maker names it in character. When the player pays, run `pay %s` (or `pay %s <material>`); "
+                  "until then it isn't theirs." % (price_text(com), i, i))
+        return
     save_state(state)
     made = ["%s %s (%s)" % (k[:-1], patch[k][i]["meta"].get("name", i), i)
             for k in ("rooms", "characters", "items", "quests") for i in patch[k]]
@@ -1177,6 +1263,41 @@ def cmd_generate(args):
     for room, people in patch["placements"].items():
         print("  present in %s: %s" % (room, ", ".join(people)))
     print("Read them with `rpg.py show <kind> <id>`. Run total: %d/%d" % (state["run"]["generated"], SETTINGS["generation"]["max_per_run"]))
+
+
+def cmd_pay(args):
+    """pay <order> [<material>]: the player pays the maker for an order, in money or with an item they take
+    in trade. A made item is handed over at once and is the player's own."""
+    state = load_state()
+    require_playing(state)
+    ident, run = args[0], state["run"]
+    com = run["commissions"].get(ident)
+    if not com or com["status"] != "ordered":
+        waiting = [i for i, c in run["commissions"].items() if c["status"] == "ordered"]
+        raise Refused("no unpaid order %r. Orders waiting: %s" % (ident, ", ".join(waiting) or "none"))
+    maker = com["maker"]
+    who = ent("characters", maker).get("name", maker)
+    if maker not in characters_here(state):
+        raise Refused("%s isn't here; the order waits with them" % who)
+    s = state["stats"]
+    material = args[1] if len(args) > 1 else None
+    if material:
+        if material not in accepts(maker):
+            raise Refused("%s takes no %s in trade (takes: %s)" % (who, material, ", ".join(accepts(maker)) or "only " + currency()))
+        remove_from_inventory(state, material)
+        paid = "PAID WITH: %s" % material
+    else:
+        if s["coins"] < com["price"]:
+            raise Refused("not enough %s: the price is %d and the player has %d" % (currency(), com["price"], s["coins"]))
+        s["coins"] -= com["price"]
+        paid = "COINS -%d -> %d" % (com["price"], s["coins"])
+    com.update(status="done", paid_at=run["moves"])
+    check_carry(state, ident)
+    state["inventory"].append(ident)
+    save_state(state)
+    print(paid)
+    print("MADE: %s (%s), made for the player by %s. It's theirs now.  [weight %d/%d]"
+          % (item(ident).get("name", ident), ident, who, carried_weight(state), carry_limit(state)))
 
 
 def cmd_note(args):
@@ -1213,13 +1334,25 @@ def cmd_world_brief(args):
     if request not in tuple(generate.KINDS) + ("turn",):
         raise Refused("request must be one of %s, turn" % ", ".join(generate.KINDS))
     pol = policy()
-    if request != "turn" and not pol[{"extra": "extras", "room": "rooms", "item": "items",
-                                      "character": "characters", "quest": "side_quests"}[request]]:
+    maker = None
+    if request == "craft":
+        if len(args) < 2:
+            raise Refused("usage: world-brief craft <maker>")
+        maker = args[1]
+        if maker not in characters_here(state):
+            raise Refused("%s isn't here to take an order" % maker)
+        if not makes(maker):
+            raise Refused("%s makes nothing to order; they turn the request away in character" % maker)
+        why = why_no_order(state)
+        if why:
+            raise Refused("%s; %s turns the order away in character" % (why, maker))
+    elif request != "turn" and not pol[{"extra": "extras", "room": "rooms", "item": "items",
+                                        "character": "characters", "quest": "side_quests"}[request]]:
         raise Refused("no new %ss can appear in this game (its content or the owner's settings rule them out): "
                       "it doesn't exist" % request)
     if request == "turn" and not SETTINGS["world_turns"]["on"]:
         raise Refused("world turns are off in this game's settings; nothing happens off-screen")
-    cost = "world_turn" if request == "turn" else "generate"
+    cost = {"turn": "world_turn", "craft": "craft"}.get(request, "generate")
     if not can_pay(cost):
         raise Refused("the %s is spent until the next session, so nothing new turns up: it doesn't exist"
                       % resource()["name"].lower())
@@ -1284,6 +1417,22 @@ def cmd_world_brief(args):
                 "Optional: up to 2 trades of new items (price 1-6 coins), and a fighting tier (%s) only if they would fight." % ", ".join(g["foe_tiers"]),
                 'JSON: {"id": "...", "name": "...", "role": "...", "personality": "...", "speech": "...", "knows": ["..."],',
                 '       "wants": "...", "trades": [{"item": {"id": "...", "name": "...", "description": "...", "tier": "..."}, "price": 2}], "tier": null}']
+    elif request == "craft":
+        ch = ent("characters", maker)
+        who = ch.get("name", maker)
+        out += ["The player is ordering something from %s (%s). Shape what they ask for into one item %s would make."
+                % (who, ch.get("role", ""), who),
+                "%s makes only these kinds of thing (an item's stats come from its kind, never from you): %s."
+                % (who, ", ".join(makes(maker)))]
+        trade = next((t for h, t in content.sections(ch["body"]) if re.fullmatch(r"What \w+ makes?", h)), "")
+        if trade:
+            out.append("Their trade: " + " ".join(trade.split()))
+        out += ["Keep the player's idea, and their name for it if they gave one. It is modest: nothing beyond its kind,",
+                "and nothing the main quest needs. If the request is outside the trade, or would solve or shortcut the main",
+                "quest, turn it down instead.",
+                'JSON: {"id": "<new_id>", "name": "<name>", "description": "<one or two sentences>", "tier": "<%s>"}' % "|".join(makes(maker)),
+                'or, to turn it down: {"refuse": "<why, in a few words>"}']
+        run["ordering"] = {"maker": maker}
     elif request == "quest":
         here = characters_here(state)
         out += ["Make a small side quest offered by someone present (%s). It must not touch the main quest." % ", ".join(here or ["no one"]),
@@ -1477,6 +1626,17 @@ def validate_game():
             for k in ("defense", "attack", "damage"):
                 if k not in ch:
                     problems.append("characters/%s.md: has hp but no %s" % (c, k))
+        for t in options_of(ch.get("makes") or ""):
+            if t not in BALANCE["generation"]["item_tiers"]:
+                problems.append("characters/%s.md: makes %r, which isn't an item tier (%s)"
+                                % (c, t, ", ".join(BALANCE["generation"]["item_tiers"])))
+        for i in options_of(ch.get("accepts") or ""):
+            need("items", i, "characters/%s.md accepts" % c)
+        if ch.get("accepts") and not ch.get("makes"):
+            problems.append("characters/%s.md: accepts goes with makes (it's what a maker takes in trade)" % c)
+    for t in BALANCE["generation"]["item_tiers"]:
+        if t not in BALANCE["generation"]["craft_price"]:
+            problems.append("balance.json generation craft_price: no price for the item tier %r" % t)
     for i in content.ids("items"):
         it = content.load("items", i)
         for k in ("damage", "heal"):
@@ -1580,6 +1740,7 @@ def cmd_settings(args):
     print("WORLD TURNS: %s, every %s" % (on(v["world_turns"]["on"]), moves_text(v["world_turns"]["every_moves"])))
     g = v["generation"]
     print("GENERATION: %s, at most %d per run; kinds: %s" % (on(g["on"]), g["max_per_run"], ", ".join(g["kinds"]) or "none"))
+    print("CRAFTING: %s, at most %d orders per run" % (on(v["crafting"]["on"]), v["crafting"]["max_per_run"]))
 
 
 # ---------------------------------------------------------------- games: list, show, switch
@@ -1658,8 +1819,9 @@ COMMANDS = {
     "npc-brief": (cmd_npc_brief, 1, "npc-brief <character>   what an NPC agent may know (prompt for its subagent)"),
     "remember": (cmd_remember, 2, "remember <character> <text>   add a line to that NPC's memory of the player"),
     "show": (cmd_show, 1, "show <rooms|characters|items|quests|tables> <id> [--all] | show world   content as it reads now"),
-    "world-brief": (cmd_world_brief, 1, "world-brief <extra|room|item|character|quest|turn>   prompt for the world agent"),
-    "generate": (cmd_generate, 2, "generate <extra|room|item|character|quest> <file>   add a world-agent proposal (a JSON file)"),
+    "world-brief": (cmd_world_brief, 1, "world-brief <extra|room|item|character|quest|turn> | craft <maker>   prompt for the world agent"),
+    "generate": (cmd_generate, 2, "generate <extra|room|item|character|quest|craft> <file>   add a world-agent proposal (a JSON file)"),
+    "pay": (cmd_pay, 1, "pay <order> [material]   the player pays a maker for an order; a made item is handed over"),
     "world-turn": (cmd_world_turn, 1, "world-turn <file>   apply the world agent's off-screen turn (a JSON file)"),
     "note": (cmd_note, 1, "note <text>   keep a detail you established about this room"),
     "chronicle": (cmd_chronicle, 1, "chronicle <text>   add a line to the story so far"),

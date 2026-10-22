@@ -85,7 +85,7 @@ class Engine(unittest.TestCase):
             self.rpg("game", "switch", g)
             self.rpg("newgame", seed=1)
             s = self.save()
-            self.assertEqual(s["version"], 7)
+            self.assertEqual(s["version"], 8)
             self.assertEqual(s["game"], g)
             self.assertEqual(s["view"]["game"]["id"], g)
             look = s["view"]["look"]
@@ -114,7 +114,7 @@ class Engine(unittest.TestCase):
         self.assertIn("older version", self.rpg("look", ok=False))
         self.assertIn("an old save", self.rpg("game", "list"))
         self.rpg("newgame", seed=4)
-        self.assertEqual(self.save()["version"], 7)
+        self.assertEqual(self.save()["version"], 8)
 
     def test_switching_games_keeps_each_ones_save(self):
         first, second = GAMES[0], GAMES[1]
@@ -361,7 +361,7 @@ class Engine(unittest.TestCase):
         v = self.save()["view"]
         self.assertEqual(set(v["meter"]), {"left", "capacity", "state"})
         self.assertEqual(v["settings"]["preset"], "normal")
-        self.assertEqual(v["settings"]["prices"], {"generate": 2, "world_turn": 2})
+        self.assertEqual(v["settings"]["prices"], {"generate": 2, "world_turn": 2, "craft": 2})
         self.set_meter(9)
         self.rpg("world-brief", "turn")
         self.assertEqual(self.save()["view"]["meter"]["state"], "low")  # 7 of 30
@@ -483,6 +483,102 @@ class Engine(unittest.TestCase):
         self.assertIn("nothing in the game sets 'hiccups_gone'", self.rpg("validate", "--game", "dark_lighthouse", ok=False))
         self.write(d + "hiccups.md", "---\nname: Hiccups\neffect: word_limit 2\ncaused_by: mirror_cursed\ncured_by: has_no_such_thing\n---\nHic.\n")
         self.assertIn("unknown item 'no_such_thing'", self.rpg("validate", "--game", "dark_lighthouse", ok=False))
+
+
+    # ---------------------------------------------------------------- Stage 5: the player leaves a mark
+
+    def order(self, maker, proposal, ok=True):
+        self.rpg("world-brief", "craft", maker)
+        self.write("proposals/c.json", json.dumps(proposal))
+        return self.rpg("generate", "craft", "proposals/c.json", ok=ok)
+
+    def test_a_maker_takes_an_order_and_paying_makes_it_the_players(self):
+        self.rpg("game", "switch", "dark_lighthouse")
+        self.rpg("newgame", seed=40)
+        look = self.rpg("look")
+        self.assertIn("MAKERS HERE: morwen makes trinket, light weapon", look)
+        hook = {"id": "gaff_hook", "name": "Gaff Hook", "description": "A barbed hook on a short ash haft.", "tier": "weapon"}
+        out = self.order("morwen", hook, ok=False)
+        self.assertIn("tier must be one of trinket, light_weapon", out)  # outside her trade
+        self.assertEqual(self.meter(), 28)  # the brief was paid for once
+        self.write("proposals/c.json", json.dumps(dict(hook, tier="light_weapon")))
+        out = self.rpg("generate", "craft", "proposals/c.json")  # the retry needs no new brief
+        self.assertIn("COMMISSIONED: Gaff Hook (gaff_hook), light weapon, from Morwen", out)
+        self.assertIn("PRICE: 3 coins, or in trade: smoked_fish", out)
+        self.assertNotIn("gaff_hook", self.save()["inventory"])  # not theirs until paid
+        self.assertIn("ORDERS WAITING: gaff_hook", self.rpg("look"))
+        self.write("proposals/c.json", json.dumps(dict(hook, id="other_hook", name="Other Hook", tier="trinket")))
+        self.assertIn("no order is open", self.rpg("generate", "craft", "proposals/c.json", ok=False))  # one brief, one order
+        self.assertIn("COINS -3 -> 0", self.rpg("pay", "gaff_hook"))
+        s = self.save()
+        self.assertIn("gaff_hook", s["inventory"])
+        self.assertTrue(next(i for i in s["view"]["items"] if i["id"] == "gaff_hook")["own"])
+        self.assertEqual(s["run"]["generated"], 0)  # orders don't use up the world's own allowance
+        self.assertEqual(self.rpg("show", "items", "gaff_hook").count("made_by: player"), 1)
+        self.assertIn("damage: 1d4", self.rpg("show", "items", "gaff_hook"))  # stats from the tier
+        self.assertIn("no unpaid order", self.rpg("pay", "gaff_hook", ok=False))
+
+    def test_a_maker_can_turn_an_order_down_and_takes_trade_in_kind(self):
+        self.rpg("game", "switch", "flooded_station")
+        self.rpg("newgame", seed=41)
+        self.rpg("move", "north")  # the Common Deck: Bucket
+        out = self.order("bucket", {"refuse": "Pump: NOT MY DEPARTMENT"}, ok=False)
+        self.assertIn("Bucket turns the order down: Pump: NOT MY DEPARTMENT", out)
+        self.assertIsNone(self.save()["run"]["ordering"])
+        self.order("bucket", {"id": "scrap_whistle", "name": "Scrap Whistle", "description": "A whistle filed from conduit.", "tier": "trinket"})
+        self.assertIn("takes no diving_knife", self.rpg("pay", "scrap_whistle", "diving_knife", ok=False))
+        self.assertIn("not carrying sardine_tin", self.rpg("pay", "scrap_whistle", "sardine_tin", ok=False))
+        self.rpg("gain", "sardine_tin")
+        coins = self.save()["stats"]["coins"]
+        self.rpg("move", "south")
+        self.assertIn("isn't here", self.rpg("pay", "scrap_whistle", "sardine_tin", ok=False))
+        self.rpg("move", "north")
+        self.assertIn("PAID WITH: sardine_tin", self.rpg("pay", "scrap_whistle", "sardine_tin"))
+        s = self.save()
+        self.assertEqual(s["stats"]["coins"], coins)
+        self.assertNotIn("sardine_tin", s["inventory"])
+        self.assertIn("scrap_whistle", s["inventory"])
+
+    def test_the_owners_crafting_switch_and_limit_hold(self):
+        self.rpg("game", "switch", "dark_lighthouse")
+        self.rpg("newgame", seed=42)
+        self.settings_tool("set", "crafting.on", "false")
+        self.assertNotIn("MAKERS HERE", self.rpg("look"))
+        self.assertIn("no one takes orders", self.rpg("world-brief", "craft", "morwen", ok=False))
+        self.assertEqual(self.meter(), 30)
+        self.settings_tool("set", "crafting.on", "true")
+        self.settings_tool("set", "crafting.max_per_run", "1")
+        self.order("morwen", {"id": "cork_float", "name": "Cork Float", "description": "A painted cork float.", "tier": "trinket"})
+        self.assertNotIn("MAKERS HERE", self.rpg("look"))
+        self.assertIn("as much work as they will", self.rpg("world-brief", "craft", "morwen", ok=False))
+        self.assertIn("CRAFTING: on, at most 1 orders per run", self.rpg("settings"))
+        self.assertIn("isn't here to take an order", self.rpg("world-brief", "craft", "pell", ok=False))
+
+    def test_a_version_7_save_gains_orders_on_load(self):
+        self.rpg("game", "switch", "dark_lighthouse")
+        self.rpg("newgame", seed=43)
+        s = self.save()
+        s["version"] = 7
+        del s["run"]["commissions"], s["run"]["ordering"]
+        self.write("state/save.json", json.dumps(s))
+        self.assertIn("MAKERS HERE", self.rpg("look"))
+        self.rpg("note", "The crate Morwen sits on is stamped HARKER.")
+        s = self.save()
+        self.assertEqual(s["version"], 8)
+        self.assertEqual(s["run"]["commissions"], {})
+
+    def test_validate_checks_makers(self):
+        d = "games/dark_lighthouse/characters/morwen.md"
+        text = (self.dir / d).read_text()
+        self.write(d, text.replace("  - light_weapon", "  - harpoon").replace("  - smoked_fish", "  - kipper"))
+        out = self.rpg("validate", "--game", "dark_lighthouse", ok=False)
+        self.assertIn("makes 'harpoon', which isn't an item tier", out)
+        self.assertIn("unknown item 'kipper'", out)
+        kit = json.loads((self.dir / "rules/balance.json").read_text())
+        del kit["generation"]["craft_price"]["tonic"]
+        self.write("rules/balance.json", json.dumps(kit))
+        self.write(d, text)
+        self.assertIn("no price for the item tier 'tonic'", self.rpg("validate", "--game", "dark_lighthouse", ok=False))
 
 
 if __name__ == "__main__":

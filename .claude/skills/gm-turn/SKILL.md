@@ -27,6 +27,7 @@ Work out what the player is trying to do, then use the matching command:
 | go somewhere | `move <direction>` |
 | pick up / put down | `take <item>` / `drop <item>` |
 | buy, trade or receive / give away | `gain <item>` / `lose <item>` (and `coins -N` / `coins +N`) |
+| pay a maker for an order | `pay <id>`, or `pay <id> <item>` to pay in trade |
 | wield a weapon | `equip <item>` |
 | drink or eat something with a `heal` value | `use <item>` |
 | uncertain attempt (sneak, climb, persuade, frighten, notice) | `check <stat> <dc>`, using a DC from content if one is given, otherwise easy, normal or hard |
@@ -113,6 +114,7 @@ The game's `generation:` policy (in `rpg.py show world`) says what may be create
 | searches somewhere plausible for something small | generate an **item** only if finding something fits; most searches find nothing |
 | looks for someone who would plausibly be here (a fishmonger at the quay) | generate a **character** |
 | asks a generated or minor character for work or help, and it fits them | generate a **side quest** given by them |
+| orders something made from a maker (`look` lists `MAKERS HERE`) | follow **Orders** below |
 
 Never generate anything that would solve, shortcut or replace part of the main quest, and never answer a gap that the authored content deliberately leaves closed.
 
@@ -125,6 +127,12 @@ Never generate anything that would solve, shortcut or replace part of the main q
 4. Then use the result:
    - **`REFUSED: proposal rejected`:** spawn the agent once more, adding the reason. If it fails again, the thing doesn't exist; narrate accordingly.
    - **Success:** read the new entity with `rpg.py show`, then play it like authored content. Generated people are `[minor]`: you voice them, from their file only. Their sales and rewards follow their `## GM only` lines.
+
+## Orders
+A maker makes things to order within their trade.
+1. Run `python3 rules/rpg.py world-brief craft <maker>`, spawn the `world` agent with it, and run `generate craft` on its reply, as in **How to generate**. If `world-brief` refuses, the maker turns the order away in character.
+2. If `generate` says the maker turns the order down, narrate that in their voice. Otherwise it reports the item and its `PRICE`: the maker describes the piece and names that price, never another.
+3. Only when the player pays, run `pay <id>` (or `pay <id> <item>` for an item `PRICE` lists in trade). Until then the item isn't theirs. An unpaid order waits with the maker (`ORDERS WAITING` in `look`).
 
 ## World turns
 When `move` or `look` says `WORLD TURN DUE`, do this before writing the narration, so the narration stays the last thing in the turn:

@@ -199,7 +199,7 @@ export function fitCells(cells: Cell[], width: number): Cell[] {
 }
 
 /** Carried items with display names; a save older than version 3 has no `view`, so names come from ids. */
-function itemsOf(s: CoderpgSave): { id: string; name: string; equipped: boolean }[] {
+function itemsOf(s: CoderpgSave): { id: string; name: string; equipped: boolean; own?: boolean }[] {
   if (s.view) return s.view.items
   const pretty = (id: string) => id.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
   return s.inventory.map(id => ({ id, name: pretty(id), equipped: id === s.equipped }))
@@ -207,7 +207,7 @@ function itemsOf(s: CoderpgSave): { id: string; name: string; equipped: boolean 
 
 /** What each priced extra is, in the player's words, for /budget. Playing the game as written is free. */
 const PRICE_NAMES: Record<string, string> = {
-  generate: 'something new appearing', world_turn: 'the world moving on by itself',
+  generate: 'something new appearing', world_turn: 'the world moving on by itself', craft: 'having something made',
 }
 
 /** The meter's color: plain while there's plenty, then the warning and danger colors. */
@@ -229,12 +229,13 @@ export function budgetText(s: CoderpgSave): string {
     `**Characters' own voices:** ${on(v.npc_agents.on)}, up to ${v.npc_agents.lines_per_exchange} lines between two per turn${v.npc_agents.off_for.length ? `; voiced by the storyteller: ${v.npc_agents.off_for.join(', ')}` : ''}.`,
     `**The world moving on by itself:** ${on(v.world_turns.on)}, every ${v.world_turns.every_moves} moves.`,
     `**New things appearing:** ${on(v.generation.on && v.generation.kinds.length > 0)}, up to ${v.generation.max_per_run} per game${v.generation.kinds.length ? ` (${v.generation.kinds.join(', ').replace(/_/g, ' ')})` : ''}.`,
+    ...(v.crafting ? [`**Having things made:** ${on(v.crafting.on)}, up to ${v.crafting.max_per_run} orders per game.`] : []),
     `*Preset: ${v.preset}. The owner changes these with \`python3 tools/settings.py\`.*`,
   ].join('\n\n')
 }
 
 function inventoryText(s: CoderpgSave): string {
-  const lines = itemsOf(s).map(it => `- ${it.name}${it.equipped ? ' *(equipped)*' : ''}`)
+  const lines = itemsOf(s).map(it => `- ${it.name}${it.equipped ? ' *(equipped)*' : ''}${it.own ? ' *(made for you)*' : ''}`)
   const weight = s.view ? ` (weight ${s.view.weight}/${s.view.carry_limit})` : ''
   const currency = lookOf(s).currency
   return [`**Inventory**${weight}`, ...(lines.length ? lines : ['- nothing']),
@@ -904,6 +905,7 @@ export const register: Register = on => {
           <Box flexDirection="row">
             <Text wrap="truncate">  {it.equipped ? '▸' : '·'} {it.name}</Text>
             {it.equipped && <Text dimColor> (equipped)</Text>}
+            {it.own && <Text dimColor> (made for you)</Text>}
           </Box>
         ))}
       </Box>

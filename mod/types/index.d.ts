@@ -37,7 +37,8 @@ export type CoderpgSave = {
     /** "2026-10-21 · seed ember-4821" or "2026-10-21 · daily world", for the title card (version 7+). */
     run_label?: string | null
     location_name: string
-    items: { id: string; name: string; equipped: boolean }[]
+    /** `own`: the player had it made (version 8+). */
+    items: { id: string; name: string; equipped: boolean; own?: boolean }[]
     weight: number
     carry_limit: number
     characters_here?: CoderpgPerson[]
@@ -81,6 +82,8 @@ export type CoderpgSettings = {
   npc_agents: { on: boolean; lines_per_exchange: number; off_for: string[] }
   world_turns: { on: boolean; every_moves: number }
   generation: { on: boolean; max_per_run: number; kinds: string[] }
+  /** Makers taking orders (version 8+). */
+  crafting?: { on: boolean; max_per_run: number }
 }
 
 export type CoderpgPerson = { id: string; name: string; role: string; generated?: boolean; card?: string | null }

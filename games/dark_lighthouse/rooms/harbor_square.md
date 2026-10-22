@@ -7,13 +7,14 @@ exits:
 items:
   - boarding_cutlass (if cutlass_in_nets)
 characters:
+  - morwen
   - ysolde (if lamp_lit)
   - grukk (if lamp_lit and grukk_friend)
 expand: south
 encounters: harbor_events
 terrain: water
 ---
-A cobbled square opens onto a stone quay. Fishing boats knock together at their moorings and gulls squabble over fish heads. Old nets lie heaped against the harbor wall, half-rotted.
+A cobbled square opens onto a stone quay. Fishing boats knock together at their moorings and gulls squabble over fish heads. Old nets lie heaped against the harbor wall, half-rotted, and a lean woman sits among them on an upturned crate, mending.
 
 To the north, warm light spills from the Gull tavern. To the west, a path climbs to the lighthouse. To the east, the coast road leaves the village along the cliffs. To the south, worn stone steps lead down from the quay to the moored boats.
 
@@ -36,6 +37,6 @@ A crowd of wide-eyed children has gathered around a very large, very pleased tro
 An old cutlass is tangled in the nets; anyone who looks closely will notice its hilt. It takes no roll to free it.
 
 ## Details
-- Nets: a heap of old, half-rotted fishing nets.
+- Nets: a heap of old, half-rotted fishing nets. Morwen, Pell's cousin, is working through them and takes small jobs to order.
 - Quay steps: they lead south down to the boats. Nothing is written about what's down there, so this is a place the world can grow.
 - Quay: if the player looks out to sea, they see dark water and rocks white with foam. There are no boats close in.

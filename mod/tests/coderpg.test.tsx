@@ -515,10 +515,11 @@ test('a new game, or switching to another game, starts on a cleared screen; list
 })
 
 const SETTINGS = {
-  preset: 'normal', capacity: 30, prices: { generate: 2, world_turn: 2 },
+  preset: 'normal', capacity: 30, prices: { generate: 2, world_turn: 2, craft: 2 },
   npc_agents: { on: true, lines_per_exchange: 4, off_for: ['grukk'] },
   world_turns: { on: false, every_moves: 5 },
   generation: { on: true, max_per_run: 16, kinds: ['extras', 'side_quests'] },
+  crafting: { on: true, max_per_run: 5 },
 }
 const metered = (left: number, state: 'ok' | 'low' | 'spent'): CoderpgSave => ({
   ...STATION, view: { ...STATION.view!, meter: { left, capacity: 30, state }, settings: SETTINGS,
@@ -537,7 +538,8 @@ test("the pane shows the meter under the game's own name, colored when it runs l
 test('/budget tells the player what is left, what things cost and what is on, in plain words', () => {
   const text = budgetText(metered(22, 'ok'))
   expect(text).toContain('**ϟ Power:** 22/30.')
-  expect(text).toContain('something new appearing 2 · the world moving on by itself 2. Playing the game as written is always free.')
+  expect(text).toContain('something new appearing 2 · the world moving on by itself 2 · having something made 2. Playing the game as written is always free.')
+  expect(text).toContain('**Having things made:** on, up to 5 orders per game.')
   expect(text).toContain('voiced by the storyteller: grukk')
   expect(text).toContain('**The world moving on by itself:** off')
   expect(text).toContain('(extras, side quests)')
@@ -748,4 +750,16 @@ test('a curse taking hold or lifting gets a toast and its sound', () => {
   const lifted = feedback(CURSED, SAVE)
   expect(lifted.toast).toBe('✶ curse lifted: The Backwards Tongue')
   expect(lifted.sounds).toEqual(['curse_lifted'])
+})
+
+// ---------------------------------------------------------------- Stage 5: the player leaves a mark
+
+test('paying a maker shows what was made, and how it was paid for', () => {
+  const lines = trayLines([
+    'COINS -3 -> 0',
+    "MADE: Gaff Hook (gaff_hook), made for the player by Morwen. It's theirs now.  [weight 3/10]",
+  ].join('\n'))
+  expect(lines.map(l => l.text)).toEqual(['-3 coins · 0 left', 'Gaff Hook, made for you by Morwen'])
+  expect(trayLines('PAID WITH: sardine_tin')[0]!.text).toBe('paid with Sardine Tin')
+  expect(trayLines('COMMISSIONED: Gaff Hook (gaff_hook), light weapon, from Morwen')).toEqual([])
 })

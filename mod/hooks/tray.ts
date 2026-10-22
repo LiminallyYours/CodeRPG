@@ -8,7 +8,7 @@ export type TrayTone = 'good' | 'bad' | 'neutral'
 export type TrayLine = { icon: string; text: string; result?: string; tone: TrayTone }
 
 /** The rpg.py subcommands whose results are shown as a dice tray rather than hidden. */
-export const TRAY_COMMANDS = ['check', 'attack', 'roll', 'hurt', 'heal', 'use', 'move', 'generate']
+export const TRAY_COMMANDS = ['check', 'attack', 'roll', 'hurt', 'heal', 'use', 'move', 'generate', 'pay']
 
 /** Which rpg.py subcommand a shell command runs, if any. */
 export function rpgCommand(command: string): string | undefined {
@@ -30,6 +30,10 @@ export function trayLines(stdout: string, look: CoderpgLook = DEFAULT_LOOK): Tra
     } else if ((m = /^COINS ([+-]\d+) -> (\d+)$/.exec(line))) {
       const n = Number(m[1])
       out.push({ icon: ' ', text: `${n > 0 ? '+' : '-'}${money(Math.abs(n), look)} · ${m[2]} left`, tone: n > 0 ? 'good' : 'bad' })
+    } else if ((m = /^MADE: (.+?) \([a-z0-9_]+\), made for the player by (.+?)\./.exec(line))) {
+      out.push({ icon: '✧', text: `${m[1]}, made for you by ${m[2]}`, tone: 'good' })
+    } else if ((m = /^PAID WITH: (\w+)$/.exec(line))) {
+      out.push({ icon: ' ', text: `paid with ${title(m[1]!)}`, tone: 'neutral' })
     } else if ((m = /^GAINED: (\w+)/.exec(line))) {
       out.push({ icon: ' ', text: `found ${title(m[1]!)}`, tone: 'good' })
     } else if ((m = /^CLOCK: (.+?) in (\d+ moves?)$/.exec(line))) {
