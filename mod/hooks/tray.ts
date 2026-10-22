@@ -15,6 +15,11 @@ export function rpgCommand(command: string): string | undefined {
   return /rules\/rpg\.py\s+([a-z-]+)/.exec(command)?.[1]
 }
 
+/** Every rpg.py subcommand a shell command runs, in order (the game master sometimes chains several). */
+export function rpgCommands(command: string): string[] {
+  return [...command.matchAll(/rules\/rpg\.py\s+([a-z-]+)/g)].map(m => m[1]!)
+}
+
 function title(id: string): string {
   return id.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
 }

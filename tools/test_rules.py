@@ -361,7 +361,7 @@ class Engine(unittest.TestCase):
         v = self.save()["view"]
         self.assertEqual(set(v["meter"]), {"left", "capacity", "state"})
         self.assertEqual(v["settings"]["preset"], "normal")
-        self.assertEqual(v["settings"]["prices"], {"generate": 2, "world_turn": 2, "craft": 2, "build": 3, "reuse": 1, "promote": 2})
+        self.assertEqual(v["settings"]["prices"], {"generate": 2, "world_turn": 2, "craft": 2, "build": 3, "reuse": 1, "promote": 2, "scene": 2})
         self.set_meter(9)
         self.rpg("world-brief", "turn")
         self.assertEqual(self.save()["view"]["meter"]["state"], "low")  # 7 of 30
@@ -951,6 +951,88 @@ near: stuck
         morwen = (self.dir / g / "characters" / "morwen.md").read_text()
         self.write(g + "/characters/morwen.md", morwen + "\n## Plan: nap\ndoes: naps\nsets: morwen_nap\nnear: a snore\n")
         self.assertIn("plans are for major characters", self.rpg("validate", "--game", "dark_lighthouse", ok=False))
+
+    # ---------------------------------------------------------------- Stage 7: side scenes
+
+    def at_the_mopping_dispute(self, seed=90):
+        self.rpg("game", "switch", "flooded_station")
+        self.rpg("newgame", seed=seed)
+        self.rpg("flag", "set", "bucket_upstairs")  # as if Bucket's own plan had brought it up
+        self.rpg("move", "north")
+        return self.rpg("move", "up")
+
+    def test_a_side_scene_is_offered_played_once_and_rewarded(self):
+        self.rpg("meter", "refill")
+        look = self.at_the_mopping_dispute()
+        self.assertIn("SCENE HERE: mopping_dispute", look)
+        self.assertNotIn("Plan:", self.rpg("show", "scenes", "mopping_dispute"))
+        self.assertIn("SCENE STARTED: The Mopping Dispute, with Bucket and Dr. Ines Halloran. Up to 6 replies",
+                      self.rpg("scene", "start", "mopping_dispute"))
+        self.assertEqual(self.meter(), 28)
+        self.assertIn("SCENE PLAYING: mopping_dispute (0 of 6", self.rpg("look"))
+        for n in range(1, 7):
+            brief = self.rpg("npc-brief", "bucket" if n % 2 else "halloran")
+            self.assertIn("This is reply %d of the scene's 6." % n, brief)
+            again = self.rpg("npc-brief", "bucket" if n % 2 else "halloran")  # looked at twice: still the same reply
+            self.assertIn("This is reply %d of the scene's 6." % n, again)
+        self.assertIn("It's the last one", brief)
+        self.assertNotIn("A little scene", self.rpg("npc-brief", "bucket"), "past the cap, the brief is plain again")
+        coins = self.save()["stats"]["coins"]
+        out = self.rpg("scene", "end", "mopping_dispute", "reward")
+        self.assertIn("REWARD: +1", out)
+        s = self.save()
+        self.assertEqual(s["stats"]["coins"], coins + 1)
+        self.assertIn("Refereed an argument", s["run"]["chronicle"][-1])
+        self.assertNotIn("SCENE", self.rpg("look"))
+        self.assertIn("already played", self.rpg("scene", "start", "mopping_dispute", ok=False))
+        self.assertIn("isn't playing", self.rpg("scene", "end", "mopping_dispute", ok=False))
+
+    def test_walking_away_ends_a_scene_without_reward(self):
+        self.at_the_mopping_dispute()
+        self.rpg("scene", "start", "mopping_dispute")
+        coins = self.save()["stats"]["coins"]
+        self.assertIn("SCENE OVER: the player walked away from The Mopping Dispute", self.rpg("move", "down"))
+        self.assertEqual(self.save()["stats"]["coins"], coins)
+        self.assertEqual(self.save()["run"]["scenes"]["mopping_dispute"]["status"], "done")
+
+    def test_a_scene_needs_both_here_the_moment_and_the_owners_say(self):
+        self.rpg("game", "switch", "flooded_station")
+        self.rpg("newgame", seed=91)
+        self.rpg("move", "north")
+        self.rpg("move", "up")  # Halloran alone
+        self.assertNotIn("SCENE HERE", self.rpg("look"))
+        self.assertIn("aren't both here", self.rpg("scene", "start", "mopping_dispute", ok=False))
+        self.rpg("flag", "set", "bucket_upstairs")
+        self.rpg("flag", "set", "halloran_dozing")
+        self.assertIn("moment isn't right", self.rpg("scene", "start", "mopping_dispute", ok=False))
+        self.rpg("flag", "unset", "halloran_dozing")
+        self.settings_tool("set", "npc_agents.characters.bucket", "false")
+        self.assertIn("speaks through the game master", self.rpg("scene", "start", "mopping_dispute", ok=False))
+        self.settings_tool("unset", "npc_agents.characters.bucket")
+        self.settings_tool("set", "side_scenes.on", "false")
+        self.assertNotIn("SCENE HERE", self.rpg("look"))
+        self.assertIn("side scenes are off", self.rpg("scene", "start", "mopping_dispute", ok=False))
+        self.settings_tool("unset", "side_scenes.on")
+        self.set_meter(1)
+        self.assertIn("spent", self.rpg("scene", "start", "mopping_dispute", ok=False))
+        self.set_meter(30)
+        self.settings_tool("set", "side_scenes.max_per_run", "0")
+        self.assertIn("all the side scenes", self.rpg("scene", "start", "mopping_dispute", ok=False))
+        self.settings_tool("preset", "thrifty")
+        self.assertIn("SIDE SCENES: off", self.rpg("settings"))
+
+    def test_validate_checks_scenes(self):
+        g = "games/dark_lighthouse/scenes/shiniest_thing.md"
+        good = (self.dir / g).read_text()
+        bad = (good.replace("  - ysolde\n", "  - pell\n").replace("reward: coins 1", "reward: coins 9")
+               .replace("## How it ends", "## Ending").replace("Otherwise", "Then flag set grukk_friend. Otherwise"))
+        self.write(g, bad)
+        out = self.rpg("validate", "--game", "dark_lighthouse", ok=False)
+        for want in ("pell is minor", "pell is never in harbor_square", "reward is 'none' or 'coins N' with N from 1 to 2",
+                     "needs a ## How it ends section", "needs a ## pell section", "scenes never change story flags"):
+            self.assertIn(want, out)
+        self.write(g, good.replace("where: harbor_square", "where: gull_tavern"))
+        self.assertIn("grukk is never in gull_tavern", self.rpg("validate", "--game", "dark_lighthouse", ok=False))
 
 
 if __name__ == "__main__":

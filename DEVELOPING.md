@@ -66,7 +66,7 @@ Every session's transcript is a JSONL file in `~/.claude/projects/<project path 
 This is the subtlest part of `mod/hooks/register.tsx`. If narration goes missing or notes leak, start here.
 - **`turn.start`:** resets the per-turn bookkeeping, unless a GM turn is already running. A prompt typed mid-turn must not reset it.
 - **Every assistant text block of a non-`ooc:` turn is held `pending`,** hidden until the turn ends. Text still streaming is hidden while `running` is set.
-- **Each game tool call** (`isPlumbing`) moves the narration start forward, except recording-only commands (`WRITE_COMMANDS`: chronicle, remember, note, flag, coins, gain, lose, equip). The narration may come before those.
+- **Each game tool call** (`isPlumbing`) moves the narration start forward, except recording-only commands (`WRITE_COMMANDS`: chronicle, remember, note, flag, coins, gain, lose, equip, library). The narration may come before those. A shell call that chains several commands is recording-only only if every one of them is (`onlyRecords`): the GM chains `remember …; scene end …`.
 - **At `turn.complete`** (for the GM only; subagent completions carry `agentId` and are ignored):
   - text after the narration start is narration, except blocks that look like GM notes (`isGmNote`);
   - everything else is an aside: hidden if it's a short note, dimmed otherwise;

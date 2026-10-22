@@ -80,11 +80,15 @@
       "craft": 2,
       "build": 3,
       "reuse": 1,
-      "promote": 2
+      "promote": 2,
+      "scene": 2
     }
   },
   "library": {
     "max_entries": 40,
     "brief_entries": 5
+  },
+  "scenes": {
+    "max_reward_coins": 2
   }
 }

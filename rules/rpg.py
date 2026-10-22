@@ -452,6 +452,112 @@ def apply_plan(state, who, step):
     return out
 
 
+# ---------------------------------------------------------------- side scenes: two characters, for fun
+# A game may write short scenes for two agent characters together (`scenes/<id>.md`): an argument, a contest.
+# When both are in the scene's room and its `when:` holds, `look` says so and the game master shows it starting;
+# it begins only if the player takes it up (`scene start`, which charges). While it plays, each character's
+# npc-brief carries the premise and their part, and counts the replies up to the owner's cap. `scene end` gives
+# the scene's small reward, if the game master says it was earned, and a chronicle line. It changes no story
+# flags, plays once per run, and walking out ends it.
+
+def scene(ident):
+    return content.load("scenes", ident)
+
+
+def scene_cast(sc):
+    return [str(c) for c in (sc.get("with") or [])]
+
+
+def scenes_run(state):
+    return state["run"].setdefault("scenes", {})
+
+
+def scene_playing(state):
+    """The scene playing now, as (id, its run record), or (None, None)."""
+    return next(((i, r) for i, r in scenes_run(state).items() if r["status"] == "playing"), (None, None))
+
+
+def why_no_scene(state, ident):
+    """Why this scene can't start now, or None."""
+    sw, sc = SETTINGS["side_scenes"], scene(ident)
+    if not sw["on"]:
+        return "side scenes are off in this game's settings"
+    if any(agents_resting(c) for c in scene_cast(sc)):
+        return "one of them speaks through the game master just now, so the scene isn't played"
+    if ident in scenes_run(state):
+        return "this scene has already played in this run"
+    if sum(1 for _ in scenes_run(state)) >= int(sw["max_per_run"]):
+        return "this run has had all the side scenes the owner allows (%d)" % int(sw["max_per_run"])
+    if scene_playing(state)[0]:
+        return "another scene is playing"
+    here = characters_here(state)
+    if state["location"] != sc.get("where") or not all(c in here for c in scene_cast(sc)):
+        return "they aren't both here"
+    if not content.condition_holds(sc.get("when"), condition_flags(state)):
+        return "the moment isn't right for it"
+    if not can_pay("scene"):
+        return "the %s is spent until the next session" % resource()["name"].lower()
+    return None
+
+
+def scene_reward(sc):
+    """(coins) the scene may give: `reward: coins N`, or 0 for `none`."""
+    m = re.fullmatch(r"coins\s+(\d+)", str(sc.get("reward") or "none").strip())
+    return int(m.group(1)) if m else 0
+
+
+def scene_part(ident, who):
+    """The premise and this character's part, for their npc-brief while the scene plays."""
+    body = dict(content.sections(scene(ident)["body"]))
+    return body.get("Premise", ""), body.get(who, "")
+
+
+def end_scene(state, ident, reward):
+    run, sc = state["run"], scene(ident)
+    rec = scenes_run(state)[ident]
+    rec.update(status="done", ended_at=run["moves"])
+    out = ["SCENE ENDED: %s" % sc.get("name", ident)]
+    coins = scene_reward(sc) if reward else 0
+    if coins:
+        state["stats"]["coins"] += coins
+        rec["rewarded"] = coins
+        out.append("REWARD: %+d %s -> %d" % (coins, currency(), state["stats"]["coins"]))
+    if sc.get("chronicle"):
+        run["chronicle"].append(str(sc["chronicle"]))
+    return out
+
+
+def cmd_scene(args):
+    """scene start <id> | scene end <id> [reward]: play one of the game's side scenes."""
+    state = load_state()
+    require_playing(state)
+    if len(args) < 2 or args[0] not in ("start", "end"):
+        raise Refused("use: scene start <id> | scene end <id> [reward]")
+    action, ident = args[0], args[1]
+    if not content.exists("scenes", ident):
+        raise Refused("no scene named %r in this game" % ident)
+    sc = scene(ident)
+    if action == "start":
+        why = why_no_scene(state, ident)
+        if why:
+            raise Refused("%s; the moment passes, and nothing comes of it" % why)
+        charge("scene")
+        scenes_run(state)[ident] = {"status": "playing", "replies": 0, "started_at": state["run"]["moves"]}
+        save_state(state)
+        cast = [ent("characters", c).get("name", c) for c in scene_cast(sc)]
+        print("SCENE STARTED: %s, with %s. Up to %d replies between them in all. For each thing the player says or does, "
+              "one reply from each (see gm-turn, Side scenes); each one's npc-brief carries the scene and says when it's "
+              "the last reply. End it with `scene end %s` (add `reward` only if its How it ends says it's earned)."
+              % (sc.get("name", ident), " and ".join(cast), int(SETTINGS["side_scenes"]["replies"]), ident))
+        return
+    rec = scenes_run(state).get(ident)
+    if not rec or rec["status"] != "playing":
+        raise Refused("that scene isn't playing")
+    lines = end_scene(state, ident, len(args) > 2 and args[2] == "reward")
+    save_state(state)
+    print("\n".join(lines))
+
+
 # ---------------------------------------------------------------- the library: what lasts across runs
 # Everything generated or player-made in a run goes into the game's library (rules/library.py, kept in
 # state/library/<game>.json, outside every save). A new game brings back the places the player built and
@@ -710,6 +816,7 @@ def settings_view():
         "crafting": {"on": SETTINGS["crafting"]["on"], "max_per_run": SETTINGS["crafting"]["max_per_run"]},
         "building": {"on": SETTINGS["building"]["on"], "max_per_run": SETTINGS["building"]["max_per_run"]},
         "promotion": {k: SETTINGS["promotion"][k] for k in ("on", "max_per_run", "after_conversations")},
+        "side_scenes": {k: SETTINGS["side_scenes"][k] for k in ("on", "max_per_run", "replies")},
     }
 
 
@@ -1120,6 +1227,14 @@ def cmd_look(args):
     if going_up:
         print("BEING BUILT: %s" % " | ".join("%s (%s), %s of %s: ready in %s" % (
             i, order_name(i, c), c["direction"], c["room"], moves_text(max(0, c["ready_at"] - run["moves"]))) for i, c in going_up))
+    playing, rec = scene_playing(state)
+    if playing:
+        print("SCENE PLAYING: %s (%d of %d replies so far). One reply from each per player message; `scene end %s` when "
+              "it's over." % (playing, rec["replies"], int(SETTINGS["side_scenes"]["replies"]), playing))
+    for s in content.ids("scenes") if not playing else ():
+        if not why_no_scene(state, s):
+            print("SCENE HERE: %s (%s). Show it beginning, from `show scenes %s` (How it starts); if the player takes it up, "
+                  "`scene start %s` (see gm-turn, Side scenes)." % (s, scene(s).get("name", s), s, s))
     if sum(1 for v in voice.values() if v == "agent") >= 2:
         print("AGENT LINES PER TURN: at most %d between them" % SETTINGS["npc_agents"]["lines_per_exchange"])
     notes = run["notes"].get(room["id"], [])
@@ -1153,7 +1268,12 @@ def cmd_move(args):
     if not content.condition_holds(cond, condition_flags(state)):
         raise Refused("the way %s is blocked (needs %s)" % (want, cond))
     state["location"] = dest
-    events = tick_move(state) + roll_encounter(state, ent("rooms", dest))
+    left, _ = scene_playing(state)
+    events = []
+    if left:
+        end_scene(state, left, False)
+        events.append("SCENE OVER: the player walked away from %s; it's done, with no reward." % scene(left).get("name", left))
+    events += tick_move(state) + roll_encounter(state, ent("rooms", dest))
     save_state(state)
     print("MOVED %s." % want)
     for line in events:
@@ -1404,6 +1524,18 @@ def cmd_npc_brief(args):
               for c in characters_here(state) if c != ident]
     lines += ["## The scene", "You are at %s. Present: the player%s." % (
         room.get("name", room["id"]), "".join(", " + o for o in others)), ""]
+    playing, rec = scene_playing(state)
+    cap = int(SETTINGS["side_scenes"]["replies"])
+    again = playing and rec.get("last") == ident  # the two take turns, so a second brief in a row is the same reply
+    if playing and ident in scene_cast(scene(playing)) and (rec["replies"] < cap or again):
+        premise, part = scene_part(playing, ident)
+        if not again:
+            rec["replies"] += 1
+            rec["last"] = ident
+            save_state(state)
+        lines += ["## A little scene you're in", premise, "", part, "",
+                  "This is reply %d of the scene's %d.%s" % (rec["replies"], cap, " It's the last one: bring the scene to a close."
+                                                            if rec["replies"] >= cap else ""), ""]
     rumors = state["run"]["rumors"][-3:]
     if rumors:
         lines += ["## Talk going around (you may have heard it)"] + ["- " + r for r in rumors] + [""]
@@ -2209,7 +2341,8 @@ def validate_game():
             elif flag_text.replace(own, "").count(term) == 0:
                 problems.append("%s: nothing in the game sets %r, so the curse can't be cured" % (where, term))
     validate_plans(w, flag_text, problems)
-    return problems, "%d rooms, %d characters, %d items, %d quests, %d tables, %d curses" % tuple(len(content.ids(k)) for k in content.KINDS)
+    validate_scenes(problems)
+    return problems, "%d rooms, %d characters, %d items, %d quests, %d tables, %d curses, %d scenes" % tuple(len(content.ids(k)) for k in content.KINDS)
 
 
 def quest_flags(w):
@@ -2282,6 +2415,42 @@ def validate_plans(w, flag_text, problems):
             if len(rooms) > 1:
                 problems.append("%s: with %s, %s stands in %s at once" % (
                     where, ", ".join(f for f in own_flags if f in flags) or "none of their plan flags", c, " and ".join(rooms)))
+
+
+def validate_scenes(problems):
+    """Scenes: two agent characters who can both be in its room, a small reward, the sections each part needs,
+    and no story flags."""
+    cap = int(BALANCE["scenes"]["max_reward_coins"])
+    for s in content.ids("scenes"):
+        sc, where = content.load("scenes", s), "scenes/%s.md" % s
+        cast = scene_cast(sc)
+        if len(set(cast)) != 2:
+            problems.append("%s: with: lists exactly two characters" % where)
+        for c in cast:
+            if not content.exists("characters", c):
+                problems.append("%s: unknown character %r" % (where, c))
+            elif str(content.load("characters", c).get("minor", "no")).lower() == "yes":
+                problems.append("%s: %s is minor; a scene is for two characters with their own agents" % (where, c))
+        room = sc.get("where")
+        if not content.exists("rooms", str(room)):
+            problems.append("%s: where: needs a room (got %r)" % (where, room))
+        else:
+            placed = {content.split_condition(x)[0] for x in content.load("rooms", room).get("characters") or []}
+            for c in cast:
+                if c not in placed:
+                    problems.append("%s: %s is never in %s, so the scene can't happen" % (where, c, room))
+        reward = str(sc.get("reward") or "")
+        m = re.fullmatch(r"coins\s+(\d+)", reward.strip())
+        if reward.strip() != "none" and not (m and 1 <= int(m.group(1)) <= cap):
+            problems.append("%s: reward is 'none' or 'coins N' with N from 1 to %d" % (where, cap))
+        if not sc.get("chronicle") or len(str(sc["chronicle"])) > 160:
+            problems.append("%s: needs a chronicle: line of at most 160 characters" % where)
+        heads = [h for h, _ in content.sections(sc["body"])]
+        for h in ["How it starts", "Premise", "How it ends"] + cast:
+            if h not in heads:
+                problems.append("%s: needs a ## %s section" % (where, h))
+        if "flag set" in sc["body"] or "flag unset" in sc["body"]:
+            problems.append("%s: scenes never change story flags" % where)
 
 
 def cmd_validate(args):
@@ -2366,6 +2535,8 @@ def cmd_settings(args):
     print("BUILDING: %s, at most %d orders per run" % (on(v["building"]["on"]), v["building"]["max_per_run"]))
     pr = v["promotion"]
     print("PROMOTION: %s, at most %d per run, after %d conversations" % (on(pr["on"]), pr["max_per_run"], pr["after_conversations"]))
+    sc = v["side_scenes"]
+    print("SIDE SCENES: %s, at most %d per run, %d replies each" % (on(sc["on"] and v["npc_agents"]["on"]), sc["max_per_run"], sc["replies"]))
 
 
 # ---------------------------------------------------------------- games: list, show, switch
@@ -2447,6 +2618,7 @@ COMMANDS = {
     "world-brief": (cmd_world_brief, 1, "world-brief <extra|room|item|character|quest|turn> | craft <maker> | build <builder>   prompt for the world agent"),
     "generate": (cmd_generate, 2, "generate <extra|room|item|character|quest|craft|build> <file>   add a world-agent proposal (a JSON file)"),
     "pay": (cmd_pay, 1, "pay <order> [material]   the player pays a maker or builder for an order"),
+    "scene": (cmd_scene, 2, "scene start <id> | scene end <id> [reward]   play a side scene between two characters"),
     "world-turn": (cmd_world_turn, 1, "world-turn <file>   apply the world agent's off-screen turn (a JSON file)"),
     "talk": (cmd_talk, 1, "talk <generated person>   before voicing a generated person: counts conversations, may promote them"),
     "library": (cmd_library, 1, "library suggest <id> <why>   tell the owner a generated or player-made thing deserves keeping"),

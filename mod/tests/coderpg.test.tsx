@@ -10,7 +10,7 @@ import { revealFrame } from '../hooks/reveal'
 import { endingRows, paragraphsOf, speakerOf } from '../hooks/story'
 import { tileGrid, tilesAt } from '../hooks/tiles'
 import { FX_MS, hpAt, lineAt, numberAt, stripAt, TUMBLE_MS } from '../hooks/trayfx'
-import { budgetText, currentObjective, fitCells, startsAfresh, isGmNote, isPendingPlumbing, isPlumbing, pipBar, smoothBar, spaced, storyKey, stripPreamble, trayFor } from '../hooks/register'
+import { budgetText, currentObjective, fitCells, startsAfresh, isGmNote, isPendingPlumbing, isPlumbing, onlyRecords, pipBar, smoothBar, spaced, storyKey, stripPreamble, trayFor } from '../hooks/register'
 import { combatOf, trayLines, traySound } from '../hooks/tray'
 import { applyCurse, cursedWords } from '../hooks/curse'
 import { CURSE_VECTORS } from './curse_vectors'
@@ -112,6 +112,9 @@ test('exits list names explored destinations and marks the rest unexplored', () 
 
 test('game plumbing is recognised and other tool calls are not', () => {
   expect(isPlumbing('Bash', { command: 'python3 rules/rpg.py look' })).toBe(true)
+  expect(onlyRecords('python3 rules/rpg.py remember bucket "A deal."; python3 rules/rpg.py chronicle "Done."')).toBe(true)
+  expect(onlyRecords('python3 rules/rpg.py remember bucket "A deal."; python3 rules/rpg.py scene end mopping_dispute reward')).toBe(false)
+  expect(onlyRecords('python3 rules/rpg.py look')).toBe(false)
   expect(isPlumbing('Bash', { command: 'cat games/dark_lighthouse/rooms/lighthouse.md' })).toBe(true)
   expect(isPlumbing('Read', { file_path: '/x/CodeRPG/games/dark_lighthouse/characters/grukk.md' })).toBe(true)
   expect(isPlumbing('Skill', { skill: 'game' })).toBe(true)
@@ -424,7 +427,9 @@ test('ordinary story is never taken for a game-master note (QA finding 1)', () =
     "Bucket's drawing up the Lookout Float; it's priced at 5 credits and isn't paid for yet.",
     'Settling in beside Old Hob now.',
     'Bringing the fisherman into being…',
+    'Compromise reached; ending the scene with the reward.', // Stage 7 live check
   ]) expect(isGmNote(note)).toBe(true)
+  expect(isGmNote('You take in the scene: rain on the glass, dark screens, one red light.')).toBe(false)
   expect(stripPreamble('Recording what Ysolde noticed. Her reply is the next thing you see.\n\nYou skip up the path.'))
     .toBe('You skip up the path.')
   for (const story of ['Checking the door, you find it locked.', 'Passing the nets, you smell tar.', 'Calling out, you hear only gulls.'])
@@ -565,8 +570,11 @@ test('/budget tells the player what is left, what things cost and what is on, in
   expect(text).toContain('**The world moving on by itself:** off')
   expect(text).toContain('(extras, side quests)')
   const lively = { ...metered(22, 'ok') }
-  lively.view = { ...lively.view!, settings: { ...SETTINGS, world_turns: { on: true, every_moves: 5, plans: true } } }
+  lively.view = { ...lively.view!, settings: { ...SETTINGS, world_turns: { on: true, every_moves: 5, plans: true },
+    prices: { ...SETTINGS.prices, scene: 2 }, side_scenes: { on: true, max_per_run: 2, replies: 6 } } }
   expect(budgetText(lively)).toContain('**The world moving on by itself:** on, every 5 moves, with people following their own plans.')
+  expect(budgetText(lively)).toContain('a little scene between two characters 2')
+  expect(budgetText(lively)).toContain('**Little scenes between two characters:** on, up to 2 per game, 6 replies each.')
   expect(budgetText(metered(0, 'spent'))).toContain('0/30 (spent)')
   expect(budgetText(SAVE)).toContain('Nothing to show yet')
 })

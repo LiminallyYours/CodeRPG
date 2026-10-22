@@ -104,6 +104,15 @@ When two `[agent]` characters are present and the moment naturally involves both
 - Each NPC reply counts as one line. Allow at most the number `look` gives as `AGENT LINES PER TURN`, counting the first response to the player. Then stop and hand the scene back to the player.
 - Check every INTENT and REMEMBER from these lines the same way as above.
 
+## Side scenes
+`look` says `SCENE HERE` when two agent characters here could play a little scene, just for fun: an argument, a contest.
+1. Read it with `rpg.py show scenes <id>`. In the narration, show it beginning, from its `## How it starts`, and let the player choose. Don't start it yourself. In the story it's simply what the two are doing; never call it a scene.
+2. If the player takes it up (watches, joins in, eggs them on, asks what's going on), run `rpg.py scene start <id>`. If it refuses, the moment passes.
+3. While it plays (`SCENE PLAYING` in `look`), each thing the player says or does gets one reply from each of the two: spawn the first one's `npc`, then relay that line to the other as in **Two agent characters in one scene**. Run `npc-brief` afresh for every single reply, as always: the brief carries the scene and counts its replies.
+4. When a brief says it's the last reply, when the scene reaches its `## How it ends`, or when the player loses interest, run `rpg.py scene end <id>`, adding `reward` only when `## How it ends` says it was earned. Then narrate the ending.
+
+A scene changes no story flags. If the player walks off, it's over (`move` says so) with no reward.
+
 ---
 
 # Filling gaps

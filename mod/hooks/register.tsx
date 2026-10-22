@@ -20,7 +20,7 @@ import { exitsOf, keyText, mapText, usesUpDown } from './map'
 import { commandPhrase, idlePhrase, npcPhrase, phaseOf } from './phrases'
 import type { Seg } from './reveal'
 import { bannerRows, endingRows, paragraphsOf, spaced, speakerOf, titleRows } from './story'
-import { combatOf, rpgCommand, TRAY_COMMANDS, trayLines, traySound } from './tray'
+import { combatOf, rpgCommand, rpgCommands, TRAY_COMMANDS, trayLines, traySound } from './tray'
 import type { CombatSide, TrayLine } from './tray'
 import { stripAt, FX_MS } from './trayfx'
 import { runsOf, tileGrid } from './tiles'
@@ -111,7 +111,7 @@ const GM_WORDS = /(narrat|generat|rpg\.py|world turn|world agent|subagent|npc ag
 // A progress line answering Claude Code's mid-turn nudge ("Settling in beside Old Hob now.", "Bringing the
 // fisherman into being…"): one short sentence that trails off or says it's happening now.
 const GM_PROGRESS = /^[^.!?…]{1,90}(…|\.\.\.|\bnow\.)$/
-const GM_ANYWHERE = /(narrating|\bnarration\b|rpg\.py|world agent|subagent|world update|\bworld turn\b|off-screen|proposal|tool calls?|\bI('ve|'m|'ll|'d)?\b|\d)/
+const GM_ANYWHERE = /(narrating|\bnarration\b|rpg\.py|world agent|subagent|world update|\bworld turn\b|off-screen|proposal|tool calls?|\b(start(ing)?|end(ing)?) the (side )?scene\b|\bI('ve|'m|'ll|'d)?\b|\d)/
 
 /**
  * A short line the game master wrote about what it's doing ("Recording what Ysolde noticed. Her reply is the
@@ -144,6 +144,13 @@ export function startsAfresh(command: string, args: string, currentGame: string 
 
 /** Rules-script commands that only record what happened; the narration may come before them. */
 const WRITE_COMMANDS = ['chronicle', 'remember', 'note', 'flag', 'coins', 'gain', 'lose', 'equip', 'library']
+
+/** Whether a shell command only records what happened: every rules-script command in it is a recording one
+ *  ("remember …; scene end …" is not, so text before it is no narration). */
+export function onlyRecords(command: string): boolean {
+  const subs = rpgCommands(command)
+  return subs.length > 0 && subs.every(s => WRITE_COMMANDS.includes(s))
+}
 
 /** Dice-tray lines for a finished rules-script call, or none. */
 export function trayFor(tool: string, input: unknown, output: unknown, look?: CoderpgLook): TrayLine[] {
@@ -217,6 +224,7 @@ const PRICE_NAMES: Record<string, string> = {
   generate: 'something new appearing', world_turn: 'the world moving on by itself', craft: 'having something made', build: 'having something built',
   reuse: 'someone or something coming back from an earlier game',
   promote: 'someone you keep coming back to finding their own voice',
+  scene: 'a little scene between two characters',
 }
 
 /** The meter's color: plain while there's plenty, then the warning and danger colors. */
@@ -241,6 +249,7 @@ export function budgetText(s: CoderpgSave): string {
     ...(v.crafting ? [`**Having things made:** ${on(v.crafting.on)}, up to ${v.crafting.max_per_run} orders per game.`] : []),
     ...(v.building ? [`**Having places built:** ${on(v.building.on)}, up to ${v.building.max_per_run} per game.`] : []),
     ...(v.promotion ? [`**People finding their own voice:** ${on(v.promotion.on)}${v.promotion.on ? `, after ${v.promotion.after_conversations} conversations, up to ${v.promotion.max_per_run} per game` : ''}.`] : []),
+    ...(v.side_scenes ? [`**Little scenes between two characters:** ${on(v.side_scenes.on && v.npc_agents.on)}${v.side_scenes.on && v.npc_agents.on ? `, up to ${v.side_scenes.max_per_run} per game, ${v.side_scenes.replies} replies each` : ''}.`] : []),
     `*Preset: ${v.preset}. The owner changes these with \`python3 tools/settings.py\`.*`,
   ].join('\n\n')
 }
@@ -465,7 +474,7 @@ export const register: Register = on => {
       isGameTurn = true
       const sub = e.tool === 'Bash' ? rpgCommand(String((e as { command?: unknown }).command)) : undefined
       // Text before this call wasn't the narration, unless this call only records what happened.
-      if (!(sub && WRITE_COMMANDS.includes(sub))) narrationFrom = turnKeys.length
+      if (!(e.tool === 'Bash' && onlyRecords(String((e as { command?: unknown }).command)))) narrationFrom = turnKeys.length
       await update($, hidden, ids => [...ids, e.tool_use_id].slice(-3000))
       if (sub === 'newgame') isNewGame = true
       const agentType = String((e as { subagent_type?: unknown }).subagent_type ?? '')

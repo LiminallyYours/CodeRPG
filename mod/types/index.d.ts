@@ -91,6 +91,8 @@ export type CoderpgSettings = {
   building?: { on: boolean; max_per_run: number }
   /** Generated people promoted to their own agent (version 8+). */
   promotion?: { on: boolean; max_per_run: number; after_conversations: number }
+  /** Two-character side scenes (Stage 7). */
+  side_scenes?: { on: boolean; max_per_run: number; replies: number }
 }
 
 /** `promoted`: a generated person the player kept coming back to, who now speaks for themselves (version 8+). */

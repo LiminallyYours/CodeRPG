@@ -5,8 +5,8 @@ As of 2026-10-22. The state of the kit build for whoever picks it up next, human
 ## Where things are
 - **Requirements:** `IMPLEMENTATION-PLAN.md` (JW's game-owner requirements, Stages 1–8).
 - **Technical plan:** `~/.claude/plans/please-read-implementation-plan-md-in-sunny-cake.md` (approved). The decisions below override it where they differ.
-- **Done:** Stages 1–5: kit split, second game and seeds; the meter and switches; look and feel; curses; the player leaves a mark (crafting, building, the library, promotion). Stage 7.1, people with plans. Everything is committed on `main`; `sh tools/check.sh` passes (50 engine tests, 62 mod tests, both games validate).
-- **Now:** building Stage 7.2 (side scenes); the decisions are under **Stage 7 decisions**. Stage 5 had no playtest notes; the user will test it again with Stage 7.
+- **Done:** Stages 1–5: kit split, second game and seeds; the meter and switches; look and feel; curses; the player leaves a mark (crafting, building, the library, promotion). Stage 7: people with plans, side scenes. Everything is committed on `main`; `sh tools/check.sh` passes (54 engine tests, 62 mod tests, both games validate).
+- **Now:** Stage 7 is built (7.1 plans, 7.2 side scenes); waiting for the user's playtest of Stages 5 and 7 (Stage 5 had no notes; the user will test it again). See **Stage 7 playtest checklist**.
 - **Stage order from here (decided 2026-10-22):** Stage 7 next, then Stage 6, then Stage 8. Stage 6 is deferred, not dropped. The plan allows Stages 3–7 in any order; Stage 7 depends only on Stages 1–2; Stage 8 must come after Stage 6, because every generated world needs an easy lock.
 
 ## Starting the next session
@@ -36,6 +36,8 @@ As of 2026-10-22. The state of the kit build for whoever picks it up next, human
 | `e99289b` | 5.3 The library: `rules/library.py`, `state/library/<game>.json`; befriending, carry-over on `newgame`, `{"reuse": id}`, `rpg.py library suggest`, owner tool `tools/library.py` |
 | `42a9e8a` | 5.4 Promotion: `rpg.py talk <id>`, promotion to an agent after N conversations, the journal's ★. Also the second progress-line filter fix |
 | `f500269` | This file: Stage 5 done |
+| `ea79ba6` | 7.1 People with plans: `## Plan:` sections, world-turn `plans`, `SIGNAL`/`NOW HERE`, `view.signals` toast and chime, `world_turns.plans`; Ysolde, Grukk, Halloran, Bucket (now `minor: no`) |
+| (next) | 7.2 Side scenes: `scenes/`, `rpg.py scene start\|end`, scene part and reply count in `npc-brief`, `side_scenes`, price 2; The Shiniest Thing, The Mopping Dispute |
 
 Handoff-only commits (`2ac55a1`, `b6b523d`, `a2280fe`, `ab4dea9`, `7057684`) are left out.
 
@@ -94,12 +96,26 @@ Handoff-only commits (`2ac55a1`, `b6b523d`, `a2280fe`, `ab4dea9`, `7057684`) are
 - `json.dumps` escapes non-ASCII by default: write the kit's JSON with `ensure_ascii=False`, or icons like ✦ turn into `✦`.
 
 ## Open observations (not bugs, or not yet fixed)
-- **Progress-line leaks:** three shapes seen and caught ("…, I've finished the off-screen world update, and now I'm narrating."; "Bucket's drawing up the Lookout Float; it's priced at 5 credits…"; "Settling in beside Old Hob now."). gm-turn now asks for progress lines ending in "…" as their own paragraph. The filter is a heuristic: watch for new shapes.
+- **Progress-line leaks:** a fourth shape, from the 7.2 live check: "Compromise reached; ending the scene with the reward." It showed because the GM chained `scene end` after `remember` in one shell call, and the mod judged the call by its first (recording-only) command. Fixed both ways: `onlyRecords` looks at every command in the call, and `GM_ANYWHERE` catches "starting/ending the scene". Earlier: three shapes seen and caught ("…, I've finished the off-screen world update, and now I'm narrating."; "Bucket's drawing up the Lookout Float; it's priced at 5 credits…"; "Settling in beside Old Hob now."). gm-turn now asks for progress lines ending in "…" as their own paragraph. The filter is a heuristic: watch for new shapes.
 - Under the thrifty preset, Sonnet still calls `npc-brief` once for a resting agent before voicing them. It's refused at no cost and hidden from the player.
 - The player's real save is v7; it upgrades to v8 on load.
 - The fixed prices for extras are estimates; recalibrate if `/cost` suggests they're off.
 - The station's content generates no people (`extras: no`, `characters: no`), so befriending, carry-over of friends and promotion never come up there. That's the station's choice; changing it is a content decision for the user.
 - `validate` checks a curse's cure is reachable by searching the game's other `.md` files for the flag name (a heuristic).
+
+## Stage 7 playtest checklist (what should happen)
+- **Plans** (normal preset; world turns every 5 moves in the lighthouse, 4 on the station). Wander about. Now and then, when you're next to where someone is, you notice something: a lantern coming down the lighthouse path (Ysolde to the quay), a bar thudding across the lighthouse door and snoring (she sleeps: the way west from the square is barred until you hammer on it), heavy feet and sniffing on the coast road (Grukk foraging; the bridge is empty, a boulder over the path). On the station: boots on the ladder (Halloran to her tanks in the Lab Wing), snoring from the Control Room (she dozes; talking wakes her), the cargo hoist clanking (Bucket off to mop the Control Room; it's gone from the Common Deck). A toast with a soft chime shows the same line. Further away, you only hear about it from people.
+- **Nobody acts while you're with them**, and the GM never says "meanwhile…".
+- **Bucket now speaks through its own agent** (slower; its orders work as before).
+- **Side scenes:** station: wait in the Control Room with Halloran until Bucket comes up (or come back later), and Bucket and Halloran start arguing over a puddle. Join in or egg them on, and it plays: one reply from each per message, 6 in all, then it ends; broker a compromise and Bucket pays you a credit. Lighthouse: after the friendly ending (Grukk befriended, lamp lit), stay in Harbor Square: Grukk begs Ysolde to hold the lens. Walking away ends a scene. `/budget` lists both features.
+- **Watch for:** machinery in the story (world turns, signals, "plan", "scene"); signals that are explained instead of shown; a character in a place their room text doesn't expect.
+
+## Stage 7.2 notes (as built)
+- **Engine:** `content.KINDS` gains `scenes` (so `show scenes <id>` works and validate counts them). `why_no_scene` (switch; neither agent resting; not played this run; under `max_per_run`; no other scene playing; the player in `where` with both; `when` holds; meter can pay), `cmd_scene` (`start` charges `scene` and records `run.scenes[id] = {status: playing, replies, started_at}`; `end [reward]` gives `scene_reward` coins, appends `chronicle:`, marks done). `npc-brief` for a cast member of the playing scene adds "A little scene you're in" (the premise and their part) and counts the reply, saying when it's the last; past the cap the brief is plain. `move` ends a playing scene with no reward (`SCENE OVER`). `look` prints `SCENE PLAYING` or `SCENE HERE`.
+- **Replies:** a brief for the same cast member twice in a row is the same reply (`run.scenes[id].last`): the two take turns, and the GM sometimes runs a brief once to look and once to spawn.
+- **Save:** `run.scenes` is optional (`setdefault`), no version bump.
+- **Live checks (station, Sonnet):** three messages (climb up; step in; broker a sample-first deal). The GM showed it starting from How it starts, started it on the second message, alternated Bucket and Halloran through fresh briefs, and ended it with the reward. First run: a GM note leaked (see Open observations) and a brief was reused; both fixed. Second run: nothing leaked; the narration said "A scene is already underway", so gm-turn now says never to call it a scene.
+- **Validate:** two characters, both `minor: no`, both listed in `where`'s characters (under any condition), reward `none` or `coins 1..scenes.max_reward_coins`, a chronicle line, the four kinds of section, no `flag set`/`flag unset` in the body.
 
 ## Stage 7.1 notes (as built)
 - **Engine:** `content.plans(body)` parses `## Plan:` sections; `rpg.plan_steps`, `where_is` (first room whose conditions place the character), `neighbours` (exits either way, open or not), `open_steps` (switch on, the character not in the player's room, condition holds), `apply_plan` (sets/clears the flag, undoes it if anyone the player is with would vanish, then `SIGNAL:` + `run.signals` when the player's room is the before/after room or next to one, else the step's rumor; `NOW HERE:` on arrival; `OFF-SCREEN:` otherwise). `gen_context` passes `plan_steps`; `generate.world_turn` checks `plans` (open steps only, one per person). `applicable` (so `show`) and `npc-brief` leave plan sections out; `show --all` keeps them.

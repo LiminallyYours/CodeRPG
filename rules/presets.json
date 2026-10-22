@@ -36,6 +36,11 @@
       "on": false,
       "max_per_run": 0,
       "after_conversations": 3
+    },
+    "side_scenes": {
+      "on": false,
+      "max_per_run": 0,
+      "replies": 0
     }
   },
   "normal": {
@@ -75,6 +80,11 @@
       "on": true,
       "max_per_run": 2,
       "after_conversations": 3
+    },
+    "side_scenes": {
+      "on": true,
+      "max_per_run": 2,
+      "replies": 6
     }
   },
   "rich": {
@@ -114,6 +124,11 @@
       "on": true,
       "max_per_run": 4,
       "after_conversations": 2
+    },
+    "side_scenes": {
+      "on": true,
+      "max_per_run": 4,
+      "replies": 10
     }
   }
 }

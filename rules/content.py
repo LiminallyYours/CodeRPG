@@ -1,6 +1,6 @@
 """Reads a game's content files. Knows the file format, nothing about any particular world.
 
-Each game is a folder in games/<id>/ (world.md, rooms/, characters/, items/, quests/, tables/, art/,
+Each game is a folder in games/<id>/ (world.md, rooms/, characters/, items/, quests/, tables/, curses/, scenes/, art/,
 plus look.json and balance.json). rpg.py picks the active game with use_game() before reading anything.
 
 A content file is Markdown with a front-matter block between two '---' lines.
@@ -21,7 +21,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 GAMES = ROOT / "games"
-KINDS = ("rooms", "characters", "items", "quests", "tables", "curses")
+KINDS = ("rooms", "characters", "items", "quests", "tables", "curses", "scenes")
 
 _GAME = None  # the active game's folder; set by use_game()
 
