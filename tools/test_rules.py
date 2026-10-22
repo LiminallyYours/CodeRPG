@@ -20,7 +20,7 @@ GAMES = sorted(p.name for p in (ROOT / "games").glob("*") if (p / "world.md").is
 class Engine(unittest.TestCase):
     def setUp(self):
         self.dir = Path(tempfile.mkdtemp(prefix="rpg-test-"))
-        for d in ("rules", "games", "proposals"):
+        for d in ("rules", "games", "proposals", "tools", ".claude/hooks"):
             shutil.copytree(ROOT / d, self.dir / d, ignore=shutil.ignore_patterns("__pycache__", "*.json.tmp"))
         (self.dir / "state").mkdir()
         for stale in (self.dir / "proposals").glob("*.json"):
@@ -44,6 +44,17 @@ class Engine(unittest.TestCase):
 
     def save(self):
         return json.loads((self.dir / "state" / "save.json").read_text())
+
+    def meter(self):
+        return self.save()["view"]["meter"]["left"]
+
+    def set_meter(self, left):
+        self.write("state/meter.json", json.dumps({"left": left}))
+
+    def run_py(self, script, *args, stdin=""):
+        r = subprocess.run([sys.executable, script, *args], cwd=self.dir, input=stdin, capture_output=True, text=True, timeout=30)
+        self.assertNotIn("Traceback", r.stderr, r.stderr)
+        return r
 
     def write(self, rel, text):
         p = self.dir / rel
@@ -85,13 +96,15 @@ class Engine(unittest.TestCase):
         self.assertIn("Credits", out)
         self.assertEqual(self.save()["view"]["look"]["palette"]["accent"], "#4fc3c7")
 
-    def test_a_games_balance_overrides_only_what_it_names(self):
+    def test_a_games_settings_and_balance_override_only_what_they_name(self):
         self.rpg("game", "switch", "flooded_station")
         self.rpg("newgame", seed=3)
         moves = ["north", "south"] * 2
         outs = [self.rpg("move", d) for d in moves]
-        self.assertIn("WORLD TURN DUE", outs[3])  # the station's turn_every_moves is 4, not the kit's 5
+        self.assertIn("WORLD TURN DUE", outs[3])  # the station's settings: every 4 moves, not the preset's 5
         self.assertNotIn("WORLD TURN DUE", "".join(outs[:3]))
+        s = self.save()
+        self.assertEqual(s["view"]["carry_limit"], 6 + 2 * s["stats"]["might"])  # its balance.json: carry_base 6
 
     def test_an_old_save_is_refused_and_a_new_game_replaces_it(self):
         self.write("state/save.json", json.dumps({"version": 6, "adventure": "The Dark Lighthouse", "status": "playing"}))
@@ -214,6 +227,149 @@ class Engine(unittest.TestCase):
             out = self.rpg("generate", "item", str(p.relative_to(self.dir)), ok=False)
             self.assertIn("REFUSED", out)
             self.assertFalse(p.exists(), "a refused proposal file is cleaned up")
+
+
+    # ---------------------------------------------------------------- the meter and the owner's switches
+
+    def at_the_lighthouse(self):
+        self.rpg("game", "switch", "dark_lighthouse")
+        self.rpg("newgame", seed=20)
+        self.rpg("move", "west")  # Ysolde, an agent character, is here
+
+    def test_every_preset_has_the_same_switches(self):
+        presets = json.loads((ROOT / "rules" / "presets.json").read_text())
+
+        def shape(d):
+            return {k: shape(v) if isinstance(v, dict) and k != "characters" else type(v).__name__ for k, v in d.items()}
+        self.assertEqual({"thrifty", "normal", "rich"}, set(presets))
+        for name, p in presets.items():
+            self.assertEqual(shape(p), shape(presets["normal"]), name)
+
+    def test_the_meter_drains_by_price_and_refills(self):
+        self.at_the_lighthouse()
+        self.rpg("meter", "refill")
+        self.assertEqual(self.meter(), 100)
+        self.rpg("spend", "turn")
+        self.assertEqual(self.meter(), 99)
+        self.rpg("spend", "free")
+        self.assertEqual(self.meter(), 99)
+        self.assertIn("no price", self.rpg("spend", "lunch", ok=False))
+        self.rpg("npc-brief", "ysolde")  # an agent's reply costs 3
+        self.assertEqual(self.meter(), 96)
+        self.rpg("move", "east")
+        self.rpg("world-brief", "room")  # generating costs 4
+        self.assertEqual(self.meter(), 92)
+        self.set_meter(2)
+        self.rpg("spend", "npc")
+        self.assertEqual(self.meter(), 0)  # never below empty
+        self.assertIn("METER SPENT", self.rpg("look"))
+        self.rpg("meter", "refill")
+        self.assertEqual(self.meter(), 100)
+
+    def test_a_spent_meter_falls_back_to_the_cheap_form_and_play_goes_on(self):
+        self.at_the_lighthouse()
+        self.assertIn("ysolde [agent]", self.rpg("look"))
+        self.set_meter(2)  # enough for a turn, not for an agent's reply
+        look = self.rpg("look")
+        self.assertIn("ysolde [minor, agent resting]", look)
+        self.assertIn("Voice them yourself", self.rpg("npc-brief", "ysolde", ok=False))
+        self.rpg("move", "east")
+        self.assertNotIn("may grow", self.rpg("look"))
+        self.assertIn("spent", self.rpg("world-brief", "room", ok=False))
+        self.set_meter(0)
+        for d in ("north", "south") * 4:  # moves still work, and no world turn falls due
+            self.assertNotIn("WORLD TURN DUE", self.rpg("move", d))
+        self.assertIn("METER SPENT", self.rpg("look"))
+
+    def test_the_meter_outlasts_new_games_and_switches(self):
+        self.at_the_lighthouse()
+        self.set_meter(40)
+        self.rpg("newgame", seed=21)
+        self.assertEqual(self.meter(), 40)
+        self.rpg("game", "switch", "flooded_station")
+        self.rpg("newgame", seed=22)
+        self.assertEqual(self.meter(), 40)
+        self.assertIn("METER: Power 40/100", self.rpg("look"))
+
+    def settings_tool(self, *args, ok=True):
+        r = self.run_py("tools/settings.py", *args)
+        self.assertEqual(r.returncode == 0, ok, r.stdout)
+        return r.stdout
+
+    def test_the_owners_switches_are_enforced_by_the_rules(self):
+        self.at_the_lighthouse()
+        self.settings_tool("preset", "thrifty")
+        look = self.rpg("look")
+        self.assertIn("ysolde [minor, agent resting]", look)
+        self.assertIn("METER: Lamp oil 60/60", look)
+        self.assertIn("off in this game", self.rpg("world-brief", "turn", ok=False))
+        self.assertIn("can appear in this game", self.rpg("world-brief", "character", ok=False))
+        self.settings_tool("preset", "normal")
+        self.settings_tool("set", "npc_agents.characters.ysolde", "false")
+        self.assertIn("ysolde [minor, agent resting]", self.rpg("look"))
+        self.settings_tool("unset", "npc_agents.characters.ysolde")
+        self.assertIn("ysolde [agent]", self.rpg("look"))
+        self.settings_tool("set", "world_turns.on", "false")
+        self.rpg("newgame", seed=23)
+        self.assertNotIn("WORLD TURN DUE", "".join(self.rpg("move", d) for d in ("north", "south") * 3))
+        self.settings_tool("reset")
+        self.assertIn("NPC AGENTS: on", self.rpg("settings"))
+        self.assertIn("unknown setting", self.settings_tool("set", "npc_agents.loudness", "3", ok=False))
+        self.assertIn("preset <", self.settings_tool("preset", "lavish", ok=False))
+
+    def test_the_owners_cap_on_generation_holds(self):
+        self.at_the_lighthouse()
+        self.settings_tool("set", "generation.max_per_run", "1")
+        self.rpg("move", "east")
+        self.write("proposals/a.json", json.dumps({"id": "tin_whistle", "name": "Tin Whistle", "description": "A dented whistle.", "tier": "trinket"}))
+        self.rpg("generate", "item", "proposals/a.json")
+        self.rpg("move", "north")
+        self.write("proposals/b.json", json.dumps({"id": "bone_dice", "name": "Bone Dice", "description": "Two worn dice.", "tier": "trinket"}))
+        self.assertIn("as much as it may (1)", self.rpg("generate", "item", "proposals/b.json", ok=False))
+
+    def test_validate_catches_bad_settings(self):
+        g = "games/dark_lighthouse/settings.json"
+        self.write(g, json.dumps({"preset": "lavish"}))
+        self.assertIn("unknown preset 'lavish'", self.rpg("validate", "--game", "dark_lighthouse", ok=False))
+        self.write(g, json.dumps({"preset": "normal", "overrides": {"world_turns": {"evry_moves": 3}},
+                                  "extra": 1}))
+        out = self.rpg("validate", "--game", "dark_lighthouse", ok=False)
+        self.assertIn("unknown key 'evry_moves'", out)
+        self.assertIn("unknown key 'extra'", out)
+        self.write(g, json.dumps({"overrides": {"npc_agents": {"characters": {"pell": False, "nobody": False}}}}))
+        out = self.rpg("validate", "--game", "dark_lighthouse", ok=False)
+        self.assertIn("'pell' is minor", out)
+        self.assertIn("unknown character 'nobody'", out)
+
+    def test_the_hooks_pay_for_turns_and_refill_on_opening(self):
+        self.at_the_lighthouse()
+        self.rpg("meter", "refill")
+        hook = ".claude/hooks/turn_reminder.py"
+        r = self.run_py(hook, stdin=json.dumps({"prompt": "I ask Ysolde about the lens."}))
+        self.assertIn("gm-turn procedure", r.stdout)
+        self.assertEqual(self.meter(), 99)
+        hand_back = '<agent-message from="af36dd">\n[Subagent hand-back] The text below is the final report of a subagent.'
+        for free in ("ooc: how does the meter work?", "/budget", "/newgame daily", hand_back,
+                     "<task-notification>\n<task-id>b1</task-id>"):
+            self.assertEqual(self.run_py(hook, stdin=json.dumps({"prompt": free})).stdout, "")
+        self.assertEqual(self.meter(), 99)
+        self.set_meter(1)
+        self.assertIn("meter is spent", self.run_py(hook, stdin=json.dumps({"prompt": "look around"})).stdout)
+        self.assertEqual(self.run_py(".claude/hooks/session_start.py", stdin="{}").stdout, "")
+        self.assertEqual(self.meter(), 100)
+
+    def test_the_save_carries_the_meter_and_switches_for_the_interface(self):
+        self.at_the_lighthouse()
+        v = self.save()["view"]
+        self.assertEqual(set(v["meter"]), {"left", "capacity", "state"})
+        self.assertEqual(v["settings"]["preset"], "normal")
+        self.assertEqual(v["settings"]["prices"]["npc"], 3)
+        self.set_meter(20)
+        self.rpg("spend", "turn")
+        self.assertEqual(self.save()["view"]["meter"]["state"], "low")
+        self.set_meter(1)
+        self.rpg("spend", "turn")
+        self.assertEqual(self.save()["view"]["meter"]["state"], "spent")
 
 
 if __name__ == "__main__":

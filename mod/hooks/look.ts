@@ -14,6 +14,7 @@ export const DEFAULT_LOOK: CoderpgLook = {
   tab_labels: { here: 'Here', map: 'Map', journal: 'Journal' },
   tab_keys: { here: 'h', map: 'm', journal: 'j' },
   phrases: { idle: ['The tale unfolds', 'Turning the page', 'Fate shuffles its cards'], by_command: {} },
+  resource: { name: 'Energy', icon: '✦', low: 'You feel your energy flagging.', spent: "You're spent." },
 }
 
 /** The save's look, with any part it lacks (an older or hand-made save) filled from the default. */
@@ -28,6 +29,7 @@ export function lookOf(s: CoderpgSave | null | undefined): CoderpgLook {
     stat_short: { ...d.stat_short, ...l.stat_short },
     tab_labels: { ...d.tab_labels, ...l.tab_labels },
     tab_keys: { ...d.tab_keys, ...l.tab_keys },
+    resource: { ...d.resource, ...l.resource },
     phrases: { idle: l.phrases?.idle?.length ? l.phrases.idle : d.phrases.idle, by_command: { ...l.phrases?.by_command } },
   }
 }

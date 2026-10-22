@@ -28,21 +28,58 @@
   },
   "phrases": {
     "idle": [
-      "Water drips somewhere below", "The hull groans", "Static hisses on a dead speaker",
-      "The stilts creak in the swell", "A warning light pulses", "Rain drums on the roof plates"
+      "Water drips somewhere below",
+      "The hull groans",
+      "Static hisses on a dead speaker",
+      "The stilts creak in the swell",
+      "A warning light pulses",
+      "Rain drums on the roof plates"
     ],
     "by_command": {
-      "look": ["Sweeping a torch beam around", "Taking stock"],
-      "move": ["Boots splash on steel grating", "Ducking through a hatch", "Wading on"],
-      "take": ["Fishing it out of the water"],
-      "use": ["Peeling back the foil"],
-      "check": ["The odds shift like the tide"],
-      "attack": ["Claws and steel", "The water churns"],
-      "hurt": ["Cold pain"],
-      "coins": ["Counting credits"],
-      "world-brief": ["Something shifts in the dark water"],
-      "world-turn": ["Elsewhere, the station creaks", "The tide keeps rising"],
-      "show": ["Checking the station plans"]
+      "look": [
+        "Sweeping a torch beam around",
+        "Taking stock"
+      ],
+      "move": [
+        "Boots splash on steel grating",
+        "Ducking through a hatch",
+        "Wading on"
+      ],
+      "take": [
+        "Fishing it out of the water"
+      ],
+      "use": [
+        "Peeling back the foil"
+      ],
+      "check": [
+        "The odds shift like the tide"
+      ],
+      "attack": [
+        "Claws and steel",
+        "The water churns"
+      ],
+      "hurt": [
+        "Cold pain"
+      ],
+      "coins": [
+        "Counting credits"
+      ],
+      "world-brief": [
+        "Something shifts in the dark water"
+      ],
+      "world-turn": [
+        "Elsewhere, the station creaks",
+        "The tide keeps rising"
+      ],
+      "show": [
+        "Checking the station plans"
+      ]
     }
+  },
+  "resource": {
+    "name": "Power",
+    "icon": "ϟ",
+    "low": "Your torch flickers and the station lights dim; the batteries are running down.",
+    "spent": "The batteries are flat. The station goes dark and quiet: the comms are dead and nothing new turns up until you return."
   }
 }

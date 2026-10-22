@@ -2,6 +2,7 @@
 // Pure: compares two copies of state/save.json.
 
 import type { CoderpgSave } from '../types'
+import { lookOf } from './look'
 
 export type Feedback = { toast?: string; sounds: string[]; flash?: 'hurt' | 'heal' }
 
@@ -45,6 +46,14 @@ export function feedback(prev: CoderpgSave | null, next: CoderpgSave): Feedback 
     if (q.complete && !was?.complete) { parts.push(`★ ${q.side ? 'side quest' : 'quest'} complete: ${q.name}`); fb.sounds.push('fanfare'); continue }
     if (q.failed && !was?.failed) { parts.push(`✗ quest failed: ${q.name}`); fb.sounds.push('defeat'); continue }
     for (const o of q.objectives) if (o.done && !doneBefore.has(o.text)) parts.push(`✓ ${o.text}`)
+  }
+
+  const was = prev.view?.meter, now = next.view?.meter
+  if (was && now && was.state !== now.state) {
+    const r = lookOf(next).resource
+    if (now.state === 'spent') parts.push(`${r.icon} ${r.name} spent`)
+    else if (now.state === 'low') parts.push(`${r.icon} ${r.name} running low`)
+    else if (now.left > was.left) parts.push(`${r.icon} ${r.name} refilled`)
   }
 
   if (next.status === 'defeated' && prev.status !== 'defeated') { parts.push('you have fallen'); fb.sounds = ['defeat'] }

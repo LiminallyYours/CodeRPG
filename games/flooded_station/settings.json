@@ -1,0 +1,8 @@
+{
+  "preset": "normal",
+  "overrides": {
+    "world_turns": {
+      "every_moves": 4
+    }
+  }
+}

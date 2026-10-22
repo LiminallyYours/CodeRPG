@@ -52,7 +52,7 @@ You can only use exits listed in the room file. An exit with a condition, such a
 
 ## NPC memory and talk: `remember <character> <line>`
 - Each non-minor character keeps a short memory of the player in state: at most `npc.memory_lines` lines (6) of up to `npc.memory_line_chars` characters (160) each. When a new line is added past the limit, the oldest is dropped.
-- When two NPC agents talk to each other, at most `npc.exchange_max_lines` lines (4) are spoken per turn.
+- When two NPC agents talk to each other, at most the owner's `npc_agents.lines_per_exchange` lines (4 in the normal preset) are spoken per turn.
 
 ## Flags: `flag set <name>` / `flag unset <name>`
 Flags are named facts about what has happened. Content files say when a flag should be set and what changes because of it. The rules don't care what any flag means.
@@ -63,7 +63,8 @@ Two kinds of names are automatic and can't be set: `has_<item>` is true while yo
 - **Seed:** every run has a seed: one the player names, `daily` (today's date, so everyone gets the same world that day), or a new one. Each die is drawn from the game, the seed and how many dice the run has rolled so far, so the same seed rolls the same dice in the same order. Choices made differently, or agents speaking differently, lead to different commands and so to different dice later on.
 - **New game:** `newgame` rolls any stats `world.md` lists under `rolls:` and picks one flag from each `variants:` line. It also places starting items whose conditions hold and starts the clock.
 - **Moves and the clock:** every `move` is one tick. The clock counts down. When it runs out, its flag is set, plus `also_flag` if `also_if` holds at that moment.
-- **World turns:** every `world.turn_every_moves` moves (5), a world turn falls due and the weather may change.
+- **Weather** may change every `world.weather_every_moves` moves (5).
+- **World turns:** every `world_turns.every_moves` moves in the owner's settings (5 in the normal preset), a world turn falls due, if world turns are on and the meter can pay for one.
 - **Encounters:** arriving in a room with `encounters:` rolls the table's chance (e.g. 2 in 6). On a hit, one entry is picked and its effect applied. An entry marked `(once)` happens at most once per run. A `hurt` effect from an encounter can wound but never kill: it leaves you with at least 1 HP.
 
 ## Generated content
@@ -72,9 +73,25 @@ Two kinds of names are automatic and can't be set: `has_<item>` is true while yo
   - descriptions are short;
   - new rooms attach only through a room's `expand:` directions, and go no further;
   - each room yields at most 1 found item and 2 extras;
-  - each run allows at most 16 generated entities.
+  - each run allows at most the owner's `generation.max_per_run` generated entities (16 in the normal preset).
 - **Stats come from tiers, never from the proposal.**
   - Items: trinket (weight 1); light_weapon (1d4, weight 1); weapon (1d6, weight 3); tonic (heals 1d4+1, weight 1).
   - Foes: weak (5 HP, defense 9, +0, 1d4); average (8, 11, +1, 1d6); tough (12, 12, +2, 1d8).
   - Generated prices are 1–6 coins, and side-quest rewards at most 4 coins.
 - **Side quests** may only use their own `side_<id>_<word>` flags, plus `has_` and `met_` names.
+
+## The meter: what play costs
+Every action that spends Claude's tokens has a fixed price, set by the game (`meter.prices` in balance.json): a game-master turn 1, a character answering through its own agent 3, generating something 4, a world turn 3. Everything else, including every rules-script command, `ooc:` messages and slash commands, is free. The game shows the meter as its own resource (lamp oil, power), with a capacity from the owner's settings (100 in the normal preset).
+- **Paying:** the UserPromptSubmit hook pays for each in-game turn; `npc-brief` pays for a character's reply and `world-brief` for each generation or world turn, so a retry pays again.
+- **Running low:** below `meter.low_at_percent` (25%) the game warns once.
+- **Spent:** when the meter can't pay for something, that thing falls back to its cheap form, and play goes on: agents fall quiet and the game master voices everyone (`look` marks them `[minor, agent resting]`), nothing new is generated, no `may grow` ways are offered, and no world turns fall due.
+- **Refill:** each time Claude Code is opened or resumed in the folder (a SessionStart hook); a `/clear` doesn't refill it. The meter lives in `state/meter.json`, outside every save, so it carries across new games and game switches.
+
+## The owner's switches
+Each game's `settings.json` picks a preset from `rules/presets.json` (`thrifty`, `normal` or `rich`) and may override any of its switches:
+- `meter.capacity`;
+- `npc_agents`: `on` (off: the game master voices everyone), `lines_per_exchange`, and `characters` to switch single characters off;
+- `world_turns`: `on` and `every_moves`;
+- `generation`: `on`, `max_per_run`, and `kinds` (extras, rooms, items, characters, side_quests). Something is generated only if the game's own `generation:` allows it **and** the switch is on.
+
+`rpg.py settings` and the instant command `/budget` show them. Only the owner changes them, with `tools/settings.py`, which the game master can't run.

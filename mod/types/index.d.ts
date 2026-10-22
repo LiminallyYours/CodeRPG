@@ -22,6 +22,10 @@ export type CoderpgSave = {
     /** The game being played and its look, copied from games/<id>/ (version 7+). */
     game?: { id: string; title: string }
     look?: CoderpgLook
+    /** What's left to spend this session; it refills when Claude Code is opened (version 7+). */
+    meter?: { left: number; capacity: number; state: 'ok' | 'low' | 'spent' }
+    /** The owner's switches and prices, for /budget (version 7+). */
+    settings?: CoderpgSettings
     /** "2026-10-21 · seed ember-4821" or "2026-10-21 · daily world", for the title card (version 7+). */
     run_label?: string | null
     location_name: string
@@ -53,6 +57,18 @@ export type CoderpgLook = {
   tab_labels: Record<CoderpgTab, string>
   tab_keys: Record<CoderpgTab, string>
   phrases: { idle: string[]; by_command: Record<string, string[]> }
+  /** The in-world name of what play costs, and what to say when it runs low or out. */
+  resource: { name: string; icon: string; low: string; spent: string }
+}
+
+/** The owner's cost switches in effect, and the price of each kind of action. */
+export type CoderpgSettings = {
+  preset: string
+  capacity: number
+  prices: Record<string, number>
+  npc_agents: { on: boolean; lines_per_exchange: number; off_for: string[] }
+  world_turns: { on: boolean; every_moves: number }
+  generation: { on: boolean; max_per_run: number; kinds: string[] }
 }
 
 export type CoderpgPerson = { id: string; name: string; role: string; generated?: boolean }

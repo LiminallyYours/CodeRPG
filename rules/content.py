@@ -80,6 +80,21 @@ def look():
     return deep_merge(kit_look(), _json(game_dir() / "look.json"))
 
 
+def kit_presets():
+    return _json(ROOT / "rules" / "presets.json")
+
+
+def settings():
+    """The owner's switches for the active game: its settings.json's preset, with its overrides laid
+    over it. Settings say what the owner pays for; content's `generation:` says what may exist at all."""
+    own = _json(game_dir() / "settings.json")
+    presets = kit_presets()
+    preset = own.get("preset", "normal")
+    if preset not in presets:
+        raise ValueError("settings.json: unknown preset %r (presets: %s)" % (preset, ", ".join(presets)))
+    return dict(deep_merge(presets[preset], own.get("overrides") or {}), preset=preset)
+
+
 def game_json(name):
     """One of the game's own JSON files, unmerged (for validation)."""
     return _json(game_dir() / name)

@@ -18,7 +18,11 @@
   },
   "currency": "coins",
   "tagline": "a CodeRPG adventure",
-  "tabs": ["here", "map", "journal"],
+  "tabs": [
+    "here",
+    "map",
+    "journal"
+  ],
   "tab_labels": {
     "here": "Here",
     "map": "Map",
@@ -31,35 +35,104 @@
   },
   "phrases": {
     "idle": [
-      "The tale unfolds", "Turning the page", "Ink scratches on parchment", "Fate shuffles its cards",
+      "The tale unfolds",
+      "Turning the page",
+      "Ink scratches on parchment",
+      "Fate shuffles its cards",
       "The story weighs your words"
     ],
     "by_command": {
-      "look": ["Taking in the scene", "Looking about"],
-      "move": ["On the move", "The way unwinds"],
-      "take": ["Reaching out", "Picking it up"],
-      "drop": ["Setting it down"],
-      "gain": ["Hands exchange", "A deal is struck"],
-      "lose": ["Hands exchange", "Letting it go"],
-      "equip": ["Testing the grip"],
-      "use": ["Bracing yourself"],
-      "check": ["Fate weighs your chances", "The dice are cast"],
-      "roll": ["The dice are cast"],
-      "attack": ["Blows are traded", "The fight is on"],
-      "hurt": ["Pain flares"],
-      "heal": ["Warmth returns"],
-      "coins": ["Counting coins"],
-      "flag": ["The story turns"],
-      "remember": ["A memory settles"],
-      "newgame": ["Setting the stage", "The curtain rises"],
-      "npc-brief": ["Someone gathers their thoughts"],
-      "world-brief": ["The world takes shape", "Something stirs at the edge of the map"],
-      "generate": ["Something takes shape"],
-      "world-turn": ["Time passes off-screen", "Elsewhere, the world stirs"],
-      "show": ["Recalling the place"],
-      "note": ["Committing it to memory"],
-      "chronicle": ["The tale is written down"],
-      "game": ["Turning to another tale"]
+      "look": [
+        "Taking in the scene",
+        "Looking about"
+      ],
+      "move": [
+        "On the move",
+        "The way unwinds"
+      ],
+      "take": [
+        "Reaching out",
+        "Picking it up"
+      ],
+      "drop": [
+        "Setting it down"
+      ],
+      "gain": [
+        "Hands exchange",
+        "A deal is struck"
+      ],
+      "lose": [
+        "Hands exchange",
+        "Letting it go"
+      ],
+      "equip": [
+        "Testing the grip"
+      ],
+      "use": [
+        "Bracing yourself"
+      ],
+      "check": [
+        "Fate weighs your chances",
+        "The dice are cast"
+      ],
+      "roll": [
+        "The dice are cast"
+      ],
+      "attack": [
+        "Blows are traded",
+        "The fight is on"
+      ],
+      "hurt": [
+        "Pain flares"
+      ],
+      "heal": [
+        "Warmth returns"
+      ],
+      "coins": [
+        "Counting coins"
+      ],
+      "flag": [
+        "The story turns"
+      ],
+      "remember": [
+        "A memory settles"
+      ],
+      "newgame": [
+        "Setting the stage",
+        "The curtain rises"
+      ],
+      "npc-brief": [
+        "Someone gathers their thoughts"
+      ],
+      "world-brief": [
+        "The world takes shape",
+        "Something stirs at the edge of the map"
+      ],
+      "generate": [
+        "Something takes shape"
+      ],
+      "world-turn": [
+        "Time passes off-screen",
+        "Elsewhere, the world stirs"
+      ],
+      "show": [
+        "Recalling the place"
+      ],
+      "note": [
+        "Committing it to memory"
+      ],
+      "chronicle": [
+        "The tale is written down"
+      ],
+      "game": [
+        "Turning to another tale"
+      ]
     }
+  },
+  "resource": {
+    "name": "Energy",
+    "icon": "✦",
+    "low": "You feel your energy flagging.",
+    "spent": "You're spent. The world grows quiet around you until you return."
   }
 }

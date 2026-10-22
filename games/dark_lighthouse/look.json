@@ -4,15 +4,42 @@
   },
   "phrases": {
     "idle": [
-      "The tale unfolds", "Turning the page", "Ink scratches on parchment", "The candle gutters",
-      "The sea wind whispers", "Gulls cry overhead", "Fate shuffles its cards", "The story weighs your words",
-      "Waves hush against the quay", "A lantern sways"
+      "The tale unfolds",
+      "Turning the page",
+      "Ink scratches on parchment",
+      "The candle gutters",
+      "The sea wind whispers",
+      "Gulls cry overhead",
+      "Fate shuffles its cards",
+      "The story weighs your words",
+      "Waves hush against the quay",
+      "A lantern sways"
     ],
     "by_command": {
-      "move": ["Footsteps on the stones", "On the move", "The road unwinds"],
-      "use": ["Uncorking the bottle", "Bracing yourself"],
-      "attack": ["Steel meets steel", "Blows are traded", "The fight is on"],
-      "world-turn": ["Time passes off-screen", "The village talks"]
+      "move": [
+        "Footsteps on the stones",
+        "On the move",
+        "The road unwinds"
+      ],
+      "use": [
+        "Uncorking the bottle",
+        "Bracing yourself"
+      ],
+      "attack": [
+        "Steel meets steel",
+        "Blows are traded",
+        "The fight is on"
+      ],
+      "world-turn": [
+        "Time passes off-screen",
+        "The village talks"
+      ]
     }
+  },
+  "resource": {
+    "name": "Lamp oil",
+    "icon": "☼",
+    "low": "Your lamp is guttering; the oil won't last much longer.",
+    "spent": "Your lamp has burned dry. The night closes in quiet: folk keep to themselves and nothing new stirs until you come back."
   }
 }

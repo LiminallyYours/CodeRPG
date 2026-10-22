@@ -7,7 +7,7 @@ A text RPG that runs inside Claude Code. Claude is the game master, and you type
 2. Type `/newgame`. Add a seed to replay a run exactly (`/newgame ember-4821`), or `daily` for today's world, the same for everyone; the title card shows the date and seed. Type `/game` to see the installed games, and `/game <id>` to switch; each game keeps its own save.
 3. Type actions in plain English, for example "look around", "go to the tavern", "ask Pell about the troll", "attack the troll".
 4. To talk to Claude as a developer instead of the GM, start your message with `ooc:`. Without it, a hook reminds the GM that the message is an in-game action.
-5. Instant commands (no Claude turn, no cost): `/inventory`, `/map`, `/sheet` (reopens the character pane) and `/sound` (turns sound effects on or off).
+5. Instant commands (no Claude turn, no cost): `/inventory`, `/map`, `/sheet` (reopens the character pane), `/sound` (turns sound effects on or off) and `/budget` (what's left to spend, what things cost, and what's switched on).
 
 Two games ship on the kit:
 - **The Dark Lighthouse** (`dark_lighthouse`): a fishing village with a stolen lamp lens. Six rooms, three characters, six items and one quest with three branches.
@@ -21,7 +21,8 @@ CLAUDE.md                     GM role + standing orders (procedure only, no worl
 .claude/skills/game/          /game: list the installed games or switch between them
 .claude/agents/npc.md         the NPC subagent: no tools, sees only the brief it's given
 .claude/agents/world.md       the world subagent: proposes new people/places/items/side quests as JSON
-.claude/hooks/turn_reminder.py  reminds the GM of the turn procedure on every in-game message
+.claude/hooks/turn_reminder.py  on every in-game message: pays the turn's price and reminds the GM of the procedure
+.claude/hooks/session_start.py  refills the meter each time Claude Code is opened here
 .claude/settings.json         lets the GM run rules/rpg.py without permission prompts;
                               makes the GM wait for NPC replies (CLAUDE_CODE_FORK_SUBAGENT=0)
 games/<id>/                   ONE GAME: everything particular to it lives here
@@ -29,18 +30,22 @@ games/<id>/                   ONE GAME: everything particular to it lives here
   rooms/ characters/ items/ quests/ tables/ art/   one file per room, character, item, quest...
   look.json                   its look: colors, stat and tab names, currency, spinner phrases
   balance.json                its rule numbers, laid over the kit's rules/balance.json (optional)
+  settings.json               the owner's cost switches: a preset plus overrides
 rules/                        THE KIT: knows nothing about any particular game
   RULES.md                    the mechanics in plain language
   balance.json                every tunable number (the defaults)
   look.default.json           the default look, which each game's look.json changes
+  presets.json                the owner's presets: thrifty, normal, rich
   dice.py  content.py  rpg.py the code that rolls dice and does the arithmetic
   generate.py                 checks world-agent proposals and turns them into run content
 proposals/                    world-agent JSON waiting to be applied (emptied automatically)
 state/save.json               what has happened in the game being played (created by /newgame)
 state/shelf/<id>.json         the other games' saves, waiting while you play another
 state/active.json             which game is being played
+state/meter.json              what's left to spend this session (shared by every game)
 mod/                          the Claude Code interface mod (Phase 3), loaded with --plugin-dir
-tools/                        check.sh (every automated check), test_rules.py (engine tests) and play.py (drive a live session)
+tools/                        check.sh (every automated check), test_rules.py (engine tests), play.py (drive a live session),
+                              settings.py (the owner's switches; the GM can't run it)
 DEVELOPING.md                 how to work on the game safely: checks, testing, invariants, gotchas
 ```
 
@@ -57,8 +62,29 @@ DEVELOPING.md                 how to work on the game safely: checks, testing, i
 - **What an NPC knows:** `rpg.py npc-brief <id>` builds the NPC's whole world from its character file. That's every section except `## GM only`, plus the `## If` sections that apply now (without the flag names). Then it adds who else is in the scene and the character's **memory of the player**, which is kept in state (`npc_memory`, at most 6 short lines).
 - **Each exchange is one fresh, blocking spawn.** The GM passes the brief, the last few lines of the scene, and what just happened. I tested continuing an agent with SendMessage, and it doesn't wait for the reply, so it can't keep turns in sync. A fresh spawn also means the NPC always sees current state.
 - **NPCs propose, the GM decides.** The NPC replies with `SAY` / `INTENT` / `REMEMBER`. The GM checks each intent against the character file's `## GM only` rules and applies it with `rpg.py`, or doesn't. If an NPC contradicts state, state wins. NPCs have no tools at all (`tools: []`), and they don't load CLAUDE.md, so they can't touch files.
-- **Two agents in one room** can trade lines, up to `npc.exchange_max_lines` (4) per turn. In the starter world this happens in the friendly-troll ending, when Grukk and Ysolde are both in Harbor Square.
+- **Two agents in one room** can trade lines, up to the owner's `npc_agents.lines_per_exchange` (4 in the normal preset) per turn. In the starter world this happens in the friendly-troll ending, when Grukk and Ysolde are both in Harbor Square.
 - **Model:** NPCs run on `sonnet` (set in `.claude/agents/npc.md`). Switch to `haiku` for cheaper, faster, flatter characters.
+
+## What play costs: the meter and the switches
+Every action that spends Claude's tokens drains an in-world resource the player can see: **lamp oil** in the Lighthouse, **power** on the station (each game names and styles its own in `look.json`). It sits in the status band and the pane, warns when it runs low, and refills each time Claude Code is opened in the folder.
+
+| Action | Price (the game's `balance.json`) | When the meter can't pay |
+|---|---|---|
+| a game-master turn | 1 | the turn still happens; play never stops |
+| a character answering through its own agent | 3 | the GM voices them (`[minor, agent resting]`) |
+| generating something new | 4 | it doesn't exist; no `may grow` ways are offered |
+| a world turn | 3 | none falls due; nothing happens off-screen |
+| everything else (rules commands, `ooc:`, slash commands) | free | |
+
+Prices are charged by code where the spending happens, not by the GM: the prompt hook pays for the turn, `npc-brief` for each agent reply and `world-brief` for each generation or world turn. The owner's switches live in each game's `settings.json`, a preset from `rules/presets.json` with overrides:
+
+| Preset | Meter | NPC agents | World turns | Generation |
+|---|---|---|---|---|
+| `thrifty` | 60 | off: the GM voices everyone | off | extras, rooms and items only, 6 per run |
+| `normal` | 100 | on, 4 lines between two per turn | every 5 moves | everything the game allows, 16 per run |
+| `rich` | 200 | on, 6 lines | every 4 moves | everything the game allows, 24 per run |
+
+Change them with `python3 tools/settings.py preset thrifty` or `set npc_agents.characters.grukk false`; `/budget` shows what's in effect. The station overrides one switch: its world turns come every 4 moves.
 
 ## A different game every run
 The authored world is fixed, but each run varies within limits the content sets, and the world can grow during play. This replaced the original rule "never invent anything": nothing is invented freely, but the **world agent** may propose new things that the rules script checks and stores.
@@ -74,7 +100,7 @@ The authored world is fixed, but each run varies within limits the content sets,
 | **Extras:** the unnamed dockhand you try to talk to becomes a real, minor person | world agent proposes, `generate.py` checks | `world.md` `generation:` and `## Public knowledge` | `run.characters` and `run.placements` |
 | **New rooms:** off directions the content marks `expand:`, such as the quay steps, the tavern's upstairs or the sheep track | world agent / checks | room `expand:` | `run.rooms` and `run.exits` |
 | **Items, minor characters and side quests:** stats come from the tier tables, never the agent; side quests use only their own `side_<id>_…` flags and can't touch the main quest | world agent / checks | `balance.json` `generation` | `run.items`, `run.characters`, `run.quests` |
-| **World turns:** every 5 moves the world agent adds rumors and moves generated people around | world agent / checks | `balance.json` `world` | `run.rumors` |
+| **World turns:** every few moves (the owner's `world_turns` setting) the world agent adds rumors and moves generated people around | world agent / checks | `settings.json` | `run.rumors` |
 | **Notes and chronicle:** small details the GM established, and one line per significant event | GM, through `rpg.py note` and `chronicle` | | `run.notes`, `run.chronicle` |
 
 **How generation works:**
@@ -82,7 +108,7 @@ The authored world is fixed, but each run varies within limits the content sets,
 2. **Proposal:** the `world` agent (no tools) replies with JSON. The GM saves it to `proposals/`.
 3. **Check:** `rpg.py generate <kind> <file>` validates the proposal and either refuses it with a reason or stores it.
 
-Generated things are then as real as authored ones for the rest of the run: `look` marks them `[generated]`, and `rpg.py show` prints them like a content file. Each run allows 16 generated entities in all. An adventure that wants none sets `generation:` to `no`.
+Generated things are then as real as authored ones for the rest of the run: `look` marks them `[generated]`, and `rpg.py show` prints them like a content file. Each run allows `generation.max_per_run` generated entities in all (16 in the normal preset). An adventure that wants none sets `generation:` to `no`.
 
 ## The interface mod (Phase 3)
 `mod/` is a Claude Code plugin made of function hooks, written in TypeScript and run by Claude Code itself, with nothing to install. It reads `state/save.json` and the rules script's printed output, and it never writes game files. A *play turn* is any turn that doesn't start with `ooc:` and touches the game. In `ooc:` turns, Claude Code looks normal.

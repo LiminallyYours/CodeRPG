@@ -37,7 +37,7 @@ Work out what the player is trying to do, then use the matching command:
 - Run each command once and accept the result. Never re-roll because you didn't like it.
 - **Moving:** use `move` only when the player's words clearly match one open exit, by direction or by the place it leads to. If they're vague ("head into town", "go somewhere warm") or could mean more than one exit, don't move them. Describe the open exits and ask where they want to go.
 - **Don't roll for certain things.** Talking, looking around and walking through an open door need no command, except `move` for walking.
-- **Talking:** `look` marks each character `[minor]` or `[agent]`.
+- **Talking:** `look` marks each character `[minor]` or `[agent]`. `[minor, agent resting]` means the character normally has an agent, but it is quiet right now (the owner's settings, or the meter is spent): treat it as `[minor]`. Their memory of the player is at the end of `rpg.py show characters <id>`.
   - **[minor]:** you speak as the character yourself, in the voice their file describes. Share only what their file allows under the current flags (the `## If` sections that hold), and hold trades to the prices in their file.
   - **[agent]:** the character speaks through their own subagent. Follow **Agent characters** below.
 - When the player tries several things in one message, resolve them in order and stop at the first one that fails, or that a character would interrupt.
@@ -55,6 +55,7 @@ Work out what the player is trying to do, then use the matching command:
   - **`CLOCK:`** time is running out, or the clocked event has just happened. Say so, from the content's `## If` sections for the clock's flag.
   - **`WORLD TURN DUE`:** run the world turn (see **Filling gaps**) before you write the narration. Don't mention it.
 - Let `TIME AND WEATHER` colour descriptions.
+- `METER:` in `look` is what play costs, in the game's own terms. Never mention it, except once when `look` reports `METER LOW` or `METER SPENT`: then let that line's text show lightly, in the story.
 - End with a light prompt, such as what's in front of them or who is waiting for an answer. Don't list menu options.
 
 ## 5. Write state
@@ -77,6 +78,8 @@ Use this whenever the player speaks to, gives something to, or otherwise deals w
 ## Spawning an NPC
 Each time the character needs to respond, spawn a **fresh** `npc` subagent with the Agent tool: `subagent_type: "npc"` and `run_in_background: false`. Wait for its reply. Don't use SendMessage to continue an NPC, because a fresh spawn each time is how it stays in step with state.
 
+If `npc-brief` refuses because the character speaks through you right now, voice them yourself as for `[minor]` and spawn nothing.
+
 Its prompt has exactly these three parts:
 1. **Brief:** the verbatim output of `python3 rules/rpg.py npc-brief <id>`. Run it again for every spawn, since flags may have changed. Never add facts of your own to it.
 2. **The scene so far:** the last few lines of this scene, at most about 8, written as `Player: …` / `<Name>: …` / `(action)`. Write "(the scene just began)" if there are none. A scene ends when the player leaves the room.
@@ -93,13 +96,13 @@ Its prompt has exactly these three parts:
 ## Two agent characters in one scene
 When two `[agent]` characters are present and the moment naturally involves both, they may exchange lines. That happens when the player addresses both, or when one reacts to the other.
 - Relay each line to the other character by spawning their `npc` with "What just happened: `<Name>` says: …".
-- Each NPC reply counts as one line. Allow at most `npc.exchange_max_lines` lines per turn (see `rules/balance.json`), counting the first response to the player. Then stop and hand the scene back to the player.
+- Each NPC reply counts as one line. Allow at most the number `look` gives as `AGENT LINES PER TURN`, counting the first response to the player. Then stop and hand the scene back to the player.
 - Check every INTENT and REMEMBER from these lines the same way as above.
 
 ---
 
 # Filling gaps
-The game's `generation:` policy (in `rpg.py show world`) says what may be created during a run. When the player reaches for something the content doesn't have, use the matching case below. If that kind isn't allowed, it doesn't exist.
+The game's `generation:` policy (in `rpg.py show world`) says what may be created during a run. When the player reaches for something the content doesn't have, use the matching case below. If that kind isn't allowed, it doesn't exist. `world-brief` also refuses when the owner has switched that kind off or the meter is spent; then, too, the thing doesn't exist.
 
 | The player… | Do this |
 |---|---|

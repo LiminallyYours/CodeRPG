@@ -30,7 +30,9 @@ ROOT = Path(__file__).resolve().parent.parent
 SAVE = ROOT / "state" / "save.json"
 SHELF = ROOT / "state" / "shelf"
 ACTIVE = ROOT / "state" / "active.json"
+METER = ROOT / "state" / "meter.json"
 BALANCE = {}  # the active game's rule numbers; set by choose_game()
+SETTINGS = {}  # the owner's switches for the active game (preset + overrides); set by choose_game()
 STATE_VERSION = 7
 OLDEST_VERSION = 7  # older saves are from before the game kit and aren't upgraded
 STATS = ("might", "agility", "wits")
@@ -89,9 +91,68 @@ def active_game():
 
 
 def choose_game(ident):
-    global BALANCE
+    global BALANCE, SETTINGS
     content.use_game(ident)
     BALANCE = content.balance()
+    try:
+        SETTINGS = content.settings()
+    except ValueError:
+        SETTINGS = dict(content.kit_presets()["normal"], preset="normal")  # validate reports the bad file
+
+
+# ---------------------------------------------------------------- the meter: what play costs
+# Every kind of action that spends Claude's tokens has a price (the game's balance.json `meter.prices`);
+# the owner's settings give the capacity. It refills each time Claude Code is opened in the folder
+# (`meter refill`, from the SessionStart hook). When it can't pay for something, that thing falls back
+# to its cheap form: agents fall quiet and the game master voices them, nothing new is generated, and
+# world turns stop. Play itself never stops. It lives outside every save, so it carries across games.
+
+def resource():
+    return content.look()["resource"]
+
+
+def meter():
+    cap = int(SETTINGS["meter"]["capacity"])
+    data = read_json(METER)
+    left = data.get("left", cap) if isinstance(data, dict) else cap
+    return {"left": max(0, min(cap, int(left))), "capacity": cap}
+
+
+def price(kind):
+    prices = BALANCE["meter"]["prices"]
+    if kind not in prices:
+        raise Refused("no price for %r (kinds: %s)" % (kind, ", ".join(prices)))
+    return int(prices[kind])
+
+
+def can_pay(kind):
+    return meter()["left"] >= price(kind)
+
+
+def charge(kind):
+    """Take the price of one `kind` of action from the meter. It never goes below 0."""
+    m = meter()
+    left = max(0, m["left"] - price(kind))
+    write_json(METER, {"left": left})
+    return left
+
+
+def meter_state(m=None):
+    m = m or meter()
+    low = m["left"] * 100 <= m["capacity"] * BALANCE["meter"]["low_at_percent"]
+    return "spent" if m["left"] == 0 else "low" if low else "ok"
+
+
+def agents_resting(ident):
+    """Why a non-minor character can't speak through its own agent right now, or None if it can."""
+    agents = SETTINGS["npc_agents"]
+    if not agents["on"]:
+        return "the owner has the game master voice every character"
+    if not agents["characters"].get(ident, True):
+        return "the owner has the game master voice this character"
+    if not can_pay("npc"):
+        return "the %s is spent" % resource()["name"].lower()
+    return None
 
 
 # ---------------------------------------------------------------- the world: content + this run
@@ -132,8 +193,10 @@ def world():
 
 
 def policy():
+    """What may be generated now: the content allows it and the owner's settings switch it on."""
     gen = world().get("generation") or {}
-    return {k: str(gen.get(k, "no")).lower() == "yes" for k in GEN_KINDS}
+    owner = SETTINGS["generation"]
+    return {k: str(gen.get(k, "no")).lower() == "yes" and owner["on"] and owner["kinds"].get(k, False) for k in GEN_KINDS}
 
 
 # ---------------------------------------------------------------- state I/O
@@ -260,8 +323,24 @@ def refresh_view(state):
         "time": time_of_day(state),
         "weather": run.get("weather"),
         "clock": {"name": clock["name"], "left": clock["left"], "total": clock["total"]} if clock else None,
+        "meter": dict(meter(), state=meter_state()),
+        "settings": settings_view(),
         "chronicle": run["chronicle"][-BALANCE["world"]["chronicle_lines"]:],
         "rumors": run["rumors"][-BALANCE["world"]["rumors_kept"]:],
+    }
+
+
+def settings_view():
+    """The owner's switches and what each action costs, as /budget shows them."""
+    agents, turns, gen = SETTINGS["npc_agents"], SETTINGS["world_turns"], SETTINGS["generation"]
+    return {
+        "preset": SETTINGS["preset"],
+        "capacity": SETTINGS["meter"]["capacity"],
+        "prices": dict(BALANCE["meter"]["prices"]),
+        "npc_agents": {"on": agents["on"], "lines_per_exchange": agents["lines_per_exchange"],
+                       "off_for": sorted(c for c, on in agents["characters"].items() if not on)},
+        "world_turns": {"on": turns["on"], "every_moves": turns["every_moves"]},
+        "generation": {"on": gen["on"], "max_per_run": gen["max_per_run"], "kinds": [k for k, on in policy().items() if on]},
     }
 
 
@@ -490,11 +569,13 @@ def tick_move(state):
                 out.append("CLOCK: and since %s, flag set: %s" % (clock["also_if"], clock["also_flag"]))
         elif clock["left"] <= 3:
             out.append("CLOCK: %s in %s" % (clock["name"], moves_text(clock["left"])))
-    if run["moves"] % BALANCE["world"]["turn_every_moves"] == 0:
-        run["world_turn_due"] = True
+    if run["moves"] % BALANCE["world"]["weather_every_moves"] == 0:
         weathers = world().get("weather") or []
         if weathers:
             run["weather"] = pick(weathers)
+    turns = SETTINGS["world_turns"]
+    if turns["on"] and run["moves"] % max(1, int(turns["every_moves"])) == 0 and can_pay("world_turn"):
+        run["world_turn_due"] = True
         out.append("WORLD TURN DUE: run `rpg.py world-brief turn` and spawn the world agent (see gm-turn)")
     return out
 
@@ -587,6 +668,13 @@ def cmd_look(args):
     if run.get("clock"):
         c = run["clock"]
         print("CLOCK STATUS: %s" % (("%s in %s" % (c["name"], moves_text(c["left"]))) if c["left"] else "%s: it has happened" % c["name"]))
+    m, res = meter(), resource()
+    print("METER: %s %d/%d" % (res["name"], m["left"], m["capacity"]))
+    if meter_state(m) == "low":
+        print("METER LOW: %s (you may let it show once, lightly, in the story)" % res["low"])
+    elif meter_state(m) == "spent":
+        print("METER SPENT: %s Every character is yours to voice and nothing new can be generated until the next session."
+              % res["spent"])
     for d, target in (room.get("exits") or {}).items():
         dest, cond = content.split_condition(target)
         name = ent("rooms", dest).get("name", dest) if ent_exists("rooms", dest) else dest
@@ -594,13 +682,16 @@ def cmd_look(args):
             print("  exit %s -> %s" % (d, name))
         else:
             print("  exit %s -> %s [BLOCKED: needs %s]" % (d, name, cond))
-    if policy()["rooms"] and unused_expansions(room):
+    if policy()["rooms"] and can_pay("generate") and unused_expansions(room):
         print("  may grow: %s (a new place can be generated there if the player goes that way)" % ", ".join(unused_expansions(room)))
     here = state["room_items"].get(room["id"], [])
     print("ITEMS HERE: %s" % (", ".join(i + (" [generated]" if is_generated("items", i) else "") for i in here) or "none"))
-    chars = ["%s [%s%s]" % (c, "minor" if is_minor(c) else "agent", ", generated" if is_generated("characters", c) else "")
-             for c in characters_here(state)]
+    here = characters_here(state)
+    voice = {c: "minor" if is_minor(c) else "minor, agent resting" if agents_resting(c) else "agent" for c in here}
+    chars = ["%s [%s%s]" % (c, voice[c], ", generated" if is_generated("characters", c) else "") for c in here]
     print("CHARACTERS HERE: %s" % (", ".join(chars) or "none"))
+    if sum(1 for v in voice.values() if v == "agent") >= 2:
+        print("AGENT LINES PER TURN: at most %d between them" % SETTINGS["npc_agents"]["lines_per_exchange"])
     notes = run["notes"].get(room["id"], [])
     if notes:
         print("ESTABLISHED HERE: %s" % " | ".join(notes))
@@ -859,6 +950,10 @@ def cmd_npc_brief(args):
         raise Refused("%s is not in this scene" % ident)
     if is_minor(ident):
         raise Refused("%s is a minor character; the game master plays them directly" % ident)
+    why = agents_resting(ident)
+    if why:
+        raise Refused("%s speaks through you right now (%s). Voice them yourself from `rpg.py show characters %s`, "
+                      "as for a [minor] character." % (ident, why, ident))
     ch = ent("characters", ident)
     flags = condition_flags(state)
     lines = ["You are %s, %s." % (ch.get("name", ident), ch.get("role", "a character in this world")), ""]
@@ -885,6 +980,8 @@ def cmd_npc_brief(args):
     memory = state["npc_memory"].get(ident, [])
     lines.append("## What you remember about the player")
     lines += ["- " + m for m in memory] if memory else ["You have never met this person before."]
+    charge("npc")
+    save_state(state)
     print("\n".join(l for l in lines).strip())
 
 
@@ -923,9 +1020,10 @@ def cmd_show(args):
     """show <kind> <id> [--all] | show world: a room, character, item, quest or table as it reads now.
     Authored or generated alike; `## If` sections that don't hold are left out unless --all."""
     try:
-        flags = condition_flags(load_state())
+        state = load_state()
+        flags = condition_flags(state)
     except Refused:
-        flags = None  # no game yet: everything is shown
+        state, flags = None, None  # no game yet: everything is shown
     if "--all" in args:
         flags = None
         args = [a for a in args if a != "--all"]
@@ -940,12 +1038,14 @@ def cmd_show(args):
     kind, ident = args[0], args[1]
     if kind not in content.KINDS:
         raise Refused("kind must be one of %s, or world" % ", ".join(content.KINDS))
+    memory = (state or {}).get("npc_memory", {}).get(ident, []) if kind == "characters" else []
+    remembered = ("\n\n## What they remember about the player\n" + "\n".join("- " + m for m in memory)) if memory else ""
     if content.exists(kind, ident):
         text = content.path_of(kind, ident).read_text(encoding="utf-8").strip()
         if text.startswith("---") and "\n---" in text[3:]:
             head, body = text[3:].split("\n---", 1)
             text = "---" + head + "\n---\n" + (body.strip() if flags is None else applicable(body.strip(), flags))
-        print(text)
+        print(text + remembered)
         return
     e = ent(kind, ident)
     meta = {k: v for k, v in e.items() if k not in ("id", "body")}
@@ -962,7 +1062,7 @@ def cmd_show(args):
         else:
             print("%s: %s" % (k, v))
     print("---")
-    print(e["body"] if flags is None else applicable(e["body"], flags))
+    print((e["body"] if flags is None else applicable(e["body"], flags)) + remembered)
 
 
 def gen_context(state):
@@ -973,7 +1073,8 @@ def gen_context(state):
     run = state["run"]
     return generate.Context(
         location=state["location"], taken_ids=ids, taken_names=names, expand=unused_expansions(room),
-        policy=policy(), balance=BALANCE["generation"], count=run["generated"],
+        policy=policy(), balance=dict(BALANCE["generation"], max_per_run=SETTINGS["generation"]["max_per_run"]),
+        count=run["generated"],
         items_found_here=sum(1 for i in here_items if is_generated("items", i)),
         extras_here=sum(1 for c in run["placements"].get(state["location"], [])
                         if ent("characters", c).get("extra") == "yes"),
@@ -1048,7 +1149,7 @@ def cmd_generate(args):
         print("  placed in %s: %s" % (room, ", ".join(items)))
     for room, people in patch["placements"].items():
         print("  present in %s: %s" % (room, ", ".join(people)))
-    print("Read them with `rpg.py show <kind> <id>`. Run total: %d/%d" % (state["run"]["generated"], BALANCE["generation"]["max_per_run"]))
+    print("Read them with `rpg.py show <kind> <id>`. Run total: %d/%d" % (state["run"]["generated"], SETTINGS["generation"]["max_per_run"]))
 
 
 def cmd_note(args):
@@ -1087,7 +1188,14 @@ def cmd_world_brief(args):
     pol = policy()
     if request != "turn" and not pol[{"extra": "extras", "room": "rooms", "item": "items",
                                       "character": "characters", "quest": "side_quests"}[request]]:
-        raise Refused("this adventure does not allow generated %ss" % request)
+        raise Refused("no new %ss can appear in this game (its content or the owner's settings rule them out): "
+                      "it doesn't exist" % request)
+    if request == "turn" and not SETTINGS["world_turns"]["on"]:
+        raise Refused("world turns are off in this game's settings; nothing happens off-screen")
+    cost = "world_turn" if request == "turn" else "generate"
+    if not can_pay(cost):
+        raise Refused("the %s is spent until the next session, so nothing new turns up: it doesn't exist"
+                      % resource()["name"].lower())
     w = world()
     room = room_here(state)
     if request == "room" and not unused_expansions(room):
@@ -1156,6 +1264,8 @@ def cmd_world_brief(args):
                 'JSON: {"id": "...", "name": "...", "giver": "<id>", "summary": "...",',
                 '       "objectives": [{"text": "...", "done_when": "side_<id>_<word>"}], "reward": {"coins": 2, "item": null}}']
     out += ["", "Reply with the JSON object only."]
+    charge(cost)
+    save_state(state)
     print("\n".join(out))
 
 
@@ -1208,6 +1318,22 @@ def validate_game():
             problems.append("%s: not valid JSON (%s)" % (name, e))
             continue
         unknown_keys(data, base, name, problems)
+    presets = content.kit_presets()
+    try:
+        own = content.game_json("settings.json")
+    except ValueError as e:
+        own = {}
+        problems.append("settings.json: not valid JSON (%s)" % e)
+    unknown_keys(own, {"preset": "", "overrides": {}}, "settings.json", problems)
+    if own.get("preset", "normal") not in presets:
+        problems.append("settings.json: unknown preset %r (presets: %s)" % (own.get("preset"), ", ".join(presets)))
+    overrides = own.get("overrides") or {}
+    unknown_keys(overrides, presets["normal"], "settings.json overrides", problems)
+    for c in ((overrides.get("npc_agents") or {}).get("characters") or {}):
+        if not content.exists("characters", c):
+            problems.append("settings.json npc_agents characters: unknown character %r" % c)
+        elif str(content.load("characters", c).get("minor", "no")).lower() == "yes":
+            problems.append("settings.json npc_agents characters: %r is minor, so it never has an agent" % c)
     look = content.look()
     for t in look.get("tabs") or []:
         if t not in ("here", "map", "journal"):
@@ -1326,6 +1452,59 @@ def cmd_validate(args):
         sys.exit(1)
 
 
+# ---------------------------------------------------------------- the meter and the owner's switches
+
+def resave_view():
+    """After the meter moves, refresh the save's view so the interface shows it (when there's a save)."""
+    try:
+        state = load_state()
+    except Refused:
+        return
+    save_state(state)
+
+
+def meter_line():
+    m, res = meter(), resource()
+    return "%s %d/%d" % (res["name"], m["left"], m["capacity"])
+
+
+def cmd_spend(args):
+    """spend <kind>: take the price of one action of that kind from the meter (the hooks call this)."""
+    price(args[0])  # refuse an unknown kind before touching anything
+    charge(args[0])
+    resave_view()
+    print("SPENT %s (%d): %s" % (args[0], price(args[0]), meter_line()))
+    if meter_state() == "spent":
+        print("METER SPENT: %s" % resource()["spent"])
+
+
+def cmd_meter(args):
+    """meter [refill]: the meter, or fill it to capacity (the SessionStart hook does this)."""
+    if args and args[0] == "refill":
+        write_json(METER, {"left": meter()["capacity"]})
+        resave_view()
+        print("REFILLED: %s" % meter_line())
+        return
+    if args:
+        raise Refused("use: meter | meter refill")
+    print("METER: %s (%s)" % (meter_line(), meter_state()))
+
+
+def cmd_settings(args):
+    """settings: the owner's switches for this game and what each action costs. Change them with tools/settings.py."""
+    v = settings_view()
+    on = lambda b: "on" if b else "off"  # noqa: E731
+    print("GAME: %s, preset %s" % (content.game_id(), v["preset"]))
+    print("METER: %s; refills each time Claude Code is opened here" % meter_line())
+    print("PRICES: %s" % ", ".join("%s %d" % kv for kv in v["prices"].items()))
+    a = v["npc_agents"]
+    print("NPC AGENTS: %s, up to %d lines between two per turn%s" % (
+        on(a["on"]), a["lines_per_exchange"], "; game master voices %s" % ", ".join(a["off_for"]) if a["off_for"] else ""))
+    print("WORLD TURNS: %s, every %s" % (on(v["world_turns"]["on"]), moves_text(v["world_turns"]["every_moves"])))
+    g = v["generation"]
+    print("GENERATION: %s, at most %d per run; kinds: %s" % (on(g["on"]), g["max_per_run"], ", ".join(g["kinds"]) or "none"))
+
+
 # ---------------------------------------------------------------- games: list, show, switch
 
 def shelved(ident):
@@ -1409,6 +1588,9 @@ COMMANDS = {
     "chronicle": (cmd_chronicle, 1, "chronicle <text>   add a line to the story so far"),
     "validate": (cmd_validate, 0, "validate [--game <id>]   check every game's content references and settings"),
     "game": (cmd_game, 0, "game [list | show | switch <id>]   the installed games; switching keeps each one's save"),
+    "spend": (cmd_spend, 1, "spend <kind>   take one action's price from the meter (the hooks call this)"),
+    "meter": (cmd_meter, 0, "meter [refill]   the meter, or fill it (the SessionStart hook refills it)"),
+    "settings": (cmd_settings, 0, "settings   the owner's switches and prices for this game (change: tools/settings.py)"),
 }
 
 

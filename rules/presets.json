@@ -1,0 +1,77 @@
+{
+  "thrifty": {
+    "meter": {
+      "capacity": 60
+    },
+    "npc_agents": {
+      "on": false,
+      "lines_per_exchange": 2,
+      "characters": {}
+    },
+    "world_turns": {
+      "on": false,
+      "every_moves": 8
+    },
+    "generation": {
+      "on": true,
+      "max_per_run": 6,
+      "kinds": {
+        "extras": true,
+        "rooms": true,
+        "items": true,
+        "characters": false,
+        "side_quests": false
+      }
+    }
+  },
+  "normal": {
+    "meter": {
+      "capacity": 100
+    },
+    "npc_agents": {
+      "on": true,
+      "lines_per_exchange": 4,
+      "characters": {}
+    },
+    "world_turns": {
+      "on": true,
+      "every_moves": 5
+    },
+    "generation": {
+      "on": true,
+      "max_per_run": 16,
+      "kinds": {
+        "extras": true,
+        "rooms": true,
+        "items": true,
+        "characters": true,
+        "side_quests": true
+      }
+    }
+  },
+  "rich": {
+    "meter": {
+      "capacity": 200
+    },
+    "npc_agents": {
+      "on": true,
+      "lines_per_exchange": 6,
+      "characters": {}
+    },
+    "world_turns": {
+      "on": true,
+      "every_moves": 4
+    },
+    "generation": {
+      "on": true,
+      "max_per_run": 24,
+      "kinds": {
+        "extras": true,
+        "rooms": true,
+        "items": true,
+        "characters": true,
+        "side_quests": true
+      }
+    }
+  }
+}

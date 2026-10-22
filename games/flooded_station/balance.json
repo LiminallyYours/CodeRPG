@@ -1,5 +1,3 @@
 {
-  "world": {
-    "turn_every_moves": 4
-  }
+  "carry_base": 6
 }

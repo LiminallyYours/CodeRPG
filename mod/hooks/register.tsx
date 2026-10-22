@@ -200,6 +200,35 @@ function itemsOf(s: CoderpgSave): { id: string; name: string; equipped: boolean 
   return s.inventory.map(id => ({ id, name: pretty(id), equipped: id === s.equipped }))
 }
 
+/** What each kind of action is, in the player's words, for /budget. */
+const PRICE_NAMES: Record<string, string> = {
+  turn: 'each turn', npc: 'a character answering in their own voice', generate: 'something new appearing',
+  world_turn: 'the world moving on by itself',
+}
+
+/** The meter's color: plain while there's plenty, then the warning and danger colors. */
+function meterColor(state: string | undefined, look: CoderpgLook): string | undefined {
+  return state === 'spent' ? look.palette.bad : state === 'low' ? look.palette.warn : undefined
+}
+
+/** /budget: what's left, what things cost, and which of the owner's switches are on. */
+export function budgetText(s: CoderpgSave): string {
+  const look = lookOf(s)
+  const m = s.view?.meter, v = s.view?.settings
+  if (!m || !v) return 'Nothing to show yet. Make a move first.'
+  const r = look.resource
+  const on = (b: boolean) => (b ? 'on' : 'off')
+  const prices = Object.entries(v.prices).filter(([k, n]) => n > 0 && PRICE_NAMES[k]).map(([k, n]) => `${PRICE_NAMES[k]} ${n}`)
+  return [
+    `**${r.icon} ${r.name}:** ${m.left}/${m.capacity}${m.state === 'spent' ? ' (spent)' : m.state === 'low' ? ' (running low)' : ''}. It refills each time you open Claude Code here.`,
+    `**What things cost:** ${prices.join(' · ')}. Everything else is free.`,
+    `**Characters' own voices:** ${on(v.npc_agents.on)}, up to ${v.npc_agents.lines_per_exchange} lines between two per turn${v.npc_agents.off_for.length ? `; voiced by the storyteller: ${v.npc_agents.off_for.join(', ')}` : ''}.`,
+    `**The world moving on by itself:** ${on(v.world_turns.on)}, every ${v.world_turns.every_moves} moves.`,
+    `**New things appearing:** ${on(v.generation.on && v.generation.kinds.length > 0)}, up to ${v.generation.max_per_run} per game${v.generation.kinds.length ? ` (${v.generation.kinds.join(', ').replace(/_/g, ' ')})` : ''}.`,
+    `*Preset: ${v.preset}. The owner changes these with \`python3 tools/settings.py\`.*`,
+  ].join('\n\n')
+}
+
 function inventoryText(s: CoderpgSave): string {
   const lines = itemsOf(s).map(it => `- ${it.name}${it.equipped ? ' *(equipped)*' : ''}`)
   const weight = s.view ? ` (weight ${s.view.weight}/${s.view.carry_limit})` : ''
@@ -281,6 +310,7 @@ export const register: Register = on => {
     await $.command.register({ name: 'map', description: 'CodeRPG: show the map and exits (instant, no turn)', immediate: true })
     await $.command.register({ name: 'sheet', description: 'CodeRPG: open the character pane', immediate: true })
     await $.command.register({ name: 'sound', description: 'CodeRPG: turn sound effects on or off', immediate: true })
+    await $.command.register({ name: 'budget', description: 'CodeRPG: what is left to spend, what things cost, and what is switched on', immediate: true })
 
     const stored = await $.store.get('muted').catch(() => undefined)
     if (stored === true) await update($, muted, () => true)
@@ -556,6 +586,8 @@ export const register: Register = on => {
         <Text color={hpColor(s.stats.hp, s.stats.max_hp, look)}>♥ {s.stats.hp}/{s.stats.max_hp}</Text>
         {sep}
         <Text>{money(s.stats.coins, look)}</Text>
+        {s.view?.meter ? sep : null}
+        {s.view?.meter ? <Text color={meterColor(s.view.meter.state, look)}>{look.resource.icon} {s.view.meter.left}</Text> : null}
         {clock ? sep : null}
         {clock ? <Text color={clock.left <= 3 ? look.palette.bad : undefined}>⧗ {clock.left > 0 ? clock.left : '!'}</Text> : null}
         {s.view?.time ? sep : null}
@@ -617,6 +649,12 @@ export const register: Register = on => {
         '```',
       ].join('\n'),
     }
+  })
+
+  on('command.run', { command: 'budget' }, async $ => {
+    await refresh($)
+    const s = await read($, save)
+    return { text: s ? budgetText(s) : 'No game yet. Type /newgame to start.' }
   })
 
   on('command.run', { command: 'sheet' }, async $ => {
@@ -716,6 +754,8 @@ export const register: Register = on => {
           { text: `    ${look.stat_short.wits} `, dim: true }, { text: signed(wits) },
         ])}
         {frameRow([{ text: '◎ ', color: accent }, { text: money(coins, look) }])}
+        {s.view?.meter && barRow({ text: `${look.resource.icon} ${look.resource.name} `, color: meterColor(s.view.meter.state, look) ?? accent },
+          s.view.meter.left, s.view.meter.capacity, meterColor(s.view.meter.state, look) ?? accent, false)}
         {clockRows}
         <Text dimColor>{'╰' + '─'.repeat(Math.max(0, frameW - 2)) + '╯'}</Text>
       </Box>
