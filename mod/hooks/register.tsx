@@ -10,19 +10,27 @@
 // Nothing here knows a particular game: colors, labels, tabs and phrases come from the game's look in the save.
 
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { ClientProps, ElementConstructor, EngineInterface, Register } from 'claude-code'
 
-import type { CoderpgLook, CoderpgSave, CoderpgStory } from '../types'
+import type { CoderpgLook, CoderpgPhase, CoderpgSave, CoderpgStory } from '../types'
 import { feedback } from './feedback'
-import { lookOf, money, tabsOf } from './look'
-import { drawKey, drawMap, exitsOf, keyText, mapText, usesUpDown } from './map'
-import { commandPhrase, idlePhrase, npcPhrase } from './phrases'
-import { rpgCommand, TRAY_COMMANDS, trayLines, traySound } from './tray'
-import type { TrayLine } from './tray'
+import { accentOf, lookOf, money, phasePhrase, soundFor, tabsOf } from './look'
+import { exitsOf, keyText, mapText, usesUpDown } from './map'
+import { commandPhrase, idlePhrase, npcPhrase, phaseOf } from './phrases'
+import type { Seg } from './reveal'
+import { bannerRows, endingRows, paragraphsOf, spaced, speakerOf, titleRows } from './story'
+import { combatOf, rpgCommand, TRAY_COMMANDS, trayLines, traySound } from './tray'
+import type { CombatSide, TrayLine } from './tray'
+import { stripAt, FX_MS } from './trayfx'
+import { runsOf, tileGrid } from './tiles'
+
+export { spaced }
 
 const SAVE_PATH = 'state/save.json'
 const PANE = 'coderpg-sheet'
 const FLASH_MS = 1600
+const FRESH_MS = 1500 // a story card or tray this new still animates; older ones are drawn still
+const DOCKED_PANE = 46 // about how wide the docked pane is, when the transcript shares the screen with it
 
 const save = atom({ plugin: 'coderpg', key: 'save' } as const, null)
 const story = atom({ plugin: 'coderpg', key: 'story' } as const, [])
@@ -148,11 +156,6 @@ export function currentObjective(s: CoderpgSave): string | undefined {
   return undefined
 }
 
-/** "The End" -> "T H E   E N D" for title and ending cards. */
-export function spaced(text: string): string {
-  return text.toUpperCase().split('').join(' ')
-}
-
 function signed(n: number): string {
   return n >= 0 ? `+${n}` : `${n}`
 }
@@ -243,9 +246,45 @@ let lastMtime = -1
 /** When the HP flash ends (clock ms), or 0. */
 let flashUntil = 0
 
-async function sound($: EngineInterface, name: string): Promise<void> {
+async function sound($: EngineInterface, beat: string): Promise<void> {
   if (await read($, muted)) return
+  const name = soundFor(lookOf(await read($, save)), beat)
+  if (!name) return
   await $.audio.play({ asset: `sounds/${name}.wav` }).catch(() => undefined)
+}
+
+/** Clients that failed on a surface, as "requestId key": from then on they're drawn still. */
+const faulted = new Set<string>()
+
+/** Props for a surface module: plain JSON, nothing undefined (a Client's props must be JsonValue). */
+function plain<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T
+}
+
+/** When each fresh tray was drawn, and each fight's two sides, by tool_use_id (this session only). */
+const trayAt = new Map<string, number>()
+const combats = new Map<string, { you?: CombatSide; foe?: CombatSide }>()
+
+/** The clock now, or 0 where there's none to ask: then nothing counts as fresh, and all is drawn still. */
+async function nowMs($: EngineInterface): Promise<number> {
+  return $.clock.now().catch(() => 0)
+}
+
+/** The surface's `Client` element, where it has one (the terminal and the desktop app). */
+function clientOf(elements: object): ElementConstructor<ClientProps> | undefined {
+  return 'Client' in elements ? (elements as { Client: ElementConstructor<ClientProps> }).Client : undefined
+}
+
+/** Rows of styled text drawn still: what reveal.tsx shows once it's done. */
+function drawRows($: EngineInterface, e: Parameters<EngineInterface['ui']['resolve']>[0], rows: Seg[][], align: 'center' | 'left') {
+  const { Box, Text } = $.ui.resolve(e)
+  return (
+    <Box flexDirection="column" alignItems={align === 'center' ? 'center' : 'flex-start'}>
+      {rows.map(r => (
+        <Box flexDirection="row">{r.map(x => <Text color={x.c} backgroundColor={x.bg} bold={x.b} dimColor={x.d}>{x.t || ' '}</Text>)}</Box>
+      ))}
+    </Box>
+  )
 }
 
 /** Re-read the save into $.state when the file changed, and announce what changed. */
@@ -299,6 +338,8 @@ export const register: Register = on => {
   let narrationFrom = 0 // turnKeys index where the text after the turn's last tool call begins
   let usedOtherTools = false // the turn used tools that aren't the game's (real development work)
   let turnActive = false // a game-master turn is running; a prompt typed meanwhile doesn't reset it
+  let phase: CoderpgPhase | undefined // the stage the turn is in, for the waiting line and its chime
+  let lastBrief = '' // the last world-brief's request: a world agent then shapes something, or stirs the world
 
   on('session.start', async ($, e, next) => {
     const result = await next(e)
@@ -332,6 +373,7 @@ export const register: Register = on => {
     turnKeys = []
     narrationFrom = 0
     usedOtherTools = false
+    phase = undefined
     if (isGame) {
       turnStart = await read($, save)
       await update($, activity, () => (isOoc ? null : idlePhrase(seed++, lookOf(turnStart))))
@@ -369,11 +411,18 @@ export const register: Register = on => {
       const title = isNewGame && now ? now.adventure : undefined
       const runLabel = isNewGame ? now?.view?.run_label ?? undefined : undefined
       const mine = new Set(turnKeys)
+      const shownAt = await nowMs($)
+      const accent = accentOf(now)
+      const present = [...(was?.view?.characters_here ?? []), ...(now?.view?.characters_here ?? [])]
+      const cards = present.filter((c, i) => c.card && present.findIndex(x => x.id === c.id) === i).map(c => ({ name: c.name, color: c.card! }))
+      const told = { pending: false, shownAt, accent, ...(cards.length ? { cards } : {}) }
       await update($, story, list => list.map(s =>
         asides.has(s.key) ? { ...s, aside: true, pending: false }
-        : s.key === first ? { ...s, pending: false, ...(banner ? { banner } : {}), ...(title ? { title } : {}), ...(runLabel ? { runLabel } : {}) }
-        : mine.has(s.key) ? { ...s, pending: false }
+        : s.key === first ? { ...s, ...told, ...(banner ? { banner } : {}), ...(title ? { title } : {}), ...(runLabel ? { runLabel } : {}) }
+        : mine.has(s.key) ? { ...s, ...told }
         : s))
+      if (title) void sound($, 'type')
+      else if (banner) void sound($, 'wipe')
       const last = narration[narration.length - 1]
       const before = (id: string) => was?.view?.quests?.find(p => p.id === id)
       const main = (now?.view?.quests ?? []).filter(q => !q.side)
@@ -404,10 +453,22 @@ export const register: Register = on => {
       await update($, hidden, ids => [...ids, e.tool_use_id].slice(-3000))
       if (sub === 'newgame') isNewGame = true
       const agentType = String((e as { subagent_type?: unknown }).subagent_type ?? '')
-      const phrase = e.tool === 'Agent' ? (agentType === 'world' ? 'The world takes shape' : npcPhrase(String((e as { prompt?: unknown }).prompt ?? '')))
-        : sub ? commandPhrase(sub, seed++, lookOf(await read($, save)))
-        : e.tool === 'Read' ? 'Recalling the place' : undefined
+      const command = String((e as { command?: unknown }).command ?? '')
+      const args = /rules\/rpg\.py\s+[a-z-]+\s*(.*)$/.exec(command)?.[1] ?? ''
+      const now = phaseOf(e.tool, sub, args, agentType, lastBrief)
+      if (sub === 'world-brief') lastBrief = args.trim().split(/\s+/)[0] ?? ''
+      const look = lookOf(await read($, save))
+      const name = /^(.+?) considers your words$/.exec(npcPhrase(String((e as { prompt?: unknown }).prompt ?? '')))?.[1]
+      // the phase says which stage the turn is in, in the game's voice; a command's own phrase is more particular
+      const phrase = (now === 'resolving' && sub ? commandPhrase(sub, seed++, look) : undefined)
+        ?? (now ? phasePhrase(look, now, seed++, now === 'considering' ? name : undefined) : undefined)
+        ?? (e.tool === 'Agent' ? (agentType === 'world' ? 'The world takes shape' : npcPhrase(String((e as { prompt?: unknown }).prompt ?? '')))
+          : sub ? commandPhrase(sub, seed++, look) : undefined)
       if (phrase) await update($, activity, () => phrase)
+      if (now && now !== phase) {
+        phase = now
+        void sound($, `phase_${now}`)
+      }
     }
     // The running-agents list shows each Agent call's description ("Generate fisherman extra");
     // in play it gets the in-world phrase instead.
@@ -416,7 +477,13 @@ export const register: Register = on => {
     if (e.tool === 'Bash' && /rules\/rpg\.py/.test(String((e as { command?: unknown }).command))) {
       await refresh($)
       if (isPlay && ran.result !== undefined) {
-        const s = traySound(trayFor('Bash', e, ran.result, lookOf(await read($, save))))
+        const after = await read($, save)
+        const lines = trayFor('Bash', e, ran.result, lookOf(after))
+        if (lines.length) trayAt.set(e.tool_use_id, await nowMs($))
+        const stdout = String((ran.result as { stdout?: unknown } | null)?.stdout ?? '')
+        const fight = combatOf(stdout, after)
+        if (fight) combats.set(e.tool_use_id, fight)
+        const s = traySound(lines)
         if (s) void sound($, s)
       }
     }
@@ -445,8 +512,9 @@ export const register: Register = on => {
     const key = storyKey(e.props.text)
     const entry = (await read($, story)).find(s => s.key === key)
     const { Box, Text, Markdown } = $.ui.resolve(e)
-    const look = lookOf(await read($, save))
-    const accent = look.palette.accent
+    const Client = clientOf($.ui.resolve(e))
+    const s = await read($, save)
+    const look = lookOf(s)
     if (!entry) {
       // still streaming in a play turn: say nothing until the turn is done
       return isGame && !isOoc && (await read($, running)) ? <Box display="none" /> : next(e)
@@ -462,37 +530,49 @@ export const register: Register = on => {
         </Box>
       )
     }
+    const accent = entry.accent ?? accentOf(s)
+    // Fresh cards reveal themselves once (a surface module on the terminal's frame clock); older ones,
+    // and every card on a surface without modules, are drawn still.
+    const now = await nowMs($)
+    const fresh = entry.shownAt !== undefined && now > 0 && now - entry.shownAt < FRESH_MS
+    // the element must be written <Client module="..."> literally: the engine finds modules in the source
+    const reveal = (rows: Seg[][], mode: 'wipe' | 'type' | 'lines', ms: number, align: 'center' | 'left', k: string) =>
+      Client && fresh && !faulted.has(`${e.requestId} ${k}`)
+        ? <Client key={k} module="./reveal.tsx" props={plain({ rows, mode, ms, align })} />
+        : drawRows($, e, rows, align)
+    const columns = e.viewport?.columns ?? 80
+    const room = Math.max(20, columns - (columns >= 144 ? DOCKED_PANE : 0) - 6)
+    const ending = entry.ending ? endingRows(entry.ending, entry.endingQuest, { accent, bad: look.palette.bad }) : undefined
+    const paragraphs = paragraphsOf(stripPreamble(e.props.text))
+    const speakers = paragraphs.map(par => speakerOf(par, entry.cards ?? []))
     return (
       <Box flexDirection="column" marginTop={e.props.isFirstOfReply ? 1 : 0}>
         {entry.title && (
           <Box flexDirection="column" alignItems="center" borderStyle="double" borderColor={accent} paddingX={2} marginBottom={1}>
-            <Text color={accent} bold>{spaced(entry.title)}</Text>
-            <Text dimColor>{look.tagline}</Text>
-            {entry.runLabel && <Text dimColor>{entry.runLabel}</Text>}
+            {reveal(titleRows(entry.title, look.tagline, entry.runLabel, accent), 'type', 900, 'center', 'title')}
           </Box>
         )}
         <Box flexDirection="column" borderStyle="round" borderColor={accent} paddingX={1}>
-          {entry.banner && <Text color={accent} bold>── {entry.banner.toUpperCase()} ──</Text>}
-          <Markdown text={stripPreamble(e.props.text)} />
+          {entry.banner && <Box marginBottom={1}>{reveal(bannerRows(entry.banner, room, accent), 'wipe', 200, 'left', 'banner')}</Box>}
+          {speakers.some(Boolean)
+            ? paragraphs.map((par, i) => {
+                const who = speakers[i]
+                if (!who) return <Box marginTop={i ? 1 : 0}><Markdown text={par} /></Box>
+                return (
+                  <Box flexDirection="row" marginTop={i ? 1 : 0}>
+                    <Text color={who.color}>▌</Text>
+                    <Box flexDirection="column" paddingLeft={1} flexGrow={1}>
+                      <Text color={who.color} bold>{who.name}</Text>
+                      <Markdown text={par} />
+                    </Box>
+                  </Box>
+                )
+              })
+            : <Markdown text={stripPreamble(e.props.text)} />}
         </Box>
-        {entry.ending === 'victory' && (
-          <Box flexDirection="column" alignItems="center" borderStyle="double" borderColor={accent} paddingX={2} marginTop={1}>
-            <Text color={accent} bold>✦  {spaced('The End')}  ✦</Text>
-            {entry.endingQuest && <Text>Quest complete: {entry.endingQuest}</Text>}
-            <Text dimColor>Keep exploring, or type /newgame to play again.</Text>
-          </Box>
-        )}
-        {entry.ending === 'lost' && (
-          <Box flexDirection="column" alignItems="center" borderStyle="double" borderColor="gray" paddingX={2} marginTop={1}>
-            <Text bold>✦  {spaced('The End')}  ✦</Text>
-            {entry.endingQuest && <Text dimColor>Quest failed: {entry.endingQuest}</Text>}
-            <Text dimColor>Keep exploring, or type /newgame to try again.</Text>
-          </Box>
-        )}
-        {entry.ending === 'defeat' && (
-          <Box flexDirection="column" alignItems="center" borderStyle="double" borderColor={look.palette.bad} paddingX={2} marginTop={1}>
-            <Text color={look.palette.bad} bold>✦  {spaced('You have fallen')}  ✦</Text>
-            <Text dimColor>Type /newgame to try again.</Text>
+        {ending && (
+          <Box flexDirection="column" alignItems="center" borderStyle="double" borderColor={ending.border} paddingX={2} marginTop={1}>
+            {reveal(ending.rows, 'lines', ending.rows.length * 260, 'center', 'ending')}
           </Box>
         )}
       </Box>
@@ -506,8 +586,9 @@ export const register: Register = on => {
     // can draw before that record lands, so it is judged from its input while the turn isn't ooc:.
     const isLivePlumbing = isGame && !isOoc && isPendingPlumbing(e.props.tool, e.props.input, e.props.output)
     if (!isLivePlumbing && !(await read($, hidden)).includes(e.props.tool_use_id)) return next(e)
-    const look = lookOf(await read($, save))
-    return drawTray($, e, trayFor(e.props.tool, e.props.input, e.props.output, look), look)
+    const s = await read($, save)
+    const look = lookOf(s)
+    return drawFx($, e, e.requestId, trayFor(e.props.tool, e.props.input, e.props.output, look), [e.props.tool_use_id], look, accentOf(s), await nowMs($))
   })
 
   on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
@@ -522,8 +603,10 @@ export const register: Register = on => {
     const isHidden = (c: (typeof e.props.calls)[number]) =>
       (c.tool_use_id !== undefined && ids.includes(c.tool_use_id)) || (isGame && !isOoc && isPendingPlumbing(c.tool, c.input, c.output))
     if (!e.props.calls.every(isHidden)) return next(e)
-    const look = lookOf(await read($, save))
-    return drawTray($, e, e.props.calls.flatMap(c => trayFor(c.tool, c.input, c.output, look)), look)
+    const s = await read($, save)
+    const look = lookOf(s)
+    const callIds = e.props.calls.map(c => c.tool_use_id).filter((x): x is string => x !== undefined)
+    return drawFx($, e, e.requestId, e.props.calls.flatMap(c => trayFor(c.tool, c.input, c.output, look)), callIds, look, accentOf(s), await nowMs($))
   })
 
   // ---- Claude's chrome, in-world
@@ -559,7 +642,7 @@ export const register: Register = on => {
     const kind = e.props.origin.kind
     if (!isGame || e.props.isExpanded || (kind !== 'composer' && kind !== 'plugin') || /^\s*(ooc:|\/)/i.test(e.props.text)) return next(e)
     const { Box, Text } = $.ui.resolve(e)
-    const accent = lookOf(await read($, save)).palette.accent
+    const accent = accentOf(await read($, save))
     return (
       <Box flexDirection="row" marginTop={1}>
         <Text color={accent} bold>» </Text>
@@ -574,7 +657,7 @@ export const register: Register = on => {
     if (!s) return next(e)
     const { Box, Text } = $.ui.resolve(e)
     const look = lookOf(s)
-    const accent = look.palette.accent
+    const accent = accentOf(s)
     const objective = currentObjective(s)
     const clock = s.view?.clock ?? null
     const sep = <Text dimColor>{'  │  '}</Text>
@@ -619,6 +702,13 @@ export const register: Register = on => {
     })
     return { drop: 'The page turns…' }
   }).catch(($, e, next) => next(e)) // on any failure the command runs as typed, without the clear
+
+  // ---- a surface module that fails is drawn still from then on (the engine redraws the site at once)
+  on('ui.fault', async ($, e, next) => {
+    faulted.add(`${e.requestId} ${e.element}`)
+    $.ui.log(`coderpg: ${e.module} failed (${e.phase}): ${e.reason}`, { to: 'debug' })
+    return next(e)
+  })
 
   // ---- instant commands
 
@@ -674,7 +764,7 @@ export const register: Register = on => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const s = await read($, save)
     const look = lookOf(s)
-    const accent = look.palette.accent
+    const accent = accentOf(s)
     // a little room between the pane's divider and its text
     const PAD = 2
     const width = Math.max(26, (e.props.bodyColumns ?? 36) - PAD - 1)
@@ -689,6 +779,7 @@ export const register: Register = on => {
     const tabs = tabsOf(look)
     const stored = await read($, tab)
     const open = tabs.some(t => t.id === stored) ? stored : tabs[0]!.id
+    const waiting = (await read($, running)) ? await read($, activity) : null
     const flashing = await read($, flash)
     const { hp, max_hp, might, agility, wits, coins } = s.stats
     const objective = currentObjective(s)
@@ -697,8 +788,10 @@ export const register: Register = on => {
     const here = s.view?.characters_here ?? []
     const items = itemsOf(s)
     const frameW = Math.min(width, 56)
-    const mapRows = s.map ? drawMap(s.map, s.location, frameW - 4) : []
-    const keyRows = s.map ? drawKey(frameW - 4, usesUpDown(s.map)) : []
+    const grid = s.map ? tileGrid(s.map, s.location, frameW - 4, look) : []
+    const Client = clientOf($.ui.resolve(e))
+    const seen = new Set(Object.values(s.map ?? {}).map(r => r.terrain).filter((t): t is string => !!t))
+    const swatches = Object.entries(look.terrain ?? {}).filter(([t]) => seen.has(t))
     const quests = s.view?.quests ?? []
     const people = s.view?.people ?? []
     const chronicle = s.view?.chronicle ?? []
@@ -804,27 +897,25 @@ export const register: Register = on => {
 
     const mapTab = (
       <Box flexDirection="column">
-        {mapRows.length === 0 && <Text dimColor>The map fills in as you explore.</Text>}
-        {mapRows.map(row => (
-          <Box flexDirection="row">
-            {row.map(seg =>
-              seg.kind === 'here' ? <Text color={accent} bold>{seg.text}</Text>
-              : seg.kind === 'room' ? <Text>{seg.text}</Text>
-              : <Text dimColor>{seg.text}</Text>,
-            )}
+        {grid.length === 0 && <Text dimColor>The map fills in as you explore.</Text>}
+        {grid.length > 0 && (Client && !faulted.has(`${e.requestId} map`)
+          ? <Client key="map" module="./tilemap.tsx" props={plain({ grid })} />
+          : grid.map(row => (
+              <Box flexDirection="row">
+                {runsOf(row).map(c => <Text color={c.fg} backgroundColor={c.bg} bold={c.b} dimColor={c.d}>{c.ch}</Text>)}
+              </Box>
+            )))}
+        {grid.length > 0 && <Text> </Text>}
+        {grid.length > 0 && (
+          <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
+            <Box flexDirection="row"><Text color={accent} bold>◆</Text><Text dimColor> you</Text></Box>
+            <Box flexDirection="row"><Text backgroundColor="#2b2b30" color="#8a8a92">{' ? '}</Text><Text dimColor> not visited</Text></Box>
+            {swatches.map(([t, c]) => (
+              <Box flexDirection="row"><Text backgroundColor={c.bg} color={c.fg}>{c.moves ? ' ~ ' : '   '}</Text><Text dimColor> {t}</Text></Box>
+            ))}
+            {usesUpDown(s.map ?? {}) && <Box flexDirection="row"><Text dimColor>┊ up or down</Text></Box>}
           </Box>
-        ))}
-        {mapRows.length > 0 && <Text> </Text>}
-        {mapRows.length > 0 && <Text dimColor>Key</Text>}
-        {mapRows.length > 0 && keyRows.map(row => (
-          <Box flexDirection="row">
-            {row.map(seg =>
-              seg.kind === 'here' ? <Text color={accent} bold>{seg.text}</Text>
-              : seg.kind === 'room' ? <Text>{seg.text}</Text>
-              : <Text dimColor>{seg.text}</Text>,
-            )}
-          </Box>
-        ))}
+        )}
       </Box>
     )
 
@@ -873,6 +964,7 @@ export const register: Register = on => {
         <Text> </Text>
         {vitals}
         {objective && <Text color={accent} wrap="truncate">▸ {objective}</Text>}
+        {waiting && <Text dimColor italic wrap="truncate">◌ {waiting}…</Text>}
         <Text> </Text>
         <Box flexDirection="column" width={frameW} flexGrow={1} borderStyle="round" borderDimColor>
           {tabStrip}
@@ -887,18 +979,33 @@ export const register: Register = on => {
   })
 }
 
-/** A dice tray in place of a hidden tool row, or nothing when the row has nothing to show. */
-function drawTray($: EngineInterface, e: Parameters<EngineInterface['ui']['resolve']>[0], lines: TrayLine[], look: CoderpgLook) {
+/**
+ * A dice tray in place of a hidden tool row, or nothing when the row has nothing to show. A fresh one
+ * runs trayfx.tsx once (the dice tumble; a fight drains both bars); an older one is drawn still, a fight
+ * with its strip as it ended.
+ */
+function drawFx($: EngineInterface, e: Parameters<EngineInterface['ui']['resolve']>[0], requestId: string, lines: TrayLine[], ids: string[], look: CoderpgLook, accent: string, now: number) {
   const { Box, Text } = $.ui.resolve(e)
+  const Client = clientOf($.ui.resolve(e))
   if (lines.length === 0) return <Box display="none" />
+  const fight = ids.map(id => combats.get(id)).find(Boolean)
+  const colors = { accent, good: look.palette.good, bad: look.palette.bad, heal: look.palette.heal }
+  const props = { lines, you: fight?.you, foe: fight?.foe, colors }
+  const born = Math.max(...ids.map(id => trayAt.get(id) ?? 0))
+  if (Client && born > 0 && now - born < FRESH_MS && !faulted.has(`${requestId} fx`)) {
+    return <Client key="fx" module="./trayfx.tsx" props={plain(props)} />
+  }
   return (
     <Box flexDirection="column" paddingLeft={2}>
       {lines.map(l => (
         <Box flexDirection="row">
-          <Text color={look.palette.accent}>{l.icon} </Text>
+          <Text color={accent}>{l.icon} </Text>
           <Text dimColor={l.tone === 'neutral'}>{l.text}</Text>
           {l.result && <Text color={l.tone === 'good' ? look.palette.good : look.palette.bad} bold>{` ${l.result}`}</Text>}
         </Box>
+      ))}
+      {fight && stripAt(props, FX_MS).slice(1).map(row => (
+        <Box flexDirection="row">{row.map(x => <Text color={x.c} bold={x.b} dimColor={x.d}>{x.t || ' '}</Text>)}</Box>
       ))}
     </Box>
   )

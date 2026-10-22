@@ -11,6 +11,7 @@ characters:
   - grukk (if lamp_lit and grukk_friend)
 expand: south
 encounters: harbor_events
+terrain: water
 ---
 A cobbled square opens onto a stone quay. Fishing boats knock together at their moorings and gulls squabble over fish heads. Old nets lie heaped against the harbor wall, half-rotted.
 

@@ -7,6 +7,7 @@ items:
 characters:
   - halloran (if halloran_agrees and not evacuated)
 expand: east
+terrain: water
 ---
 A floating pontoon chained to the station's stilts rises and falls with the swell. Your skiff is tied up at its edge, its outboard motor ticking as it cools. A steel stair climbs north to the Common Deck. To the east, a rope walkway sags across to a cluster of storage floats, half awash.
 

@@ -6,6 +6,7 @@ hp: 9
 defense: 12
 attack: 1
 damage: 1d6
+card: #d8644a
 ---
 ## Personality
 The Shellback is old, enormous, territorial and hungry. It isn't cruel; it's a crab. It guards the corner of the lab it has decided is its own, and it calms down completely when it has something to eat.

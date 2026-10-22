@@ -2,6 +2,7 @@
 name: Dr. Ines Halloran
 role: the station's last researcher, a marine biologist
 minor: no
+card: #9ad6c8
 ---
 ## Personality
 Halloran is brilliant, exhausted and stubborn. She stayed through the storm to keep her animals alive and hasn't slept in two days. She is sharp with people who waste her time and gentle with anything that lives in water. Underneath the brusqueness she is frightened, and she hates being frightened.

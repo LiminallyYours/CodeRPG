@@ -9,7 +9,7 @@ export type Kind = 'here' | 'room' | 'unknown' | 'link' | 'blank'
 export type Seg = { text: string; kind: Kind }
 export type Exit = { dir: string; name: string; isExplored: boolean }
 
-const STEP: Record<string, [number, number]> = {
+export const STEP: Record<string, [number, number]> = {
   north: [0, -1], south: [0, 1], east: [1, 0], west: [-1, 0],
   up: [0, -1], down: [0, 1],
   northeast: [1, -1], northwest: [-1, -1], southeast: [1, 1], southwest: [-1, 1],
@@ -62,14 +62,14 @@ function trimName(name: string): string {
   return name.replace(/^The /, '')
 }
 
-function fit(text: string, width: number): string {
+export function fit(text: string, width: number): string {
   const cut = text.length > width ? text.slice(0, Math.max(1, width - 1)) + '…' : text
   const left = Math.floor((width - cut.length) / 2)
   return ' '.repeat(left) + cut + ' '.repeat(width - cut.length - left)
 }
 
 /** A room's label at one level of shortening: full name, first word, or cut to `max`. */
-function labelOf(map: RoomMap, id: string, short: boolean, max = Infinity): string {
+export function labelOf(map: RoomMap, id: string, short: boolean, max = Infinity): string {
   const known = knownName(map, id)
   if (known === undefined) return '?'
   const name = trimName(known)

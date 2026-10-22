@@ -6,6 +6,7 @@ hp: 10
 defense: 11
 attack: 1
 damage: 1d6
+card: #8fae4a
 ---
 ## Personality
 Grukk is a big, lonely, childish troll. He is greedy for anything shiny or sweet, quick to sulk, and slow to anger. Once angry, he is very dangerous. He took the lens because it was "the shiniest thing in the whole world" and doesn't understand why anyone would mind.

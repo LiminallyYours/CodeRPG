@@ -5,6 +5,7 @@ exits:
   down: trolls_hollow (if grukk_friend or grukk_cowed or grukk_defeated)
 characters:
   - grukk (if not grukk_defeated and not grukk_cowed and not lamp_lit)
+terrain: stone
 ---
 An old humpbacked bridge of grey stone spans the gorge, and the Greywater river roars below. Moss covers the parapets. At the near end, a muddy path winds down beneath the arch into the dark.
 

@@ -10,6 +10,7 @@ items:
 characters:
   - bucket
 encounters: station_events
+terrain: metal
 ---
 The station's mess and galley share one long, low module. Plates have slid off the tables into ankle-deep water, and the radio set on the wall is dead. A ladder leads up to the Control Room. To the west, a corridor runs to the Lab Wing. To the east, a hatch opens on a ladder down to the Pump Room. The stair to the landing is to the south.
 

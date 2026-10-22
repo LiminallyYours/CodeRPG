@@ -2,6 +2,7 @@
 name: Bucket
 role: the station's battered maintenance drone
 minor: yes
+card: #c8c8d0
 ---
 ## Personality
 Bucket is a squat, wheeled maintenance drone with one working camera eye and a dented first-aid bay in its belly. It is helpful, literal and very worried about the water, which it keeps trying to mop.

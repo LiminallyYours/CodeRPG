@@ -2,6 +2,7 @@
 name: Pell
 role: innkeeper of the Gull
 minor: yes
+card: #d19a5a
 ---
 ## Personality
 Pell is round, cheerful and nosy, and the biggest gossip in Saltmere. He is a coward at heart but generous with information, especially to anyone who buys something. He is nervous about the dark lighthouse because his brother is out with the fleet.

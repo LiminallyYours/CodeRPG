@@ -7,6 +7,7 @@ items:
   - healing_tonic (if tonic_in_hollow)
 characters:
   - grukk (if grukk_cowed and not lamp_lit)
+terrain: water
 ---
 A damp cave hollowed out under the arch of the bridge, loud with the river. It smells of wet troll. Bones, bottle glass, buttons, a cracked mirror and other shiny scraps are piled in a magpie hoard against the back wall.
 

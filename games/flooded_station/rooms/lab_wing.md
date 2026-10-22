@@ -7,6 +7,7 @@ items:
   - pry_bar
 expand: north
 encounters: station_events
+terrain: flooded
 ---
 A long corridor of tanks and benches, knee-deep in water that smells of salt and fish food. Most of the tanks are empty and cracked. A pry bar lies across a bench where someone was working on a stuck hatch. A flooded stairwell leads down to the lower lab. The corridor runs east back to the Common Deck, and to the north a door marked SPECIMEN STORE hangs open.
 

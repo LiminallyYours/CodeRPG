@@ -74,6 +74,25 @@
       "show": [
         "Checking the station plans"
       ]
+    },
+    "phases": {
+      "reading": [
+        "Sweeping the torch around",
+        "Reading the gauges"
+      ],
+      "considering": [
+        "{name} considers your words",
+        "{name} thinks it through"
+      ],
+      "shaping": [
+        "Something surfaces in the dark water"
+      ],
+      "stirring": [
+        "Elsewhere, the station creaks"
+      ],
+      "resolving": [
+        "The odds shift like the tide"
+      ]
     }
   },
   "resource": {
@@ -81,5 +100,25 @@
     "icon": "ϟ",
     "low": "Your torch flickers and the station lights dim; the batteries are running down.",
     "spent": "The batteries are flat. The station goes dark and quiet: the comms are dead and nothing new turns up until you return."
+  },
+  "terrain": {
+    "metal": {
+      "bg": "#3d4a52",
+      "fg": "#d6e4ea",
+      "moves": false
+    },
+    "flooded": {
+      "bg": "#14505a",
+      "fg": "#8fe0e6",
+      "moves": true
+    },
+    "water": {
+      "bg": "#123a52",
+      "fg": "#8cc8ee",
+      "moves": true
+    }
+  },
+  "sounds": {
+    "step": "splash"
   }
 }

@@ -4,7 +4,8 @@
     "good": "green",
     "bad": "red",
     "warn": "yellow",
-    "heal": "cyan"
+    "heal": "cyan",
+    "accent_by_time": {}
   },
   "stat_labels": {
     "might": "Might",
@@ -127,6 +128,25 @@
       "game": [
         "Turning to another tale"
       ]
+    },
+    "phases": {
+      "reading": [
+        "Reading the room",
+        "Taking in the scene"
+      ],
+      "considering": [
+        "{name} considers your words",
+        "{name} weighs a reply"
+      ],
+      "shaping": [
+        "Something new takes shape"
+      ],
+      "stirring": [
+        "Elsewhere, the world stirs"
+      ],
+      "resolving": [
+        "Fate weighs your chances"
+      ]
     }
   },
   "resource": {
@@ -134,5 +154,45 @@
     "icon": "✦",
     "low": "You feel your energy flagging.",
     "spent": "You're spent. The world grows quiet around you until you return."
+  },
+  "terrain": {
+    "water": {
+      "bg": "#1f4060",
+      "fg": "#9cc9ef",
+      "moves": true
+    },
+    "grass": {
+      "bg": "#2f5232",
+      "fg": "#cdeccd",
+      "moves": false
+    },
+    "stone": {
+      "bg": "#4a4a52",
+      "fg": "#e2e2e6",
+      "moves": false
+    },
+    "indoors": {
+      "bg": "#5e4128",
+      "fg": "#f3dfc1",
+      "moves": false
+    }
+  },
+  "sounds": {
+    "step": "step",
+    "dice": "dice",
+    "hit": "hit",
+    "miss": "miss",
+    "coin": "coin",
+    "heal": "heal",
+    "fanfare": "fanfare",
+    "defeat": "defeat",
+    "wipe": "wipe",
+    "type": "type",
+    "meter_low": "meter_low",
+    "phase_reading": null,
+    "phase_considering": "chime_mid",
+    "phase_shaping": "chime_high",
+    "phase_stirring": "chime_low",
+    "phase_resolving": null
   }
 }

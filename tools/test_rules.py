@@ -20,7 +20,7 @@ GAMES = sorted(p.name for p in (ROOT / "games").glob("*") if (p / "world.md").is
 class Engine(unittest.TestCase):
     def setUp(self):
         self.dir = Path(tempfile.mkdtemp(prefix="rpg-test-"))
-        for d in ("rules", "games", "proposals", "tools", ".claude/hooks"):
+        for d in ("rules", "games", "proposals", "tools", ".claude/hooks", "mod/sounds"):
             shutil.copytree(ROOT / d, self.dir / d, ignore=shutil.ignore_patterns("__pycache__", "*.json.tmp"))
         (self.dir / "state").mkdir()
         for stale in (self.dir / "proposals").glob("*.json"):
@@ -368,6 +368,64 @@ class Engine(unittest.TestCase):
         self.set_meter(2)
         self.rpg("world-brief", "turn")
         self.assertEqual(self.save()["view"]["meter"]["state"], "spent")
+
+
+    # ---------------------------------------------------------------- Stage 3: what the look needs from content
+
+    def test_terrain_and_cards_reach_the_view(self):
+        self.at_the_lighthouse()
+        s = self.save()
+        self.assertEqual(s["map"]["lighthouse"]["terrain"], "stone")
+        self.assertEqual(s["map"]["harbor_square"]["terrain"], "water")
+        ysolde = next(c for c in s["view"]["characters_here"] if c["id"] == "ysolde")
+        self.assertRegex(ysolde["card"], r"^#[0-9a-f]{6}$")
+        look = s["view"]["look"]
+        for key in ("terrain", "sounds"):
+            self.assertIn(key, look)
+        self.assertIn("phases", look["phrases"])
+        self.rpg("game", "switch", "flooded_station")
+        self.rpg("newgame", seed=30)
+        look = self.save()["view"]["look"]
+        self.assertIn("metal", look["terrain"])  # a game adds its own terrain kinds
+        self.assertEqual(look["sounds"]["step"], "splash")
+
+    def test_validate_checks_terrain_cards_sounds_and_times(self):
+        g = "games/dark_lighthouse"
+        room = self.dir / g / "rooms" / "coast_road.md"
+        room.write_text(room.read_text().replace("terrain: grass", "terrain: lava"))
+        ch = self.dir / g / "characters" / "pell.md"
+        ch.write_text(ch.read_text().replace("card: #d19a5a", "card: not a color!"))
+        look = json.loads((self.dir / g / "look.json").read_text())
+        look["sounds"] = {"step": "kazoo"}
+        look["palette"]["accent_by_time"]["teatime"] = "#123456"
+        self.write(g + "/look.json", json.dumps(look))
+        out = self.rpg("validate", "--game", "dark_lighthouse", ok=False)
+        self.assertIn("terrain 'lava' isn't in the look's terrain", out)
+        self.assertIn("characters/pell.md: card must be a color", out)
+        self.assertIn("no kit sound 'kazoo'", out)
+        self.assertIn("'teatime' is not one of world.md's times", out)
+
+    def test_a_generated_room_takes_a_terrain(self):
+        self.at_the_lighthouse()
+        self.rpg("move", "east")  # Harbor Square, water, may grow south
+        room = {"id": "mooring_steps", "name": "The Mooring Steps", "direction": "south", "description": "Slick stone steps."}
+        self.write("proposals/r.json", json.dumps(room))
+        self.rpg("generate", "room", "proposals/r.json")
+        self.rpg("move", "south")
+        self.assertEqual(self.save()["map"]["mooring_steps"]["terrain"], "water")  # the room it opens off
+        self.rpg("game", "switch", "flooded_station")
+        self.rpg("newgame", seed=31)
+        self.rpg("move", "north")
+        self.rpg("move", "west")  # the Lab Wing may grow north
+        bad = {"id": "specimen_store", "name": "Specimen Store", "direction": "north", "terrain": "lava", "description": "Shelves of jars."}
+        self.write("proposals/s.json", json.dumps(bad))
+        self.assertIn("terrain must be one of", self.rpg("generate", "room", "proposals/s.json", ok=False))
+        good = dict(bad, terrain="metal")
+        self.write("proposals/s.json", json.dumps(good))
+        self.rpg("generate", "room", "proposals/s.json")
+        self.rpg("move", "north")
+        self.assertEqual(self.save()["map"]["specimen_store"]["terrain"], "metal")
+        self.assertEqual(self.save()["map"]["specimen_store"]["made_by"], "world")
 
 
 if __name__ == "__main__":

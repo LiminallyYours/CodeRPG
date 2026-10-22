@@ -7,6 +7,7 @@ items:
 characters:
   - pell
 expand: up
+terrain: indoors
 ---
 A low-beamed tavern full of smoke, smelling of fish stew and spilled ale. A fire crackles in a stone hearth. A handful of fishermen hunch over their cups and talk quietly about the dark light. A plate of honey cakes sits under a cloth on the bar, and strings of smoked fish hang from the beams.
 

@@ -7,6 +7,7 @@ items:
   - healing_tonic (if tonic_on_road)
 expand: north
 encounters: road_events
+terrain: grass
 ---
 A rutted road runs along the clifftop with gorse on one side and a long drop to the surf on the other. The wind tugs at your clothes. Ahead to the east, the road dips toward the river gorge and the old stone bridge. A sheep track wanders north, up into the gorse.
 

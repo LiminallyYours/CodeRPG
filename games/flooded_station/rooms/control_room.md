@@ -4,6 +4,7 @@ exits:
   down: common_deck
 characters:
   - halloran (if not halloran_agrees and not evacuated)
+terrain: metal
 ---
 The highest module on the station is a cramped room of screens and switches, its windows streaked with rain. Most of the screens are dark. One panel blinks a single red word over and over: PUMP FAULT. A ladder leads back down to the Common Deck.
 

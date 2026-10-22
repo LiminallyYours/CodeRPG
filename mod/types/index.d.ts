@@ -14,7 +14,13 @@ export type CoderpgSave = {
   /** This playthrough: its id changes with every new game (save version 6+). */
   run?: { id?: string; moves?: number }
   /** Rooms visited, with the exits open when last there (save version 3+). */
-  map?: Record<string, { name: string; exits: Record<string, string>; neighbors?: Record<string, string> }>
+  map?: Record<string, {
+    name: string; exits: Record<string, string>; neighbors?: Record<string, string>
+    /** The room's terrain (a key of the look's `terrain`) and its own tile color, if it gives one (version 7+). */
+    terrain?: string | null; color?: string | null
+    /** Who made the place: "world" for a generated room (version 7+). */
+    made_by?: string | null
+  }>
   /** Characters the player has seen (save version 4+). */
   met?: string[]
   /** Display-ready values recomputed on every save (version 3+; people, foes, quests, art from 4). */
@@ -48,7 +54,7 @@ export type CoderpgSave = {
 
 /** A game's look: the kit's rules/look.default.json with the game's look.json laid over it. */
 export type CoderpgLook = {
-  palette: { accent: string; good: string; bad: string; warn: string; heal: string }
+  palette: { accent: string; good: string; bad: string; warn: string; heal: string; accent_by_time?: Record<string, string> }
   stat_labels: { might: string; agility: string; wits: string }
   stat_short: { might: string; agility: string; wits: string }
   currency: string
@@ -56,7 +62,11 @@ export type CoderpgLook = {
   tabs: CoderpgTab[]
   tab_labels: Record<CoderpgTab, string>
   tab_keys: Record<CoderpgTab, string>
-  phrases: { idle: string[]; by_command: Record<string, string[]> }
+  phrases: { idle: string[]; by_command: Record<string, string[]>; phases?: Partial<Record<CoderpgPhase, string[]>> }
+  /** Each terrain's tile colors, and whether its tiles move (water). */
+  terrain?: Record<string, { bg: string; fg: string; moves?: boolean }>
+  /** Which kit sound each beat plays, or null for none. */
+  sounds?: Record<string, string | null>
   /** The in-world name of what play costs, and what to say when it runs low or out. */
   resource: { name: string; icon: string; low: string; spent: string }
 }
@@ -71,7 +81,7 @@ export type CoderpgSettings = {
   generation: { on: boolean; max_per_run: number; kinds: string[] }
 }
 
-export type CoderpgPerson = { id: string; name: string; role: string; generated?: boolean }
+export type CoderpgPerson = { id: string; name: string; role: string; generated?: boolean; card?: string | null }
 
 export type CoderpgQuest = {
   id: string
@@ -103,9 +113,18 @@ export type CoderpgStory = {
   pending?: boolean
   /** It reads like a game-master note rather than story. */
   note?: boolean
+  /** When the turn showed it (clock ms): it animates only when fresh. */
+  shownAt?: number
+  /** The accent color when it was told (it follows the time of day). */
+  accent?: string
+  /** Who was there with a card style: their paragraphs are drawn in their colors. */
+  cards?: { name: string; color: string }[]
 }
 
 export type CoderpgTab = 'here' | 'map' | 'journal'
+
+/** Which stage a turn is in, while the game master works. */
+export type CoderpgPhase = 'reading' | 'considering' | 'shaping' | 'stirring' | 'resolving'
 
 declare module 'claude-code' {
   interface PluginState {

@@ -2,7 +2,7 @@
 // (view.look, the kit's rules/look.default.json with the game's look.json laid over it), so the mod
 // never reads game folders. DEFAULT_LOOK is only for the moments before any save exists.
 
-import type { CoderpgLook, CoderpgSave, CoderpgTab } from '../types'
+import type { CoderpgLook, CoderpgPhase, CoderpgSave, CoderpgTab } from '../types'
 
 export const DEFAULT_LOOK: CoderpgLook = {
   palette: { accent: '#d7a640', good: 'green', bad: 'red', warn: 'yellow', heal: 'cyan' },
@@ -15,6 +15,11 @@ export const DEFAULT_LOOK: CoderpgLook = {
   tab_keys: { here: 'h', map: 'm', journal: 'j' },
   phrases: { idle: ['The tale unfolds', 'Turning the page', 'Fate shuffles its cards'], by_command: {} },
   resource: { name: 'Energy', icon: '✦', low: 'You feel your energy flagging.', spent: "You're spent." },
+  terrain: {
+    water: { bg: '#1f4060', fg: '#9cc9ef', moves: true }, grass: { bg: '#2f5232', fg: '#cdeccd' },
+    stone: { bg: '#4a4a52', fg: '#e2e2e6' }, indoors: { bg: '#5e4128', fg: '#f3dfc1' },
+  },
+  sounds: {},
 }
 
 /** The save's look, with any part it lacks (an older or hand-made save) filled from the default. */
@@ -30,8 +35,35 @@ export function lookOf(s: CoderpgSave | null | undefined): CoderpgLook {
     tab_labels: { ...d.tab_labels, ...l.tab_labels },
     tab_keys: { ...d.tab_keys, ...l.tab_keys },
     resource: { ...d.resource, ...l.resource },
-    phrases: { idle: l.phrases?.idle?.length ? l.phrases.idle : d.phrases.idle, by_command: { ...l.phrases?.by_command } },
+    terrain: l.terrain && Object.keys(l.terrain).length ? l.terrain : d.terrain,
+    sounds: { ...l.sounds },
+    phrases: {
+      idle: l.phrases?.idle?.length ? l.phrases.idle : d.phrases.idle,
+      by_command: { ...l.phrases?.by_command },
+      phases: { ...l.phrases?.phases },
+    },
   }
+}
+
+/** The accent color now: the look's color for this time of day, if it gives one, else its accent. */
+export function accentOf(s: CoderpgSave | null | undefined): string {
+  const look = lookOf(s)
+  const time = s?.view?.time
+  return (time && look.palette.accent_by_time?.[time]) || look.palette.accent
+}
+
+/** Which sound file a beat plays: the look's choice (null: none), else the beat's own name. */
+export function soundFor(look: CoderpgLook, beat: string): string | null {
+  const sounds = look.sounds ?? {}
+  return beat in sounds ? sounds[beat] ?? null : beat
+}
+
+/** What the waiting line says in a phase, in the game's voice; `{name}` is who's thinking. */
+export function phasePhrase(look: CoderpgLook, phase: CoderpgPhase, seed: number, name?: string): string | undefined {
+  const list = look.phrases.phases?.[phase]
+  if (!list?.length) return undefined
+  const text = list[Math.abs(seed) % list.length]!
+  return text.replace(/\{name\}/g, name ?? 'Someone')
 }
 
 /** The pane's tabs in this game's order, with its labels and hotkeys. */

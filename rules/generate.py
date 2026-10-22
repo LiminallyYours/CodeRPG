@@ -17,7 +17,8 @@ class Context:
     """What a proposal is checked against. Built by rpg.py from content and the save."""
 
     def __init__(self, *, location, taken_ids, taken_names, expand, policy, balance, count,
-                 items_found_here, extras_here, characters_here, room_ids, generated_people):
+                 items_found_here, extras_here, characters_here, room_ids, generated_people,
+                 terrains=(), terrain_here=None):
         self.location = location                    # the player's room id
         self.taken_ids = set(taken_ids)             # every id in use, any kind
         self.taken_names = {n.lower() for n in taken_names}
@@ -30,6 +31,8 @@ class Context:
         self.characters_here = list(characters_here)
         self.room_ids = set(room_ids)
         self.generated_people = set(generated_people)
+        self.terrains = list(terrains)              # the look's terrain kinds, for the map
+        self.terrain_here = terrain_here            # the player's room's terrain: a new room's default
 
 
 def empty_patch():
@@ -215,7 +218,13 @@ def room(p, ctx):
         patch["room_items"].setdefault(ident, []).append(it["id"])
     for ch in chars:
         character(ch, ctx, patch, ids, room=ident)
-    patch["rooms"][ident] = {"meta": {"name": name, "generated": "yes", "exits": {back: ctx.location}},
+    terrain = p.get("terrain") or ctx.terrain_here
+    if terrain is not None and terrain not in ctx.terrains:
+        raise ValueError("terrain must be one of %s" % ", ".join(ctx.terrains))
+    meta = {"name": name, "generated": "yes", "exits": {back: ctx.location}}
+    if terrain:
+        meta["terrain"] = terrain
+    patch["rooms"][ident] = {"meta": meta,
                              "body": _text(p, "description", 900)}
     patch["exits"][ctx.location] = {direction: ident}
     return patch

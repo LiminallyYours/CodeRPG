@@ -1,7 +1,7 @@
 // Turns the rules script's output into dice-tray lines and picks a sound for them.
 // Pure functions: the script's printed format is the only thing they know, plus the game's look for names.
 
-import type { CoderpgLook } from '../types'
+import type { CoderpgLook, CoderpgSave } from '../types'
 import { DEFAULT_LOOK, money } from './look'
 
 export type TrayTone = 'good' | 'bad' | 'neutral'
@@ -79,4 +79,33 @@ export function traySound(lines: TrayLine[]): string | undefined {
   if (lines.some(l => l.result === 'MISS')) return 'miss'
   if (lines.some(l => l.icon === '🎲')) return 'dice'
   return undefined
+}
+
+/** One side of a fight as the combat strip draws it. */
+export type CombatSide = { name: string; was: number; hp: number; max: number; dmg: number }
+
+/**
+ * Both sides of one `attack` exchange, from the rules script's output and the save written right after
+ * it: each side's health before and after, and the damage each took. Undefined for anything but an attack.
+ */
+export function combatOf(stdout: string, s: CoderpgSave | null): { you?: CombatSide; foe?: CombatSide } | undefined {
+  const foeId = /^PLAYER ATTACKS (\w+)/m.exec(stdout)?.[1]
+  if (!foeId || !s) return undefined
+  let foeDmg = 0, youDmg = 0, foeHp: number | undefined, foeMax: number | undefined
+  for (const raw of stdout.split('\n')) {
+    const m = /^\s*damage .*?= (\d+)(?: \(critical: double dice\))? -> (.*)$/.exec(raw)
+    if (!m) continue
+    const target = /^(\w+) HP (\d+)\/(\d+)$/.exec(m[2]!)
+    if (target && target[1] === foeId) { foeDmg = Number(m[1]); foeHp = Number(target[2]); foeMax = Number(target[3]) }
+    else youDmg = Number(m[1])
+  }
+  const npc = s.npcs?.[foeId]
+  const hp = foeHp ?? npc?.hp ?? 0
+  const max = foeMax ?? npc?.max_hp ?? Math.max(hp, 1)
+  const name = [...(s.view?.characters_here ?? []), ...(s.view?.people ?? [])].find(p => p.id === foeId)?.name ?? title(foeId)
+  const youHp = s.stats.hp
+  return {
+    you: { name: 'You', was: Math.min(s.stats.max_hp, youHp + youDmg), hp: youHp, max: s.stats.max_hp, dmg: youDmg },
+    foe: { name, was: Math.min(max, hp + foeDmg), hp, max, dmg: foeDmg },
+  }
 }

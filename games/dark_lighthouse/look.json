@@ -1,6 +1,12 @@
 {
   "palette": {
-    "accent": "#d7a640"
+    "accent": "#d7a640",
+    "accent_by_time": {
+      "dusk": "#e0a94a",
+      "nightfall": "#d7a640",
+      "deep night": "#b8893a",
+      "the small hours": "#9c7a45"
+    }
   },
   "phrases": {
     "idle": [
@@ -33,6 +39,22 @@
       "world-turn": [
         "Time passes off-screen",
         "The village talks"
+      ]
+    },
+    "phases": {
+      "reading": [
+        "Reading the room",
+        "The lamplight shifts"
+      ],
+      "considering": [
+        "{name} considers your words",
+        "{name} chews it over"
+      ],
+      "shaping": [
+        "Something new takes shape in the fog"
+      ],
+      "stirring": [
+        "Elsewhere, the village stirs"
       ]
     }
   },

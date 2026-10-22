@@ -4,6 +4,7 @@ exits:
   east: harbor_square
 characters:
   - ysolde (if not lamp_lit)
+terrain: stone
 ---
 The base of the lighthouse is a round stone room crowded with coils of rope, barrels of lamp oil and a narrow cot. An iron stair spirals up into darkness. At the top, the lamp sits cold in its empty brass cradle.
 

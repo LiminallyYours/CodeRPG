@@ -1,12 +1,17 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 
 import type { CoderpgSave } from '../types'
 import { exitsOf, keyText, mapText } from '../hooks/map'
 import { feedback, isReset } from '../hooks/feedback'
-import { DEFAULT_LOOK, lookOf, money, tabsOf } from '../hooks/look'
-import { commandPhrase, idlePhrase, npcPhrase } from '../hooks/phrases'
+import { blockLetters } from '../hooks/font'
+import { accentOf, DEFAULT_LOOK, lookOf, money, phasePhrase, soundFor, tabsOf } from '../hooks/look'
+import { commandPhrase, idlePhrase, npcPhrase, phaseOf } from '../hooks/phrases'
+import { revealFrame } from '../hooks/reveal'
+import { endingRows, paragraphsOf, speakerOf } from '../hooks/story'
+import { tileGrid, tilesAt } from '../hooks/tiles'
+import { FX_MS, hpAt, lineAt, numberAt, stripAt, TUMBLE_MS } from '../hooks/trayfx'
 import { budgetText, currentObjective, fitCells, startsAfresh, isGmNote, isPendingPlumbing, isPlumbing, pipBar, smoothBar, spaced, storyKey, stripPreamble, trayFor } from '../hooks/register'
-import { trayLines, traySound } from '../hooks/tray'
+import { combatOf, trayLines, traySound } from '../hooks/tray'
 
 const MAP: NonNullable<CoderpgSave['map']> = {
   harbor_square: { name: 'Harbor Square', exits: { north: 'gull_tavern', west: 'lighthouse', east: 'coast_road' },
@@ -219,9 +224,14 @@ test('a new game opens with a title card, and a finished quest closes with an en
 test('arriving somewhere puts the room name on the narration card', async ($, on) => {
   const text = 'Warmth and smoke roll over you.'
   on('state.get', { plugin: 'coderpg', key: 'story' }, () => ({ value: { value: [{ key: storyKey(text), banner: 'The Gull' }], version: 1 } }))
-  const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'AssistantMessage', requestId: 'm3', props: { text, isFirstOfReply: true } })
-  expect(await ui.find({ text: /── THE GULL ──/ })).toBeDefined()
-  await ui.unmount()
+  const wide = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'AssistantMessage', requestId: 'm3',
+    props: { text, isFirstOfReply: true }, viewport: { columns: 100, rows: 40 } })
+  expect(await wide.find({ text: blockLetters('The Gull', 999)![0]! })).toBeDefined() // block letters when they fit
+  await wide.unmount()
+  const narrow = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'AssistantMessage', requestId: 'm3b',
+    props: { text, isFirstOfReply: true }, viewport: { columns: 30, rows: 40 } })
+  expect(await narrow.find({ text: /── THE GULL ──/ })).toBeDefined() // the plain banner when they don't
+  await narrow.unmount()
 })
 
 test('dice rolls from a play turn show as a dice tray instead of a hidden row', async ($, on) => {
@@ -535,7 +545,169 @@ test('/budget tells the player what is left, what things cost and what is on, in
 
 test('the meter running low, running out and refilling each get one toast', () => {
   expect(feedback(metered(9, 'ok'), metered(7, 'low')).toast).toBe('ϟ Power running low')
+  expect(feedback(metered(9, 'ok'), metered(7, 'low')).sounds).toEqual(['meter_low'])
   expect(feedback(metered(2, 'low'), metered(0, 'spent')).toast).toBe('ϟ Power spent')
   expect(feedback(metered(0, 'spent'), metered(30, 'ok')).toast).toBe('ϟ Power refilled')
   expect(feedback(metered(20, 'ok'), metered(18, 'ok')).toast).toBeUndefined() // one extra's price: quiet
+})
+
+// ---------------------------------------------------------------- Stage 3: look and feel
+
+test('place names become block letters, and anything the font lacks or that is too wide falls back', () => {
+  const rows = blockLetters('Gull', 40)!
+  expect(rows.length).toBe(3)
+  expect(rows[0]).toBe('▄▀▀ █ █ █   █')
+  expect(blockLetters("Troll's Hollow", 80)).toBeDefined()
+  expect(blockLetters('Café', 80)).toBeUndefined() // no glyph for é: the plain banner
+  expect(blockLetters('Harbor Square', 30)).toBeUndefined() // 51 cells wide
+})
+
+test('a reveal wipes, types, or draws its lines in, and holds still once done', () => {
+  const rows = [[{ t: 'ABCDEFGHIJ', c: 'red' }], [{ t: 'xy' }]]
+  expect(revealFrame(rows, 'wipe', 0, 200).map(r => r.map(s => s.t).join(''))).toEqual(['▌', '▌'])
+  expect(revealFrame(rows, 'wipe', 100, 200)[0]!.map(s => s.t).join('')).toBe('ABCDE▌')
+  expect(revealFrame(rows, 'type', 50, 100).map(r => r.map(s => s.t).join(''))).toEqual(['ABCDEF', ''])
+  expect(revealFrame(rows, 'lines', 10, 100).length).toBe(1)
+  expect(revealFrame(rows, 'wipe', 500, 200)).toBe(rows)
+})
+
+test('a fresh story card wipes its banner in on the terminal clock; an old one is drawn still', async ($, on) => {
+  const clock = mock.clock(on, { now: 10_000 })
+  const text = 'Warmth and smoke roll over you.'
+  on('state.get', { plugin: 'coderpg', key: 'story' }, () => ({ value: { value: [{ key: storyKey(text), banner: 'The Gull', shownAt: 9_900 }], version: 1 } }))
+  const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'AssistantMessage', requestId: 'm8',
+    props: { text, isFirstOfReply: true }, viewport: { columns: 100, rows: 40 } })
+  expect(await ui.find({ type: 'Client', key: 'banner' })).toBeDefined()
+  expect(await ui.find({ text: blockLetters('The Gull', 999)![0]!, in: 'banner' })).toBeUndefined() // still wiping
+  await ui.advance(400)
+  expect(await ui.find({ text: blockLetters('The Gull', 999)![0]!, in: 'banner' })).toBeDefined()
+  await ui.unmount()
+  await clock.advance(5_000)
+  const old = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'AssistantMessage', requestId: 'm9',
+    props: { text, isFirstOfReply: true }, viewport: { columns: 100, rows: 40 } })
+  expect(await old.find({ type: 'Client' })).toBeUndefined()
+  await old.unmount()
+})
+
+test("a character's lines are drawn in their own card color, under their name", async ($, on) => {
+  const text = 'The fog thickens over the quay.\n\n"Grukk not give glass!" the troll booms, thumping his chest.'
+  const cards = [{ name: 'Grukk', color: '#8fae4a' }, { name: 'Ysolde', color: '#7fb0d0' }]
+  on('state.get', { plugin: 'coderpg', key: 'story' }, () => ({ value: { value: [{ key: storyKey(text), cards }], version: 1 } }))
+  const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'AssistantMessage', requestId: 'm10', props: { text, isFirstOfReply: true } })
+  const label = await ui.find({ type: 'Text', text: 'Grukk' })
+  expect(label?.props.color).toBe('#8fae4a')
+  expect(await ui.find({ type: 'Text', text: 'Ysolde' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('who speaks a paragraph: a quote and a name; titles and articles are skipped', () => {
+  const cards = [{ name: 'Dr. Ines Halloran', color: 'a' }, { name: 'the Shellback', color: 'b' }, { name: 'Bucket', color: 'c' }]
+  expect(speakerOf('"Relief, at last," Halloran says.', cards)?.color).toBe('a')
+  expect(speakerOf('The Shellback hisses. "Click."', cards)?.color).toBe('b')
+  expect(speakerOf('Bucket mops the floor.', cards)).toBeUndefined() // no quote: plain description
+  expect(speakerOf('"Beep." Bucket rolls past Halloran.', cards)?.color).toBe('c') // the first named
+  expect(speakerOf('"Mind the buckets," someone says.', cards)).toBeUndefined() // a word, not the name
+  expect(paragraphsOf('One.\n\n  Two.\n\n\n')).toEqual(['One.', 'Two.'])
+})
+
+test('an ending card is its lines in order, in its colors', () => {
+  const v = endingRows('victory', 'Light the Lamp', { accent: '#d7a640', bad: 'red' })
+  expect(v.border).toBe('#d7a640')
+  expect(v.rows.map(r => r[0]!.t)).toEqual(['✦  T H E   E N D  ✦', 'Quest complete: Light the Lamp', 'Keep exploring, or type /newgame to play again.'])
+  expect(endingRows('defeat', undefined, { accent: 'x', bad: 'red' }).border).toBe('red')
+})
+
+test('the dice tumble before the result shows, then the bars drain and the damage rises and fades', () => {
+  const line = { icon: '⚔', text: 'You attack Grukk: d20 15 +1 = 16 vs 11', result: 'HIT', tone: 'good' as const }
+  const early = lineAt(line, 50, 1)
+  expect(early.result).toBeUndefined()
+  expect(early.text).toMatch(/^You attack Grukk: d20 \d+$/)
+  expect(lineAt(line, TUMBLE_MS, 1)).toBe(line)
+  const foe = { name: 'Grukk', was: 10, hp: 6, max: 10, dmg: 4 }
+  expect(hpAt(foe, 0)).toBe(10)
+  expect(hpAt(foe, FX_MS)).toBe(6)
+  expect(numberAt(0)).toBeUndefined()
+  expect(numberAt(TUMBLE_MS + 10)).toBe('low')
+  expect(numberAt(TUMBLE_MS + 300)).toBe('high')
+  expect(numberAt(FX_MS)).toBeUndefined()
+  const colors = { accent: '#d7a640', good: 'green', bad: 'red', heal: 'cyan' }
+  const you = { name: 'You', was: 12, hp: 12, max: 12, dmg: 0 }
+  const end = stripAt({ lines: [line], you, foe, colors }, FX_MS)
+  const bars = end[1]!.map(s => s.t).join('')
+  expect(bars).toContain('♥ You ')
+  expect(bars).toContain('⚔ Grukk ')
+  expect(bars).toContain(' 6/10')
+  expect(end[0]!.map(s => s.t).join('').trim()).toBe('') // the number has faded
+  const mid = stripAt({ lines: [line], you, foe, colors }, TUMBLE_MS + 300)
+  expect(mid[0]!.map(s => s.t).join('')).toContain('-4')
+})
+
+test("a fight's two sides come from the rules script's words and the save written after", () => {
+  const out = ['PLAYER ATTACKS grukk with boarding_cutlass: d20 15 +1 = 16 vs defense 11 -> HIT',
+    '  damage 1d6 → [4] = 4 -> grukk HP 6/10',
+    'GRUKK ATTACKS: d20 14 +1 = 15 vs your defense 11 -> HIT',
+    '  damage 1d6 → [3] = 3 -> Player HP 4/12'].join('\n')
+  const f = combatOf(out, SAVE)!
+  expect(f.foe).toEqual({ name: 'Grukk', was: 10, hp: 6, max: 10, dmg: 4 })
+  expect(f.you).toEqual({ name: 'You', was: 7, hp: 4, max: 12, dmg: 3 })
+  expect(combatOf('CHECK wits vs DC 12: d20 3 +1 = 4 -> FAILURE', SAVE)).toBeUndefined()
+})
+
+test('the map is colored tiles: terrain from the look, the player marked, unvisited rooms dim, water moving', () => {
+  const map = { ...MAP, harbor_square: { ...MAP.harbor_square!, terrain: 'water' }, gull_tavern: { ...MAP.gull_tavern!, terrain: 'indoors' } }
+  const look = lookOf(null)
+  const grid = tileGrid(map, 'harbor_square', 60, look)
+  const cells = grid.flat()
+  expect(cells.some(c => c.k === 'mark' && c.ch === '◆')).toBe(true)
+  expect(cells.some(c => c.bg === look.terrain!.indoors!.bg)).toBe(true)
+  expect(cells.some(c => c.k === 'move')).toBe(true) // the water around the square
+  expect(cells.some(c => c.d === true && c.bg === '#2b2b30')).toBe(true) // the lighthouse: heard of, not visited
+  expect(grid.every(r => r.length <= 60)).toBe(true)
+  const a = tilesAt(grid, 0).flat().filter(c => c.k === 'move').map(c => c.ch).join('')
+  const b = tilesAt(grid, 1).flat().filter(c => c.k === 'move').map(c => c.ch).join('')
+  expect(a).not.toBe(b)
+  expect(tilesAt(grid, 1).flat().some(c => c.k === 'mark' && c.ch === '◇')).toBe(true) // the marker blinks
+  expect(tileGrid(map, 'nowhere', 60, look)).toEqual([])
+})
+
+test('the map tab draws the tiles as a live module on the terminal', async ($, on) => {
+  const s: CoderpgSave = { ...SAVE, map: { ...MAP, greywater_bridge: { ...MAP.greywater_bridge!, terrain: 'water' } } }
+  on('state.get', { plugin: 'coderpg', key: 'save' }, () => ({ value: { value: s, version: 1 } }))
+  on('state.get', { plugin: 'coderpg', key: 'tab' }, () => ({ value: { value: 'map', version: 1 } }))
+  const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'Pane', requestId: 'coderpg-sheet', props: PANE_PROPS })
+  expect(await ui.find({ type: 'Client', key: 'map' })).toBeDefined()
+  const before = (await ui.findAll({ type: 'Text', in: 'map' })).map(t => t.text).join('')
+  await ui.advance(300)
+  const after = (await ui.findAll({ type: 'Text', in: 'map' })).map(t => t.text).join('')
+  expect(after).not.toBe(before)
+  expect(await ui.find({ text: / water/ })).toBeDefined() // the key names the terrains seen
+  await ui.unmount()
+})
+
+test('waiting phases follow what the game master is doing, in the game\'s voice', () => {
+  expect(phaseOf('Bash', 'look', '', '')).toBe('reading')
+  expect(phaseOf('Bash', 'npc-brief', 'grukk', '')).toBe('considering')
+  expect(phaseOf('Agent', undefined, '', 'npc')).toBe('considering')
+  expect(phaseOf('Bash', 'world-brief', 'room', '')).toBe('shaping')
+  expect(phaseOf('Bash', 'world-brief', 'turn', '')).toBe('stirring')
+  expect(phaseOf('Agent', undefined, '', 'world', 'turn')).toBe('stirring')
+  expect(phaseOf('Bash', 'attack', 'grukk', '')).toBe('resolving')
+  expect(phaseOf('Bash', 'chronicle', '"x"', '')).toBeUndefined()
+  const look = lookOf({ ...SAVE, view: { ...SAVE.view!, look: { ...DEFAULT_LOOK, phrases: { ...DEFAULT_LOOK.phrases, phases: { considering: ['{name} considers your words'] } } } } })
+  expect(phasePhrase(look, 'considering', 0, 'Grukk')).toBe('Grukk considers your words')
+  expect(phasePhrase(look, 'shaping', 0)).toBeUndefined()
+})
+
+test('each beat plays the sound the game picks for it, or none', () => {
+  const look = { ...DEFAULT_LOOK, sounds: { step: 'splash', phase_reading: null } }
+  expect(soundFor(look, 'step')).toBe('splash')
+  expect(soundFor(look, 'phase_reading')).toBeNull()
+  expect(soundFor(look, 'hit')).toBe('hit')
+})
+
+test('the accent follows the time of day when the game gives one', () => {
+  const look = { ...DEFAULT_LOOK, palette: { ...DEFAULT_LOOK.palette, accent_by_time: { 'deep night': '#9c7a45' } } }
+  const at = (time: string): CoderpgSave => ({ ...SAVE, view: { ...SAVE.view!, look, time } })
+  expect(accentOf(at('deep night'))).toBe('#9c7a45')
+  expect(accentOf(at('dusk'))).toBe(DEFAULT_LOOK.palette.accent)
 })

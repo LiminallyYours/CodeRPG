@@ -2,6 +2,7 @@
 name: Ysolde
 role: keeper of the Saltmere lighthouse
 minor: no
+card: #7fb0d0
 ---
 ## Personality
 Ysolde is a gruff, weathered woman in her sixties who has kept the light for forty years. She is proud and stubborn, and she has slept very little. She would rather die than admit she needs help, but she does. She cares fiercely about the fishermen and doesn't show it.

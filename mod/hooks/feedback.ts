@@ -51,8 +51,8 @@ export function feedback(prev: CoderpgSave | null, next: CoderpgSave): Feedback 
   const was = prev.view?.meter, now = next.view?.meter
   if (was && now && was.state !== now.state) {
     const r = lookOf(next).resource
-    if (now.state === 'spent') parts.push(`${r.icon} ${r.name} spent`)
-    else if (now.state === 'low') parts.push(`${r.icon} ${r.name} running low`)
+    if (now.state === 'spent') { parts.push(`${r.icon} ${r.name} spent`); fb.sounds.push('meter_low') }
+    else if (now.state === 'low') { parts.push(`${r.icon} ${r.name} running low`); fb.sounds.push('meter_low') }
     else if (now.left > was.left) parts.push(`${r.icon} ${r.name} refilled`)
   }
 

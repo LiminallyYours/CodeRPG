@@ -290,6 +290,8 @@ def refresh_view(state):
             exits[d] = dest
     state.setdefault("map", {})[room["id"]] = {
         "name": room.get("name", room["id"]), "exits": exits,
+        "terrain": room.get("terrain"), "color": room.get("color"),  # how the map tile looks
+        "made_by": "world" if is_generated("rooms", room["id"]) else None,
         # where those exits lead, by name: the player can see or has been told, even before visiting
         "neighbors": {dest: ent("rooms", dest).get("name", dest) for dest in exits.values() if ent_exists("rooms", dest)},
     }
@@ -299,7 +301,8 @@ def refresh_view(state):
 
     def who(c):
         ch = ent("characters", c)
-        return {"id": c, "name": ch.get("name", c), "role": ch.get("role", ""), "generated": is_generated("characters", c)}
+        return {"id": c, "name": ch.get("name", c), "role": ch.get("role", ""), "generated": is_generated("characters", c),
+                "card": ch.get("card")}
 
     art = content.game_dir() / "art" / ("%s.txt" % room["id"])
     run = state["run"]
@@ -1078,7 +1081,8 @@ def gen_context(state):
         extras_here=sum(1 for c in run["placements"].get(state["location"], [])
                         if ent("characters", c).get("extra") == "yes"),
         characters_here=characters_here(state), room_ids=ent_ids("rooms"),
-        generated_people=list(run["characters"]))
+        generated_people=list(run["characters"]),
+        terrains=list(content.look().get("terrain") or {}), terrain_here=room.get("terrain"))
 
 
 def apply_patch(state, patch):
@@ -1244,7 +1248,8 @@ def cmd_world_brief(args):
         out += ["Make the new place the player is heading into, %s from here." % " or ".join(unused_expansions(room)),
                 "It is small and self-contained. It must not hold anything the main quest needs, and nothing that solves it.",
                 "Items get a tier, never numbers: %s. Up to 2 items and 1 character (see the character schema; optional)." % ", ".join(g["item_tiers"]),
-                'JSON: {"id": "<new_id>", "name": "<name>", "direction": "<%s>", "description": "<what the player sees, 2-4 sentences>",' % "|".join(unused_expansions(room)),
+                "Its terrain is one of: %s (optional; it defaults to this room's)." % ", ".join(content.look().get("terrain") or {}),
+                'JSON: {"id": "<new_id>", "name": "<name>", "direction": "<%s>", "terrain": "<terrain>", "description": "<what the player sees, 2-4 sentences>",' % "|".join(unused_expansions(room)),
                 '       "items": [{"id": "...", "name": "...", "description": "...", "tier": "<tier>"}], "characters": []}']
     elif request == "item":
         out += ["Make one small thing the player finds here by searching. Modest: not a key to anything, not quest-related.",
@@ -1298,12 +1303,15 @@ def cmd_world_turn(args):
         print("  %s is now at %s" % (mv["id"], mv["room"]))
 
 
+OPEN_KEYS = ("terrain", "by_command")  # a game may add its own terrain kinds and command phrases
+
+
 def unknown_keys(over, base, where, problems):
     """Keys in a game's JSON that the kit's defaults don't have: almost always a typo."""
     for k, v in over.items():
         if k not in base:
             problems.append("%s: unknown key %r (known: %s)" % (where, k, ", ".join(base)))
-        elif isinstance(v, dict) and isinstance(base[k], dict) and base[k]:
+        elif isinstance(v, dict) and isinstance(base[k], dict) and base[k] and k not in OPEN_KEYS:
             unknown_keys(v, base[k], "%s %s" % (where, k), problems)
 
 
@@ -1334,6 +1342,31 @@ def validate_game():
         elif str(content.load("characters", c).get("minor", "no")).lower() == "yes":
             problems.append("settings.json npc_agents characters: %r is minor, so it never has an agent" % c)
     look = content.look()
+    color = re.compile(r"^(#[0-9a-fA-F]{6}|[a-z]+)$")
+    terrains = look.get("terrain") or {}
+    for name, t in terrains.items():
+        for k in ("bg", "fg"):
+            if not color.match(str((t or {}).get(k, ""))):
+                problems.append("look.json terrain %s: %s must be a color like #1f4060" % (name, k))
+    sounds_dir = ROOT / "mod" / "sounds"  # the mod's sound bank; without the mod there's nothing to check against
+    bank = {p.stem for p in sounds_dir.glob("*.wav")}
+    for beat, sound in (look.get("sounds") or {}).items() if sounds_dir.is_dir() else ():
+        if sound is not None and sound not in bank:
+            problems.append("look.json sounds %s: no kit sound %r (the bank: %s)" % (beat, sound, ", ".join(sorted(bank))))
+    times = world().get("times") or []
+    for t in (look["palette"].get("accent_by_time") or {}):
+        if t not in times:
+            problems.append("look.json palette accent_by_time: %r is not one of world.md's times" % t)
+    for r in content.ids("rooms"):
+        room = content.load("rooms", r)
+        if room.get("terrain") is not None and room["terrain"] not in terrains:
+            problems.append("rooms/%s.md: terrain %r isn't in the look's terrain (%s)" % (r, room["terrain"], ", ".join(terrains)))
+        if room.get("color") is not None and not color.match(str(room["color"])):
+            problems.append("rooms/%s.md: color must look like #4a6b8a" % r)
+    for c in content.ids("characters"):
+        card = content.load("characters", c).get("card")
+        if card is not None and not color.match(str(card)):
+            problems.append("characters/%s.md: card must be a color like #8fae4a" % c)
     for t in look.get("tabs") or []:
         if t not in ("here", "map", "journal"):
             problems.append("look.json tabs: unknown tab %r (tabs: here, map, journal)" % t)

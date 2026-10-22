@@ -2,6 +2,7 @@
 name: Pump Room
 exits:
   west: common_deck
+terrain: metal
 ---
 A cramped room at the bottom of a ladder, full of pipes and the smell of hot oil. The main bilge pump fills most of it, a squat iron machine bolted to the floor. Water laps around its base.
 

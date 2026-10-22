@@ -68,4 +68,16 @@ write("fanfare.wav", seq(tone(523, 0.14, 5, "square"), tone(659, 0.14, 5, "squar
                          mix(tone(1047, 0.7, 3, "square"), tone(784, 0.7, 3))), 0.4)
 # defeat: slow falling minor notes
 write("defeat.wav", seq(tone(392, 0.35, 3), tone(311, 0.35, 3), tone(262, 0.8, 2)), 0.45)
+# a quick wipe as the scene changes: a rising breath of noise
+write("wipe.wav", [x * math.sin(math.pi * i / (RATE * 0.18)) for i, x in enumerate(noise(0.18, 1, 0.6))], 0.3)
+# typing: a few soft ticks
+write("type.wav", seq(*[seq(mix(tone(1800, 0.012, 200), noise(0.01, 300, 0.2)), silence(gap)) for gap in (0.05, 0.07, 0.04, 0.06, 0.05)]), 0.25)
+# the meter running low: two falling soft tones
+write("meter_low.wav", seq(tone(660, 0.18, 7), tone(494, 0.32, 5)), 0.3)
+# waiting phases: one gentle chime each, low to high
+write("chime_low.wav", mix(tone(392, 0.6, 5), tone(588, 0.6, 7)), 0.2)
+write("chime_mid.wav", mix(tone(523, 0.5, 6), tone(784, 0.5, 8)), 0.2)
+write("chime_high.wav", mix(tone(784, 0.45, 7), tone(1175, 0.45, 9)), 0.2)
+# a wet footstep, for flooded places
+write("splash.wav", seq(mix(noise(0.14, 18, 0.5), tone(180, 0.06, 50)), silence(0.12), mix(noise(0.12, 20, 0.55), tone(160, 0.05, 50))), 0.4)
 print("wrote", sorted(p.name for p in HERE.glob("*.wav")))
