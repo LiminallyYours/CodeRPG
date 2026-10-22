@@ -20,7 +20,7 @@ As of 2026-10-22. The state of the kit build for whoever picks it up next, human
 | `c13e285` | Stage 3: block-letter banners, transitions, combat strip, tile map, sounds per beat, waiting phases, character cards, accent by time |
 | `a2280fe` | Handoff update |
 | `b8334c8` | Curses: content kind, transforms with shared vectors, the prompt hook tells the GM both versions, mod draws the cursed row |
-| (5.4) | 5.4 Promotion: `rpg.py talk <id>` counts one conversation per scene with a generated person; after `promotion.after_conversations` they become `minor: no` for the run (price 2 once, replies free), befriended, and come back as agents; the journal marks them ★ |
+| `42a9e8a` | 5.4 Promotion: `rpg.py talk <id>` counts one conversation per scene with a generated person; after `promotion.after_conversations` they become `minor: no` for the run (price 2 once, replies free), befriended, and come back as agents; the journal marks them ★ |
 | `e99289b` | 5.3 The library: `rules/library.py`, `state/library/<game>.json`; recording, befriending (side quest done), carry-over on `newgame`, `{"reuse": id}` (refund to cost 1), `rpg.py library suggest`, owner tool `tools/library.py list/keep/forget/unforget` |
 | `e971501` | 5.2 Building and growth: `generation: rooms: anywhere`, map squares in the engine (`layout()`), build spots (`build:`) and builders (`builds: yes`), `world-brief build`, `generate build`, `pay` starts the work, `tick_move` finishes it; ⌂ on the tile map; both games `anywhere`, Morwen and Bucket build |
 | `2e21092` | 5.1 Crafting: makers (`makes:`/`accepts:`), `world-brief craft`, `generate craft`, `pay`, `made_by` on every run entity, save v8, Morwen the net-mender, Bucket makes from scrap |
