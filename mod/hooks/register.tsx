@@ -21,7 +21,7 @@ import { exitsOf, keyText, mapText, usesUpDown } from './map'
 import { commandPhrase, idlePhrase, npcPhrase, phaseOf } from './phrases'
 import type { Seg } from './reveal'
 import { bannerRows, endingRows, paragraphsOf, spaced, speakerOf, titleRows } from './story'
-import { addUsage, endTurn, helperStep, looseStep, measured, newSpend, roleOf, spawned, spendText, withRow, ZERO } from './spend'
+import { addUsage, endTurn, helperStep, isSpend, looseStep, measured, newSpend, roleOf, spawned, spendText, withRow, ZERO } from './spend'
 import type { Spend, SpendRow, Tokens } from './spend'
 import { combatOf, rpgCommand, rpgCommands, TRAY_COMMANDS, trayLines, traySound } from './tray'
 import type { CombatSide, TrayLine } from './tray'
@@ -277,6 +277,18 @@ async function spendStore($: EngineInterface): Promise<SpendStore> {
   return v && typeof v === 'object' ? (v as SpendStore) : {}
 }
 
+/**
+ * The session's figures in $.state, brought back from the store when they're gone. $.state is per Claude Code
+ * session, and `/clear` (which /newgame and /game run) starts a new one in the same process, so it comes back
+ * empty; the store has the figures as they stood at the last turn's end.
+ */
+async function ensureSpend($: EngineInterface): Promise<void> {
+  if (await read($, spend)) return
+  const kept = (await spendStore($)).current
+  const s = isSpend(kept) ? kept : newSpend(await nowMs($))
+  await update($, spend, now => now ?? s)
+}
+
 function inventoryText(s: CoderpgSave): string {
   const lines = itemsOf(s).map(it => `- ${it.name}${it.equipped ? ' *(equipped)*' : ''}${it.own ? ' *(made for you)*' : ''}`)
   const weight = s.view ? ` (weight ${s.view.weight}/${s.view.carry_limit})` : ''
@@ -425,6 +437,7 @@ export const register: Register = on => {
     turnActive = true
     turnBegan = await nowMs($)
     turnPoints = pointsOf(await read($, save))
+    if (isGame) await ensureSpend($)
     turnMain = ZERO
     turnAll = ZERO
     isOoc = /^\s*ooc:/i.test(e.text)
@@ -453,6 +466,7 @@ export const register: Register = on => {
     if (isGame) {
       const ms = turnBegan ? Math.max(0, (await nowMs($)) - turnBegan) : 0
       const points = pointsOf(await read($, save))
+      await ensureSpend($)
       const after = await update($, spend, s => s && { ...endTurn(s, { play: isGameTurn, ms, main: turnMain, all: turnAll, points: points - turnPoints }), points })
       turnBegan = 0
       if (after) void spendKey($).then(async k => $.store.set(k, { ...(await spendStore($)), current: after })).catch(() => undefined)
@@ -566,7 +580,10 @@ export const register: Register = on => {
   on('agent.spawn', async ($, e, next) => {
     const r = await next(e)
     const id = r.agentId
-    if (isGame && id) await update($, spend, s => s && spawned(s, id, roleOf(e.subagentType)))
+    if (isGame && id) {
+      await ensureSpend($)
+      await update($, spend, s => s && spawned(s, id, roleOf(e.subagentType)))
+    }
     return r
   })
 
@@ -575,6 +592,7 @@ export const register: Register = on => {
     const u = r.usage
     if (isGame && u) {
       const id = e.agentId
+      await ensureSpend($)
       const s = await update($, spend, s => s && (id ? helperStep(s, id, u) : turnActive ? s : looseStep(s, u)))
       if (turnActive && (!id || s?.agents[id]?.role !== 'worldsmith')) {
         turnAll = addUsage(turnAll, u)
@@ -586,7 +604,10 @@ export const register: Register = on => {
 
   on('session.measure', async ($, e, next) => {
     const r = await next(e)
-    if (isGame && e.rateLimits.length) await update($, spend, s => s && measured(s, e.rateLimits))
+    if (isGame && e.rateLimits.length) {
+      await ensureSpend($)
+      await update($, spend, s => s && measured(s, e.rateLimits))
+    }
     return r
   })
 
@@ -856,6 +877,7 @@ export const register: Register = on => {
   on('command.run', { command: 'budget' }, async $ => {
     await refresh($)
     const s = await read($, save)
+    await ensureSpend($)
     const used = await read($, spend)
     const real = used ? '\n\n' + spendText({ ...used, points: pointsOf(s) }, (await spendStore($)).history ?? []) : ''
     return { text: (s ? budgetText(s) : 'No game yet. Type /newgame to start.') + real }

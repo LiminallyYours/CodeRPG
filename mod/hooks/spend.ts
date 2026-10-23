@@ -134,10 +134,15 @@ export function rowOf(s: Spend): SpendRow {
   }
 }
 
+/** Whether a stored value is a session's figures (the store outlives versions of this file). */
+export function isSpend(v: unknown): v is Spend {
+  const s = v as Spend | null | undefined
+  return !!s && typeof s.startedAt === 'number' && !!s.play && !!s.dev && !!s.gm && typeof s.agents === 'object' && !!s.agents
+}
+
 /** The history with a finished session added: newest last, at most HISTORY_SIZE, sessions with no turns left out. */
 export function withRow(history: readonly SpendRow[], s: Spend | null | undefined): SpendRow[] {
-  const ok = s && typeof s.startedAt === 'number' && s.play && s.dev
-  if (!ok || s.play.turns + s.dev.turns === 0) return history.slice(-HISTORY_SIZE)
+  if (!isSpend(s) || s.play.turns + s.dev.turns === 0) return history.slice(-HISTORY_SIZE)
   return [...history, rowOf(s)].slice(-HISTORY_SIZE)
 }
 
@@ -178,7 +183,7 @@ export function spendText(s: Spend, history: readonly SpendRow[]): string {
   if (w.length) lines.push(`- **Plan usage this session:** ${w.map(([k, x]) => `${WINDOW_NAMES[k] ?? k} +${x.used}%`).join(' · ')}.`)
   if (s.dev.turns) lines.push(`- **Development turns:** ${s.dev.turns}, ${count(weighted(s.dev.tokens))} weighted tokens (not in the play figures).`)
   if (history.length) {
-    lines.push('', '| Earlier sessions | Play turns | s/turn | requests/turn | weighted/turn | points | weighted/point | 5-hour % |', '|---|---|---|---|---|---|---|---|')
+    lines.push('', '*Earlier sessions, per play turn:*', '', '| Started | Turns | s | Req. | Tokens | Points | Per point | 5-h % |', '|---|---|---|---|---|---|---|---|')
     for (const h of [...history].reverse()) {
       lines.push(`| ${day(h.startedAt)} | ${h.turns} | ${h.secondsPerTurn} | ${h.requestsPerTurn} | ${count(h.weightedPerTurn)} | ${h.points} | ${h.perPoint !== undefined ? count(h.perPoint) : '–'} | ${h.windows.five_hour ?? '–'} |`)
     }

@@ -959,7 +959,7 @@ test('real use: /budget says it in tokens, with the plan windows and the history
   const withHistory = spendText(endTurn(later, { play: false, ms: 0, main, all: ZERO }), [rowOf(s)])
   expect(withHistory).toContain('**Plan usage this session:** 5-hour window +2%.')
   expect(withHistory).toContain('**Development turns:** 1, 37k weighted tokens (not in the play figures).')
-  expect(withHistory).toContain('| Earlier sessions | Play turns |')
+  expect(withHistory).toContain('| Started | Turns | s | Req. | Tokens | Points | Per point | 5-h % |')
   expect(withHistory).toMatch(/\| 1 \| 41 \| 1 \| 37k \| 2 \| – \| – \|/)
   expect(count(812)).toBe('812')
   expect(count(1234)).toBe('1.2k')
@@ -1010,4 +1010,42 @@ test('room prose after ROOM TEXT never reads as a roll, however its lines happen
   expect(trayLines(out)).toEqual([{ icon: '⚑', text: 'A gull steals your bread.', tone: 'neutral' }])
   expect(trayFor('Bash', { command: 'python3 rules/rpg.py move east' }, { stdout: out })).toHaveLength(1)
   expect(combatOf(out, SAVE)).toBeUndefined()
+})
+
+test("real use: a /clear (as /newgame runs) empties the mod's state, and the figures come back from the store", async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const kept: Record<string, unknown> = {}
+  let cell: { value: unknown; version: number } = { value: undefined, version: 0 }
+  on('state.get', { plugin: 'coderpg', key: 'spend' }, () => ({ value: { value: cell.value, version: cell.version } }) as never)
+  on('state.set', { plugin: 'coderpg', key: 'spend' }, (_, e) => {
+    cell = { value: JSON.parse(JSON.stringify((e as { value: unknown }).value ?? null)), version: cell.version + 1 }
+    return { value: { isSet: true, version: cell.version } } as never
+  })
+  on('store.get', (_, e) => ({ value: kept[e.key] }))
+  on('store.set', (_, e) => { kept[e.key] = JSON.parse(JSON.stringify(e.value)); return { value: undefined } })
+  on('fs.exists', () => ({ value: true }))
+  on('session.root', () => ({ value: '/game' }))
+  on('session.start', () => ({ cwd: '/game' }) as never)
+  on('turn.start', (_, e) => ({ turnId: e.turnId }) as never)
+  on('turn.complete', () => ({ text: '' }) as never)
+  on('command.register', () => ({ value: {} }) as never)
+  on('ui.open', () => ({ value: {} }) as never)
+  on('fs.stat', () => ({ value: undefined }) as never)
+  on('turn.step', async function* (_: unknown, e: { turnId: string }) { return { turnId: e.turnId, index: 0, answer: '', toolUses: [], stopReason: 'end_turn', usage: { ...U(100, 10, 0, 0), model: 'm' } } } as never)
+  await $.session.start({ source: 'startup', cwd: '/game' } as never)
+  const turn = async (id: string) => {
+    await $.turn.start({ turnId: id, text: 'I walk north.' } as never)
+    for await (const _ of $.turn.step({ turnId: id, index: 0, model: 'm', messageCount: 1 } as never)) { /* chunks */ }
+    await clock.advance(10_000)
+    await $.turn.complete({ turnId: id, answer: '' } as never)
+    await clock.settle()
+  }
+  await turn('t1')
+  cell = { value: null, version: cell.version + 1 } // what a /clear does to $.state
+  await turn('t2')
+  expect((kept['spend:/game'] as { current: Spend }).current.play.turns).toBe(2)
+  expect((kept['spend:/game'] as { current: Spend }).current.startedAt).toBe(1_000) // the same session, not a new one
+  const r = (await $.command.run({ command: 'budget', args: '' } as never)) as { text?: string }
+  expect(r.text).toContain('**Real use this session**')
+  expect(r.text).toContain('(2 turns)')
 })
