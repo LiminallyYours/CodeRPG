@@ -51,7 +51,8 @@ state/forge/<draft>/          a new world being written by the worldsmith agent 
 state/worlds/<id>/            the worlds forged in play: games like those in games/, but yours, not the kit's
 mod/                          the Claude Code interface mod (Phase 3), loaded with --plugin-dir
 tools/                        check.sh (every automated check), test_rules.py (engine tests), play.py (drive a live session),
-                              settings.py (the owner's switches; the GM can't run it)
+                              settings.py (the owner's switches; the GM can't run it), library.py and worlds.py
+                              (the owner keeps or forgets library entries and forged worlds)
 DEVELOPING.md                 how to work on the game safely: checks, testing, invariants, gotchas
 ```
 

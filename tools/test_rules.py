@@ -1195,6 +1195,45 @@ near: stuck
         (self.dir / "state/forge" / d / "READY").write_text("done")
         self.assertEqual("deny", ask("Write", file_path="state/forge/%s/world/world.md" % d))  # finished: hands off
 
+    def test_the_owner_keeps_or_forgets_a_forged_world(self):
+        self.rpg("meter", "refill")
+        d, _ = self.forge_draft()
+        self.finish_draft(d)
+        self.rpg("forge", "install", d)
+        self.rpg("newgame")  # a game of the lighthouse goes on meanwhile
+        out = self.run_py("tools/worlds.py", "list").stdout
+        self.assertIn('smugglers_cove: The Smugglers Cove, forged', out)
+        self.assertIn('from "a smugglers cove"; no game yet', out)
+        self.rpg("game", "switch", "smugglers_cove")
+        self.rpg("newgame")
+        self.assertIn("switch to another game first", self.run_py("tools/worlds.py", "forget", "smugglers_cove", "--yes").stdout)
+        self.rpg("game", "switch", "dark_lighthouse")
+        self.assertIn("Would delete", self.run_py("tools/worlds.py", "forget", "smugglers_cove").stdout)
+        self.assertTrue((self.dir / "state/worlds/smugglers_cove").is_dir())
+        # keep: it becomes one of the kit's games, checked with them, its saved game intact
+        self.write("state/worlds/smugglers_cove/rooms/coast_road.md", "---\nexits:\n  west: nowhere\n---\n")
+        out = self.run_py("tools/worlds.py", "keep", "smugglers_cove").stdout
+        self.assertIn("stays a forged world", out)
+        self.assertTrue((self.dir / "state/worlds/smugglers_cove").is_dir())
+        shutil.copy(self.dir / "games/dark_lighthouse/rooms/coast_road.md", self.dir / "state/worlds/smugglers_cove/rooms/coast_road.md")
+        self.assertIn("KEPT", self.run_py("tools/worlds.py", "keep", "smugglers_cove").stdout)
+        self.assertIn("CONTENT OK: smugglers_cove", self.rpg("validate"))
+        self.assertNotIn("forged in play", self.rpg("game", "list"))
+        self.assertIn("The saved game continues", self.rpg("game", "switch", "smugglers_cove"))
+        # forget: a second world, with its shelved save and library, goes for good
+        self.rpg("meter", "refill")
+        d2, _ = self.forge_draft()
+        self.finish_draft(d2, title="The Salt Mines")
+        self.rpg("forge", "install", d2)
+        self.rpg("game", "switch", "salt_mines")
+        self.rpg("newgame")
+        self.write("state/library/salt_mines.json", json.dumps({"entries": {}}))
+        self.rpg("game", "switch", "dark_lighthouse")
+        out = self.run_py("tools/worlds.py", "forget", "salt_mines", "--yes").stdout
+        self.assertIn("FORGOTTEN", out)
+        for gone in ("state/worlds/salt_mines", "state/shelf/salt_mines.json", "state/library/salt_mines.json"):
+            self.assertFalse((self.dir / gone).exists(), gone)
+        self.assertNotIn("salt_mines", self.rpg("game", "list"))
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
