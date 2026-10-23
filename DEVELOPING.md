@@ -26,7 +26,7 @@ Break these and the design falls apart:
 ```
 sh tools/check.sh
 ```
-It runs `rpg.py validate` (every game's content references, formats, and look/balance keys), a compile of the Python, `tools/test_rules.py` (the engine tests, in a temp copy), `claude plugin validate mod`, `claude plugin test mod` (the mod's tests, `mod/tests/`), and a TypeScript type-check of the mod.
+It runs `rpg.py validate` (the kit's games in `games/`: content references, formats, soundness, and look/balance keys; forged worlds in `state/worlds/` aren't checked here), a compile of the Python, `tools/test_rules.py` (the engine tests, in a temp copy), `claude plugin validate mod`, `claude plugin test mod` (the mod's tests, `mod/tests/`), and a TypeScript type-check of the mod.
 - **Type-check:** it needs `mod/tsconfig.json`, which Claude Code writes the first time it loads the mod; open one `claude --plugin-dir ./mod` session if it's missing. TypeScript comes through `npx`.
 - **"✘ … the plugin directory refuses a submission for":** this is about submitting to Claude Code's public plugin catalog, which wants a README and a LICENSE inside `mod/`. It doesn't affect local use.
 
@@ -109,7 +109,7 @@ This is the subtlest part of `mod/hooks/register.tsx`. If narration goes missing
 - **New content field:** document it in the README, teach `rpg.py validate` to check it, and use it in both shipped games.
 - **Writing JSON from Python:** use `ensure_ascii=False`, or icons such as ✦ are written as `\u2726`.
 - **New look or balance setting:** add it with a default to `rules/look.default.json` or `rules/balance.json` (validate rejects keys the defaults don't have), mirror look keys in `CoderpgLook` and `DEFAULT_LOOK` (`mod/hooks/look.ts`), and read it from the save's `view.look`, never from a game folder.
-- **New game:** a folder in `games/` with a `world.md`; everything else is optional. `validate` and `test_rules.py` pick it up automatically.
+- **New game:** a folder in `games/` with a `world.md`; everything else is optional. `validate` and `test_rules.py` pick it up automatically. It should also pass `validate --game <id> --kit-complete`, as both shipped games do.
 - **The GM's behaviour:** `CLAUDE.md` holds standing orders (keep it short), `.claude/skills/gm-turn/SKILL.md` the procedure, and `.claude/hooks/turn_reminder.py` the per-message reminder. Sonnet at medium effort cuts corners on short turns, so test procedure changes with it.
 
 ## Known limits

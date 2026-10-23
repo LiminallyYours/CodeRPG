@@ -43,6 +43,8 @@ state/save.json               what has happened in the game being played (create
 state/shelf/<id>.json         the other games' saves, waiting while you play another
 state/active.json             which game is being played
 state/meter.json              what's left to spend this session (shared by every game)
+state/forge/<draft>/          a new world being written by the worldsmith agent (/newworld)
+state/worlds/<id>/            the worlds forged in play: games like those in games/, but yours, not the kit's
 mod/                          the Claude Code interface mod (Phase 3), loaded with --plugin-dir
 tools/                        check.sh (every automated check), test_rules.py (engine tests), play.py (drive a live session),
                               settings.py (the owner's switches; the GM can't run it)
@@ -174,6 +176,7 @@ Extra prose shown only when that flag is set.
 - **Makers** are characters with `makes:` (the item tiers they make to order) and optionally `accepts:` (items they take instead of money). A `## What <she|he|it|they> make(s)` section describes their trade; the world agent reads it when shaping an order. The Lighthouse has Morwen the net-mender on the square; on the station, Bucket makes things from scrap.
 - **`look.json`** may set `palette` (`accent`, `good`, `bad`, `warn`, `heal`, and `accent_by_time`, a color per time of day from world.md's `times`), `terrain` (each kind's tile `bg`, `fg`, and `moves` for water), `sounds` (which kit sound each beat plays, or `null`: step, dice, hit, miss, coin, heal, fanfare, defeat, wipe, type, meter_low, and `phase_<reading|considering|shaping|stirring|resolving>`), `stat_labels` and `stat_short` (names for might, agility and wits), `currency`, `tagline` (under the title card), `tabs` with `tab_labels` and `tab_keys`, and `phrases` (`idle`, `by_command`, and `phases`, what the waiting line says in each stage of a turn; `{name}` is who's thinking). Anything left out comes from `rules/look.default.json`. `validate` flags unknown keys.
 - **`balance.json`** in a game folder overrides any number in `rules/balance.json`, key by key; `validate` flags unknown keys.
+- **Checking a game:** `rpg.py validate` checks the kit's games (`--game <id>` any installed one, `--dir <folder>` a draft). Besides references and formats it checks soundness: every flag a condition uses can be set by something (a `flag set` in some file, an encounter's flag effect, a variant, the clock, a plan step, or defeating someone with hp), and every rules command written in content in backticks (`` `lose honey_cake` ``) is a real one naming real things. `--kit-complete` adds what every kit feature needs, which forged worlds must pass and the kit's games do: a full world file, a `look.json` with a palette and a resource, 5–8 rooms all reachable from the start, an encounter table, 3–4 characters (two with agents, one with plans, a maker, a build spot), exactly one quest with two ways through, its endings and *After the ending*, a curse and a side scene.
 - **`world.md`** may give `rolls:`, `variants:`, `clock:` (name, moves, flag, and optionally `also_if` / `also_flag`), `weather:`, `times:`, `generation:` (each kind `yes` or `no`; `rooms` may also be `anywhere`), and body sections `## Tone` and `## Public knowledge` for the world agent.
 
 ## Changing things

@@ -361,7 +361,8 @@ class Engine(unittest.TestCase):
         v = self.save()["view"]
         self.assertEqual(set(v["meter"]), {"left", "capacity", "state"})
         self.assertEqual(v["settings"]["preset"], "normal")
-        self.assertEqual(v["settings"]["prices"], {"generate": 2, "world_turn": 2, "craft": 2, "build": 3, "reuse": 1, "promote": 2, "scene": 2})
+        self.assertEqual(v["settings"]["prices"], {"generate": 2, "world_turn": 2, "craft": 2, "build": 3, "reuse": 1, "promote": 2, "scene": 2,
+                                                  "new_world": 15, "new_world_resume": 5})
         self.set_meter(9)
         self.rpg("world-brief", "turn")
         self.assertEqual(self.save()["view"]["meter"]["state"], "low")  # 7 of 30
@@ -1036,6 +1037,135 @@ near: stuck
         self.write(g, good.replace("where: harbor_square", "where: gull_tavern"))
         self.assertIn("grukk is never in gull_tavern", self.rpg("validate", "--game", "dark_lighthouse", ok=False))
 
+
+    # ---------------------------------------------------------------- Stage 8: new worlds
+
+    def test_the_kits_own_games_are_kit_complete(self):
+        for g in GAMES:
+            self.assertIn("(kit-complete)", self.rpg("validate", "--game", g, "--kit-complete"))
+
+    def test_validate_checks_a_game_can_be_played_through(self):
+        g = "games/dark_lighthouse"
+        road, pell = self.dir / g / "rooms/coast_road.md", self.dir / g / "characters/pell.md"
+        road.write_text(road.read_text().replace("east: greywater_bridge", "east: greywater_bridge (if bridge_mended or has_rope)"))
+        pell.write_text(pell.read_text().replace("`coins -2`", "`coins 2`").replace("`gain honey_cake`", "`gain honey_cak`")
+                        .replace("`flag set tongue_salted`", "`flag sett tongue_salted`"))
+        out = self.rpg("validate", "--game", "dark_lighthouse", ok=False)
+        for want in ("rooms/coast_road.md: a condition uses 'bridge_mended', but nothing in the game sets it",
+                     "rooms/coast_road.md: condition 'has_rope': no item 'rope'",
+                     "characters/pell.md: `coins 2`: use coins +N or coins -N",
+                     "characters/pell.md: `gain honey_cak`: no item 'honey_cak'",
+                     "characters/pell.md: `flag sett tongue_salted`: use flag set|unset"):
+            self.assertIn(want, out)
+
+    def test_kit_complete_says_what_a_world_lacks(self):
+        w = self.dir / "drafts" / "w"
+        shutil.copytree(self.dir / "games" / "flooded_station", w)
+        for f in ("scenes/mopping_dispute.md", "curses/radio_habit.md", "rooms/the_landing.md", "look.json"):
+            (w / f).unlink()
+        (w / "notes.txt").write_text("scribbles")
+        q = w / "quests" / "ride_out_the_surge.md"
+        q.write_text(q.read_text().replace(" or evacuated\nfailed_by", "\nfailed_by").replace("## After the ending", "## Afterwards"))
+        out = self.rpg("validate", "--dir", "drafts/w", "--kit-complete", ok=False)
+        for want in ("kit: needs a side scene", "kit: needs a curse", "kit: needs a look.json of its own",
+                     "kit: unexpected file notes.txt", "kit: quests/ride_out_the_surge.md needs a ## After the ending section",
+                     "unknown room 'the_landing'"):
+            self.assertIn(want, out)
+        self.write("drafts/w/characters/bucket.md", "---\nname: Bucket\n")  # front matter never closed
+        self.assertIn("checking stopped early: characters/bucket.md: front matter has no closing '---'",
+                      self.rpg("validate", "--dir", "drafts/w", ok=False))
+        self.assertIn("REFUSED", self.rpg("validate", "--dir", "drafts/nowhere", ok=False))
+
+    def forge_draft(self, sentence=("a", "smugglers", "cove")):
+        out = self.rpg("forge", "start", *sentence)
+        d = out.split("FORGE STARTED: ")[1].split(".")[0]
+        return d, out
+
+    def finish_draft(self, d, title="The Smugglers Cove", game="dark_lighthouse"):
+        world = self.dir / "state" / "forge" / d / "world"
+        shutil.copytree(self.dir / "games" / game, world, dirs_exist_ok=True)
+        wf = world / "world.md"
+        wf.write_text(wf.read_text().replace("title: The Dark Lighthouse", "title: %s" % title)
+                      .replace("title: The Flooded Station", "title: %s" % title))
+        (self.dir / "state" / "forge" / d / "READY").write_text(title + "\n")
+
+    def test_a_new_world_is_quoted_charged_and_installed_as_a_forged_game(self):
+        self.rpg("meter", "refill")
+        self.assertIn("FORGE: a new world costs 15 of the meter's 30 left", self.rpg("forge", "quote"))
+        d, out = self.forge_draft()
+        self.assertIn('The player asked for: "a smugglers cove"', out)
+        self.assertIn("validate --dir state/forge/%s/world --kit-complete" % d, out)
+        self.assertEqual(15, self.meter_file())
+        self.assertIn("only one at a time", self.rpg("forge", "start", ok=False))
+        self.rpg("newgame")
+        self.assertNotIn("NEW WORLD READY", self.rpg("look"))
+        self.finish_draft(d)
+        self.assertIn("NEW WORLD READY: %s" % d, self.rpg("look"))
+        out = self.rpg("forge", "install", d)
+        self.assertIn("INSTALLED: The Smugglers Cove (smugglers_cove)", out)
+        self.assertFalse((self.dir / "state" / "forge" / d).exists())
+        home = self.dir / "state" / "worlds" / "smugglers_cove"
+        self.assertEqual("normal", json.loads((home / "settings.json").read_text())["preset"])
+        self.assertEqual("a smugglers cove", json.loads((home / "forged.json").read_text())["sentence"])
+        self.assertIn("smugglers_cove: The Smugglers Cove (no game yet), a world forged in play", self.rpg("game", "list"))
+        self.assertIn("SWITCHED", self.rpg("game", "switch", "smugglers_cove"))
+        self.assertIn("NEW GAME: The Smugglers Cove", self.rpg("newgame"))
+        self.assertIn("in state/worlds/smugglers_cove/", self.rpg("game", "show"))
+        # the kit's checks cover only games/: a forged world that breaks later never fails them
+        (home / "rooms" / "coast_road.md").write_text("---\nexits:\n  west: nowhere\n---\n")
+        self.assertNotIn("smugglers_cove", self.rpg("validate"))
+        self.assertIn("unknown room 'nowhere'", self.rpg("validate", "--game", "smugglers_cove", ok=False))
+        # a second world with the same title gets its own id
+        self.rpg("meter", "refill")
+        d2, out = self.forge_draft(())
+        self.assertIn("surprise them", out)
+        self.assertIn("a surprise world", self.rpg("forge", "status"))
+        self.finish_draft(d2)
+        self.assertIn("(smugglers_cove_2)", self.rpg("forge", "install", d2))
+
+    def test_new_worlds_follow_the_owners_switch_and_the_meter(self):
+        self.settings_tool("preset", "thrifty")
+        self.assertIn("FORGE OFF", self.rpg("forge", "quote"))
+        self.assertIn("switched off", self.rpg("forge", "start", "x", ok=False))
+        self.settings_tool("preset", "normal")
+        self.set_meter(14)
+        self.assertIn("FORGE CAN'T PAY: a new world it costs 15 and the meter has 14", self.rpg("forge", "quote"))
+        self.assertIn("costs 15 and the meter has 14", self.rpg("forge", "start", "x", ok=False))
+        self.assertFalse((self.dir / "state" / "forge").exists() and any((self.dir / "state" / "forge").iterdir()))
+        self.assertIn("NEW WORLDS: on", self.rpg("settings"))
+        self.set_meter(30)
+        self.assertIn("one sentence", self.rpg("forge", "start", "x" * 301, ok=False))
+
+    def test_a_stopped_or_failed_forge_waits_and_can_be_finished_later(self):
+        self.rpg("meter", "refill")
+        d, _ = self.forge_draft()
+        # the worldsmith stopped without READY: the draft waits, unfinished
+        self.assertIn("stopped before the world was finished", self.rpg("forge", "install", d, ok=False))
+        self.assertIn("UNFINISHED: %s" % d, self.rpg("forge", "quote"))
+        self.set_meter(4)
+        self.assertIn("can't now", self.rpg("forge", "quote"))
+        self.assertIn("costs 5 and the meter has 4", self.rpg("forge", "resume", d, ok=False))
+        self.set_meter(10)
+        out = self.rpg("forge", "resume", d)
+        self.assertIn("An earlier attempt left files", out)
+        self.assertEqual(5, self.meter_file())
+        # it says it's ready but doesn't pass: not installed, unfinished again
+        self.finish_draft(d)
+        (self.dir / "state/forge" / d / "world/scenes/shiniest_thing.md").unlink()
+        self.assertIn("doesn't pass the checks", self.rpg("forge", "install", d, ok=False))
+        self.assertFalse((self.dir / "state/forge" / d / "READY").exists())
+        self.assertIn("unfinished", self.rpg("forge", "status"))
+        self.assertFalse((self.dir / "state" / "worlds").exists())
+        self.assertIn("DISCARDED", self.rpg("forge", "discard", d))
+        self.assertIn("NO DRAFTS", self.rpg("forge", "status"))
+
+    def test_a_forge_cut_off_by_closing_claude_code_counts_as_unfinished(self):
+        self.rpg("meter", "refill")
+        d, _ = self.forge_draft()
+        self.assertIn("forging", self.rpg("forge", "status"))
+        self.rpg("meter", "refill")  # what opening Claude Code again does
+        self.assertIn("unfinished", self.rpg("forge", "status"))
+        self.assertIn("FORGE STARTED", self.rpg("forge", "start", "another"))  # the old one no longer blocks a new one
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

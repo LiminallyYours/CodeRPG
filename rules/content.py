@@ -1,7 +1,8 @@
 """Reads a game's content files. Knows the file format, nothing about any particular world.
 
 Each game is a folder in games/<id>/ (world.md, rooms/, characters/, items/, quests/, tables/, curses/, scenes/, art/,
-plus look.json and balance.json). rpg.py picks the active game with use_game() before reading anything.
+plus look.json and balance.json). Forged worlds (Stage 8) are folders of the same shape in state/worlds/<id>/: the
+player's, not the kit's. rpg.py picks the active game with use_game() before reading anything.
 
 A content file is Markdown with a front-matter block between two '---' lines.
 Front matter is a tiny YAML subset:
@@ -21,18 +22,38 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 GAMES = ROOT / "games"
+WORLDS = ROOT / "state" / "worlds"  # forged worlds, installed by `rpg.py forge install`
 KINDS = ("rooms", "characters", "items", "quests", "tables", "curses", "scenes")
 
 _GAME = None  # the active game's folder; set by use_game()
+_ID = None  # its id (a draft's folder isn't named after it)
+
+
+def _ids_in(base):
+    return {p.name for p in base.glob("*") if (p / "world.md").is_file()} if base.is_dir() else set()
+
+
+def authored_games():
+    """The kit's own games, in games/, sorted: the ones the checks cover."""
+    return sorted(_ids_in(GAMES))
+
+
+def is_forged(ident):
+    """Whether `ident` is a world forged during play (state/worlds/), not one of the kit's games."""
+    return ident not in _ids_in(GAMES) and ident in _ids_in(WORLDS)
+
+
+def game_path(ident):
+    return WORLDS / ident if is_forged(ident) else GAMES / ident
 
 
 def use_game(ident, folder=None):
-    """Make `ident` the game every other function reads. `folder` overrides games/<ident>/ (for drafts)."""
-    global _GAME
-    path = Path(folder) if folder else GAMES / ident
+    """Make `ident` the game every other function reads. `folder` overrides where it lives (for drafts)."""
+    global _GAME, _ID
+    path = Path(folder) if folder else game_path(ident)
     if not (path / "world.md").is_file():
         raise KeyError("no game named %r (no world.md in %s)" % (ident, path))
-    _GAME = path
+    _GAME, _ID = path, ident
 
 
 def game_dir():
@@ -42,12 +63,13 @@ def game_dir():
 
 
 def game_id():
-    return game_dir().name
+    game_dir()
+    return _ID
 
 
 def list_games():
-    """Every installed game's id, sorted."""
-    return sorted(p.name for p in GAMES.glob("*") if (p / "world.md").is_file()) if GAMES.is_dir() else []
+    """Every installed game's id, sorted: the kit's own and the forged ones."""
+    return sorted(_ids_in(GAMES) | _ids_in(WORLDS))
 
 
 def deep_merge(base, over):
@@ -240,14 +262,20 @@ def load(kind, ident):
     p = path_of(kind, ident)
     if not p.is_file():
         raise KeyError("no %s named %r in %s/%s/" % (kind[:-1], ident, game_id(), kind))
-    meta, body = parse(p.read_text(encoding="utf-8"))
+    try:
+        meta, body = parse(p.read_text(encoding="utf-8"))
+    except ValueError as e:
+        raise ValueError("%s/%s.md: %s" % (kind, ident, e))
     meta["id"] = ident
     meta["body"] = body
     return meta
 
 
 def load_world():
-    meta, body = parse((game_dir() / "world.md").read_text(encoding="utf-8"))
+    try:
+        meta, body = parse((game_dir() / "world.md").read_text(encoding="utf-8"))
+    except ValueError as e:
+        raise ValueError("world.md: %s" % e)
     meta["body"] = body
     return meta
 

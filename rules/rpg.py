@@ -17,6 +17,7 @@ import datetime
 import json
 import os
 import re
+import shutil
 import sys
 import uuid
 from pathlib import Path
@@ -33,6 +34,7 @@ SAVE = ROOT / "state" / "save.json"
 SHELF = ROOT / "state" / "shelf"
 ACTIVE = ROOT / "state" / "active.json"
 METER = ROOT / "state" / "meter.json"
+FORGE = ROOT / "state" / "forge"  # drafts of new worlds, each written by a worldsmith agent (Stage 8)
 BALANCE = {}  # the active game's rule numbers; set by choose_game()
 SETTINGS = {}  # the owner's switches for the active game (preset + overrides); set by choose_game()
 STATE_VERSION = 8
@@ -100,9 +102,10 @@ def active_game():
     return games[0]
 
 
-def choose_game(ident):
+def choose_game(ident, folder=None):
+    """Make `ident` the game this run reads (from `folder` for a draft), with its rule numbers and the owner's switches."""
     global BALANCE, SETTINGS
-    content.use_game(ident)
+    content.use_game(ident, folder)
     BALANCE = content.balance()
     try:
         SETTINGS = content.settings()
@@ -145,8 +148,15 @@ def charge(kind):
     """Take the price of one `kind` of action from the meter. It never goes below 0."""
     m = meter()
     left = max(0, m["left"] - price(kind))
-    write_json(METER, {"left": left})
+    write_json(METER, {"left": left, "session": meter_session()})
     return left
+
+
+def meter_session():
+    """A mark that changes each time the meter is refilled, which happens when Claude Code is opened here: a forge
+    started under an older mark lost its worldsmith when Claude Code closed."""
+    data = read_json(METER)
+    return data.get("session") if isinstance(data, dict) else None
 
 
 def meter_state(m=None):
@@ -817,6 +827,7 @@ def settings_view():
         "building": {"on": SETTINGS["building"]["on"], "max_per_run": SETTINGS["building"]["max_per_run"]},
         "promotion": {k: SETTINGS["promotion"][k] for k in ("on", "max_per_run", "after_conversations")},
         "side_scenes": {k: SETTINGS["side_scenes"][k] for k in ("on", "max_per_run", "replies")},
+        "new_worlds": {"on": SETTINGS["new_worlds"]["on"]},
     }
 
 
@@ -1249,6 +1260,9 @@ def cmd_look(args):
         print("SIDE QUESTS: %s (read with `rpg.py show quests <id>`)" % ", ".join(gen_q))
     if run["world_turn_due"]:
         print("WORLD TURN DUE: run `rpg.py world-brief turn` and spawn the world agent (see gm-turn)")
+    for d in drafts():
+        if draft_status(d) == "ready":
+            print("NEW WORLD READY: %s: run `rpg.py forge install %s`, then tell the player in one line (see gm-turn)." % (d, d))
 
 
 def cmd_move(args):
@@ -2141,8 +2155,9 @@ def unknown_keys(over, base, where, problems):
             unknown_keys(v, base[k], "%s %s" % (where, k), problems)
 
 
-def validate_game():
-    """Every problem in the active game's content: references, formats, and its JSON settings."""
+def validate_game(kit=False):
+    """Every problem in the active game's content: references, formats, soundness, and its JSON settings. With `kit`,
+    also everything a world needs for every kit feature to work in it (what a forged world must pass)."""
     problems = []
     for name, base in (("look.json", content.kit_look()), ("balance.json", content.kit_balance())):
         try:
@@ -2233,7 +2248,10 @@ def validate_game():
             problems.append("world.md generation: unknown kind %r (kinds: %s)" % (k, ", ".join(GEN_KINDS)))
         elif str(v).lower() not in (("yes", "no", "marked", "anywhere") if k == "rooms" else ("yes", "no")):
             problems.append("world.md generation %s: %r should be %s" % (k, v, "yes, no, marked or anywhere" if k == "rooms" else "yes or no"))
-    pos = layout()
+    try:
+        pos = layout()
+    except Refused:
+        pos = {}  # the map can't be laid out from a missing room; that's reported above or below
     claimed = {}
     for r in content.ids("rooms"):
         room = content.load("rooms", r)
@@ -2342,6 +2360,9 @@ def validate_game():
                 problems.append("%s: nothing in the game sets %r, so the curse can't be cured" % (where, term))
     validate_plans(w, flag_text, problems)
     validate_scenes(problems)
+    validate_soundness(w, problems)
+    if kit:
+        validate_kit_complete(w, problems)
     return problems, "%d rooms, %d characters, %d items, %d quests, %d tables, %d curses, %d scenes" % tuple(len(content.ids(k)) for k in content.KINDS)
 
 
@@ -2474,25 +2495,261 @@ def validate_scenes(problems):
             problems.append("%s: scenes never change story flags" % where)
 
 
+_HEADING_IF = re.compile(r"^#{2,6}\s+If\s+(.+?)\s*$", re.M)
+_CODE = re.compile(r"`([^`\n]+)`")
+ITEM_COMMANDS = ("take", "drop", "gain", "lose", "equip", "use")
+
+
+def content_files(w):
+    """Every content file of the active game as (where, meta, body), world.md first."""
+    out = [("world.md", w, w["body"])]
+    for kind in content.KINDS:
+        for i in content.ids(kind):
+            meta = content.load(kind, i)
+            out.append(("%s/%s.md" % (kind, i), meta, meta["body"]))
+    return out
+
+
+def settable_flags(w):
+    """Every flag something in the game can set: a `flag set` in any file, an encounter's flag effect, world.md's
+    starting flags, the variants, the clock, a plan step, or a defeat (anyone with hp)."""
+    text = "\n".join(path.read_text(encoding="utf-8") for path in content.game_dir().rglob("*.md"))
+    out = set(re.findall(r"flag set ([a-z0-9_]+)", text)) | set(re.findall(r"\(effect:\s*flag\s+([a-z0-9_]+)", text))
+    out.update(w.get("flags") or [])
+    for opts in (w.get("variants") or {}).values():
+        out.update(options_of(opts))
+    clock = w.get("clock") or {}
+    out.update(x for x in (clock.get("flag"), clock.get("also_flag")) if x)
+    for c in content.ids("characters"):
+        meta = content.load("characters", c)
+        out.update(st["sets"] for st in content.plans(meta["body"]) if st.get("sets"))
+        if "hp" in meta:
+            out.add("%s_defeated" % c)
+    return out
+
+
+def conditions_in(meta, body):
+    """Every condition a content file holds: `(if …)` on its values, its bare condition keys, its objectives,
+    its plan steps, and its `If …` headings."""
+    out = []
+
+    def walk(v):
+        if isinstance(v, dict):
+            for x in v.values():
+                walk(x)
+        elif isinstance(v, list):
+            for x in v:
+                walk(x)
+        elif isinstance(v, str):
+            cond = content.split_condition(v)[1]
+            if cond:
+                out.append(cond)
+
+    walk({k: v for k, v in meta.items() if k not in ("id", "body")})
+    for k in ("started_by", "completed_by", "failed_by", "caused_by", "cured_by", "when"):
+        if meta.get(k):
+            out.append(str(meta[k]))
+    for line in meta.get("objectives") or []:
+        m = _DONE.match(str(line))
+        if m:
+            out.append(m.group(2))
+    if meta.get("clock") and meta["clock"].get("also_if"):
+        out.append(str(meta["clock"]["also_if"]))
+    out += [st["when"] for st in content.plans(body) if st.get("when")]
+    out += _HEADING_IF.findall(body)
+    return out
+
+
+def command_problem(words):
+    """What's wrong with a rules command written in content (`flag set x`, `lose honey_cake`), or None."""
+    cmd, args = words[0], words[1:]
+    if len(args) < COMMANDS[cmd][1]:
+        return "needs %d argument(s): %s" % (COMMANDS[cmd][1], COMMANDS[cmd][2])
+    if cmd in ITEM_COMMANDS and not content.exists("items", args[0]):
+        return "no item %r" % args[0]
+    if cmd == "attack" and not content.exists("characters", args[0]):
+        return "no character %r" % args[0]
+    if cmd == "flag" and (args[0] not in ("set", "unset") or not re.fullmatch(r"[a-z0-9_]+", args[1])
+                          or args[1].startswith(("has_", "met_"))):
+        return "use flag set|unset <name> (has_ and met_ are automatic)"
+    if cmd == "coins" and not re.fullmatch(r"[+-]\d+", args[0]):
+        return "use coins +N or coins -N"
+    if cmd == "check" and (args[0] not in STATS or not (args[1].isdigit() or args[1] in ("easy", "normal", "hard"))):
+        return "use check <%s> <number|easy|normal|hard>" % "|".join(STATS)
+    if cmd in ("hurt", "heal", "roll"):
+        try:
+            dice.parse(args[0])
+        except ValueError as e:
+            return str(e)
+    if cmd == "scene" and (args[0] not in ("start", "end") or not content.exists("scenes", args[1])
+                           or args[2:] not in ([], ["reward"])):
+        return "use scene start|end <scene> [reward], naming a scene the game has"
+    if cmd == "show" and args[0] != "world" and (args[0] not in content.KINDS or len(args) < 2
+                                                 or not content.exists(args[0], args[1])):
+        return "use show <kind> <id>, naming something the game has, or show world"
+    return None
+
+
+def validate_soundness(w, problems):
+    """That the game can be played through: every flag a condition uses can be set by something (so the quest's
+    completion can become true, and no door waits on a flag nothing sets), and every rules command written in the
+    content is a real one naming real things."""
+    can_set, seen = settable_flags(w), set()
+    for where, meta, body in content_files(w):
+        for cond in conditions_in(meta, body):
+            for term in generate.TERM.findall(cond):
+                if (where, term) in seen:
+                    continue
+                seen.add((where, term))
+                if term.startswith("has_"):
+                    if not content.exists("items", term[4:]):
+                        problems.append("%s: condition %r: no item %r" % (where, term, term[4:]))
+                elif term.startswith("met_"):
+                    if not content.exists("characters", term[4:]):
+                        problems.append("%s: condition %r: no character %r" % (where, term, term[4:]))
+                elif term not in can_set:
+                    problems.append("%s: a condition uses %r, but nothing in the game sets it" % (where, term))
+        for span in _CODE.findall(body):
+            words = span.split()
+            while words and words[0] in ("python3", "rules/rpg.py", "rpg.py"):
+                words = words[1:]
+            if words and words[0] in COMMANDS:
+                why = command_problem(words)
+                if why:
+                    problems.append("%s: `%s`: %s" % (where, span, why))
+
+
+KIT_ROOMS = (5, 8)
+KIT_CHARACTERS = (3, 4)
+KIT_TOP_FILES = ("world.md", "look.json", "balance.json", "settings.json", "forged.json")
+KIT_MAX_FILES = 80
+KIT_MAX_CHARS = 20000
+
+
+def validate_kit_complete(w, problems):
+    """What every kit feature needs to work in a world: a full world file and a look of its own, 5-8 connected
+    rooms, 3-4 people (two with agents, one with plans, a maker, a builder's spot), one quest with two ways through
+    and its endings, a curse, a side scene. `validate --kit-complete`; forged worlds must pass it, and so must the
+    kit's own games."""
+    d = content.game_dir()
+    files = sorted(x for x in d.rglob("*") if x.is_file())
+    if len(files) > KIT_MAX_FILES:
+        problems.append("kit: %d files; a world holds at most %d" % (len(files), KIT_MAX_FILES))
+    for f in files:
+        parts = f.relative_to(d).parts
+        known = (len(parts) == 1 and parts[0] in KIT_TOP_FILES) or (len(parts) == 2 and (
+            (parts[0] in content.KINDS and f.suffix == ".md") or (parts[0] == "art" and f.suffix == ".txt")))
+        if not known:
+            problems.append("kit: unexpected file %s (a world holds %s, and .md files in %s/)"
+                            % ("/".join(parts), ", ".join(KIT_TOP_FILES), "/, ".join(content.KINDS)))
+        elif len(f.read_text(encoding="utf-8", errors="replace")) > KIT_MAX_CHARS:
+            problems.append("kit: %s is longer than %d characters" % ("/".join(parts), KIT_MAX_CHARS))
+    for k in ("title", "start_room", "stats", "rolls", "coins", "inventory", "variants", "clock", "weather", "generation"):
+        if w.get(k) in (None, "", [], {}):
+            problems.append("kit: world.md needs %s:" % k)
+    heads = [h for h, _ in content.sections(w["body"])]
+    for h in ("Opening", "Tone", "Public knowledge"):
+        if h not in heads:
+            problems.append("kit: world.md needs a ## %s section" % h)
+    try:
+        own = content.game_json("look.json")
+    except ValueError:
+        own = {}  # reported already
+    if not own:
+        problems.append("kit: needs a look.json of its own")
+    else:
+        if not own.get("palette"):
+            problems.append("kit: look.json needs a palette")
+        if not (own.get("resource") or {}).get("name") or not (own.get("resource") or {}).get("icon"):
+            problems.append("kit: look.json needs a resource with a name and an icon")
+    rooms = content.ids("rooms")
+    if not KIT_ROOMS[0] <= len(rooms) <= KIT_ROOMS[1]:
+        problems.append("kit: %d rooms; a world has %d to %d" % (len(rooms), KIT_ROOMS[0], KIT_ROOMS[1]))
+    for r in rooms:
+        if not content.load("rooms", r).get("terrain"):
+            problems.append("kit: rooms/%s.md needs a terrain" % r)
+    start = w.get("start_room")
+    if content.exists("rooms", str(start)):
+        reached, todo = {start}, [start]
+        while todo:
+            for target in (content.load("rooms", todo.pop()).get("exits") or {}).values():
+                dest = content.split_condition(target)[0]
+                if dest not in reached and content.exists("rooms", dest):
+                    reached.add(dest)
+                    todo.append(dest)
+        for r in rooms:
+            if r not in reached:
+                problems.append("kit: rooms/%s.md can't be reached from the start room by any exit" % r)
+    if not any(content.load("rooms", r).get("encounters") for r in rooms):
+        problems.append("kit: no room has an encounter table (encounters:)")
+    people = [content.load("characters", c) for c in content.ids("characters")]
+    if not KIT_CHARACTERS[0] <= len(people) <= KIT_CHARACTERS[1]:
+        problems.append("kit: %d characters; a world has %d to %d" % (len(people), KIT_CHARACTERS[0], KIT_CHARACTERS[1]))
+    if sum(1 for c in people if str(c.get("minor", "no")).lower() == "no") < 2:
+        problems.append("kit: needs at least two characters with their own agents (minor: no)")
+    if not any(content.plans(c["body"]) for c in people):
+        problems.append("kit: needs a character with plans (## Plan: sections)")
+    if not any(c.get("makes") for c in people):
+        problems.append("kit: needs a maker (makes:)")
+    if not any(content.load("rooms", r).get("build") for r in rooms):
+        problems.append("kit: needs a build spot (build:) in a room, with a builder there")
+    quests = content.ids("quests")
+    if len(quests) != 1:
+        problems.append("kit: %d quests; a world has exactly one" % len(quests))
+    for q in quests:
+        meta, where = content.load("quests", q), "kit: quests/%s.md" % q
+        for k in ("started_by", "completed_by", "failed_by"):
+            if not meta.get(k):
+                problems.append("%s needs %s:" % (where, k))
+        objectives = meta.get("objectives") or []
+        if len(objectives) < 2:
+            problems.append("%s needs at least two objectives" % where)
+        ways = [str(meta.get("completed_by") or "")] + [m.group(2) for m in (_DONE.match(str(o)) for o in objectives) if m]
+        if max(len(re.split(r"\s+or\s+", x.strip())) if x.strip() else 0 for x in ways) < 2:
+            problems.append("%s needs at least two ways through: an 'or' in completed_by or in an objective's done-when" % where)
+        parts = dict(content.sections(meta["body"]))
+        if len(re.findall(r"^###\s+If\s", parts.get("Endings", ""), re.M)) < 2:
+            problems.append("%s needs a ## Endings section with at least two ### If endings" % where)
+        if "After the ending" not in parts:
+            problems.append("%s needs a ## After the ending section" % where)
+    if not content.ids("curses"):
+        problems.append("kit: needs a curse")
+    if not content.ids("scenes"):
+        problems.append("kit: needs a side scene")
+
+
 def cmd_validate(args):
-    """validate [--game <id>]: check every installed game (or one) for broken references and formats."""
-    games = content.list_games()
-    if "--game" in args:
+    """validate [--game <id> | --dir <folder>] [--kit-complete]: check the kit's games (or one installed game, or a
+    draft's folder) for broken references, formats and soundness; --kit-complete adds what a forged world needs."""
+    kit = "--kit-complete" in args
+    args = [a for a in args if a != "--kit-complete"]
+    if "--dir" in args:
+        want = args[args.index("--dir") + 1:][:1]
+        folder = (ROOT / want[0]).resolve() if want else None
+        if not folder or not (folder / "world.md").is_file():
+            raise Refused("validate --dir <folder>, a folder with a world.md in it")
+        targets = [(want[0].rstrip("/"), folder)]
+    elif "--game" in args:
         want = args[args.index("--game") + 1:][:1]
-        if not want or want[0] not in games:
-            raise Refused("validate --game <id>, one of: %s" % ", ".join(games))
-        games = want
-    if not games:
+        if not want or want[0] not in content.list_games():
+            raise Refused("validate --game <id>, one of: %s" % ", ".join(content.list_games()))
+        targets = [(want[0], None)]
+    else:
+        targets = [(g, None) for g in content.authored_games()]
+    if not targets:
         raise Refused("no games installed in games/")
     bad = False
-    for g in games:
-        choose_game(g)
-        problems, summary = validate_game()
+    for g, folder in targets:
+        try:
+            choose_game(g, folder)
+            problems, summary = validate_game(kit)
+        except (Refused, KeyError, ValueError) as e:  # a file too broken to read: say so, never stop with a refusal
+            problems, summary = ["checking stopped early: %s" % (e.args[0] if isinstance(e, KeyError) and e.args else e)], ""
         if problems:
             bad = True
             print("\n".join("%s: %s" % (g, x) for x in problems))
         else:
-            print("CONTENT OK: %s: %s" % (g, summary))
+            print("CONTENT OK: %s: %s%s" % (g, summary, " (kit-complete)" if kit else ""))
     if bad:
         sys.exit(1)
 
@@ -2529,7 +2786,7 @@ def cmd_curse_text(args):
 def cmd_meter(args):
     """meter [refill]: the meter, or fill it to capacity (the SessionStart hook does this)."""
     if args and args[0] == "refill":
-        write_json(METER, {"left": meter()["capacity"]})
+        write_json(METER, {"left": meter()["capacity"], "session": uuid.uuid4().hex[:8]})
         resave_view()
         print("REFILLED: %s" % meter_line())
         return
@@ -2558,6 +2815,7 @@ def cmd_settings(args):
     print("PROMOTION: %s, at most %d per run, after %d conversations" % (on(pr["on"]), pr["max_per_run"], pr["after_conversations"]))
     sc = v["side_scenes"]
     print("SIDE SCENES: %s, at most %d per run, %d replies each" % (on(sc["on"] and v["npc_agents"]["on"]), sc["max_per_run"], sc["replies"]))
+    print("NEW WORLDS: %s" % on(v["new_worlds"]["on"]))
 
 
 # ---------------------------------------------------------------- games: list, show, switch
@@ -2588,10 +2846,11 @@ def cmd_game(args):
     if action == "list":
         for g in content.list_games():
             data = read_json(SAVE) if g == current else read_json(shelved(g))
-            print("%s %s: %s (%s)" % ("*" if g == current else " ", g, title_of(g), save_summary(data)))
+            print("%s %s: %s (%s)%s" % ("*" if g == current else " ", g, title_of(g), save_summary(data),
+                                       ", a world forged in play" if content.is_forged(g) else ""))
         return
     if action == "show":
-        print("GAME: %s (%s), in games/%s/" % (title_of(current), current, current))
+        print("GAME: %s (%s), in %s/" % (title_of(current), current, content.game_dir().relative_to(ROOT)))
         return
     if action != "switch":
         raise Refused("use: game list | game show | game switch <id>")
@@ -2614,6 +2873,188 @@ def cmd_game(args):
         return
     print("SWITCHED to %s. The saved game continues." % title_of(target))
     cmd_look([])
+
+
+# ---------------------------------------------------------------- the forge: new worlds on demand (Stage 8)
+# `/newworld` asks `forge quote`, confirms with the player, then `forge start` charges the meter and makes a draft:
+# state/forge/<draft>/ with forge.json (the request) and world/, where a worldsmith agent writes the world in the
+# background. It checks its work with `validate --dir … --kit-complete` and, when done, writes READY. `forge install`
+# checks it once more and moves it to state/worlds/<id>/, where /game lists it.
+
+DRAFT = re.compile(r"^draft_[0-9a-f]{6}$")
+SENTENCE_CHARS = 300
+
+
+def drafts():
+    """Every draft folder with a request in it, oldest first."""
+    if not FORGE.is_dir():
+        return []
+    found = [d for d in FORGE.iterdir() if DRAFT.match(d.name) and (d / "forge.json").is_file()]
+    return [d.name for d in sorted(found, key=lambda d: (read_json(d / "forge.json") or {}).get("started", ""))]
+
+
+def draft_info(d):
+    return read_json(FORGE / d / "forge.json") or {}
+
+
+def draft_status(d):
+    """ready: the worldsmith says it's done; forging: it's still at work (started this session, not stopped);
+    unfinished: it stopped without finishing, or Claude Code was closed while it worked."""
+    if (FORGE / d / "READY").is_file():
+        return "ready"
+    info = draft_info(d)
+    return "unfinished" if info.get("status") == "stopped" or info.get("session") != meter_session() else "forging"
+
+
+def why_no_forge(kind):
+    if not SETTINGS["new_worlds"]["on"]:
+        return "the owner has new worlds switched off"
+    if not can_pay(kind):
+        return "it costs %d and the meter has %d" % (price(kind), meter()["left"])
+    return None
+
+
+def forge_brief(d):
+    """The worldsmith's whole prompt: what the player asked for, where to write, and how to check."""
+    info, folder = draft_info(d), "state/forge/%s/world" % d
+    taken = ", ".join("%s (%s)" % (title_of(g), g) for g in content.list_games())
+    asked = ('The player asked for: "%s"' % info["sentence"]) if info.get("sentence") else \
+        "The player asked for nothing in particular: surprise them with a small world of your own choosing."
+    lines = [
+        "# Forge a new world", "",
+        asked, "",
+        "- Read rules/WORLD-GUIDE.md first. It has every file format and everything the world must contain.",
+        "- The kit's games in games/ are worked examples. Learn from them; don't copy their places, people or plots.",
+        "- Write every file of the new world in %s/ and nowhere else." % folder,
+        "- Check it with exactly: python3 rules/rpg.py validate --dir %s --kit-complete" % folder,
+        "- Fix every problem it reports and check again, until it says CONTENT OK.",
+        "- Then, as your very last step, write the file state/forge/%s/READY containing one line: the world's title." % d,
+        "- Titles already taken (don't reuse or imitate one): %s." % taken,
+    ]
+    if info.get("resumes"):
+        lines += ["", "An earlier attempt left files in %s/. Run the check first, and finish the world from what's there." % folder]
+    return "\n".join(lines)
+
+
+def world_id(title):
+    """A new world's id from its title: 'The Salt Mines' -> salt_mines, made unique among installed games."""
+    base = re.sub(r"[^a-z0-9]+", "_", str(title).lower()).strip("_")
+    base = re.sub(r"^the_", "", base)[:30].strip("_")
+    if not base or not base[0].isalpha():
+        base = ("world_" + base)[:30].strip("_")
+    taken = {f.name for base in (content.GAMES, content.WORLDS) if base.is_dir() for f in base.iterdir()}
+    ident, n = base, 2
+    while ident in taken:
+        ident, n = "%s_%d" % (base[:27], n), n + 1
+    return ident
+
+
+def cmd_forge(args):
+    """forge quote | start [sentence] | resume <draft> | status | install <draft> | discard <draft>."""
+    action, rest = args[0], args[1:]
+    if action == "quote":
+        why = why_no_forge("new_world")
+        m = meter()
+        if not SETTINGS["new_worlds"]["on"]:
+            print("FORGE OFF: %s. Nothing starts." % why)
+        elif why:
+            print("FORGE CAN'T PAY: a new world %s. Nothing starts." % why)
+        else:
+            print("FORGE: a new world costs %d of the meter's %d left (%s %d/%d)." % (
+                price("new_world"), m["left"], resource()["name"], m["left"], m["capacity"]))
+        for d in drafts():
+            status = draft_status(d)
+            if status == "unfinished":
+                print("UNFINISHED: %s, %s: finishing it costs %d%s." % (
+                    d, '"%s"' % draft_info(d)["sentence"] if draft_info(d).get("sentence") else "a surprise world",
+                    price("new_world_resume"), "" if not why_no_forge("new_world_resume") else " (can't now: %s)" % why_no_forge("new_world_resume")))
+            elif status == "forging":
+                print("FORGING: %s is still being made; only one at a time." % d)
+            else:
+                print("NEW WORLD READY: %s: run `forge install %s`." % (d, d))
+        return
+    if action == "status":
+        for d in drafts():
+            print("DRAFT %s: %s, %s" % (d, draft_status(d), '"%s"' % draft_info(d)["sentence"] if draft_info(d).get("sentence") else "a surprise world"))
+        if not drafts():
+            print("NO DRAFTS")
+        return
+    if action == "start":
+        why = why_no_forge("new_world")
+        if why:
+            raise Refused("no new world: %s" % why)
+        if any(draft_status(d) == "forging" for d in drafts()):
+            raise Refused("a world is already being forged; only one at a time")
+        sentence = " ".join(rest).strip() or None
+        if sentence and len(sentence) > SENTENCE_CHARS:
+            raise Refused("describe the world in one sentence, at most %d characters" % SENTENCE_CHARS)
+        d = "draft_%s" % uuid.uuid4().hex[:6]
+        (FORGE / d / "world").mkdir(parents=True)
+        charge("new_world")
+        write_json(FORGE / d / "forge.json", {"sentence": sentence, "started": datetime.datetime.now().isoformat(timespec="seconds"),
+                                              "session": meter_session(), "status": "forging", "resumes": 0})
+        resave_view()
+        print("FORGE STARTED: %s. Spawn the worldsmith in the background with exactly this brief (see the newworld skill):\n" % d)
+        print(forge_brief(d))
+        return
+    if action in ("resume", "install", "discard"):
+        if not rest or rest[0] not in drafts():
+            raise Refused("forge %s <draft>, one of: %s" % (action, ", ".join(drafts()) or "none"))
+        d = rest[0]
+    else:
+        raise Refused("use: forge quote | start [sentence] | resume <draft> | status | install <draft> | discard <draft>")
+    info = draft_info(d)
+    if action == "discard":
+        shutil.rmtree(FORGE / d)
+        print("DISCARDED: %s" % d)
+        return
+    if action == "resume":
+        if draft_status(d) != "unfinished":
+            raise Refused("%s is %s, not unfinished" % (d, draft_status(d)))
+        why = why_no_forge("new_world_resume")
+        if why:
+            raise Refused("can't finish it: %s" % why)
+        if any(draft_status(x) == "forging" for x in drafts()):
+            raise Refused("a world is already being forged; only one at a time")
+        charge("new_world_resume")
+        info.update(session=meter_session(), status="forging", resumes=int(info.get("resumes", 0)) + 1)
+        write_json(FORGE / d / "forge.json", info)
+        resave_view()
+        print("FORGE RESUMED: %s. Spawn the worldsmith in the background with exactly this brief (see the newworld skill):\n" % d)
+        print(forge_brief(d))
+        return
+    # install: the worldsmith has stopped (the GM installs on its completion notice, or when `look` says ready)
+    if draft_status(d) != "ready":
+        info["status"] = "stopped"
+        write_json(FORGE / d / "forge.json", info)
+        raise Refused("%s stopped before the world was finished (no READY). It waits; the player can finish it later "
+                      "with /newworld. Say nothing in the story." % d)
+    folder, current = FORGE / d / "world", active_game()
+    try:
+        choose_game("draft", folder)
+        problems, _ = validate_game(kit=True)
+        title = content.load_world().get("title") if not problems else None
+    except (KeyError, ValueError) as e:
+        problems, title = ["%s" % e], None
+    finally:
+        choose_game(current)
+    if problems:
+        (FORGE / d / "READY").unlink()
+        info["status"] = "stopped"
+        write_json(FORGE / d / "forge.json", info)
+        raise Refused("%s doesn't pass the checks, so it isn't installed (%s%s). It waits, unfinished; the player can "
+                      "finish it later with /newworld. Say nothing in the story." % (
+                          d, "; ".join(problems[:3]), "; …" if len(problems) > 3 else ""))
+    ident = world_id(title)
+    content.WORLDS.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(folder), str(content.WORLDS / ident))
+    home = content.WORLDS / ident
+    if not (home / "settings.json").is_file():
+        write_json(home / "settings.json", {"preset": "normal", "overrides": {}})
+    write_json(home / "forged.json", {"title": title, "sentence": info.get("sentence"), "forged": datetime.date.today().isoformat()})
+    shutil.rmtree(FORGE / d)
+    print("INSTALLED: %s (%s). Tell the player in one line, in the story, that somewhere a new world has taken shape: "
+          "%s, and that /game %s goes there." % (title, ident, title, ident))
 
 
 COMMANDS = {
@@ -2640,12 +3081,13 @@ COMMANDS = {
     "generate": (cmd_generate, 2, "generate <extra|room|item|character|quest|craft|build> <file>   add a world-agent proposal (a JSON file)"),
     "pay": (cmd_pay, 1, "pay <order> [material]   the player pays a maker or builder for an order"),
     "scene": (cmd_scene, 2, "scene start <id> | scene end <id> [reward]   play a side scene between two characters"),
+    "forge": (cmd_forge, 1, "forge quote | start [sentence] | resume <draft> | status | install <draft> | discard <draft>   new worlds"),
     "world-turn": (cmd_world_turn, 1, "world-turn <file>   apply the world agent's off-screen turn (a JSON file)"),
     "talk": (cmd_talk, 1, "talk <generated person>   before voicing a generated person: counts conversations, may promote them"),
     "library": (cmd_library, 1, "library suggest <id> <why>   tell the owner a generated or player-made thing deserves keeping"),
     "note": (cmd_note, 1, "note <text>   keep a detail you established about this room"),
     "chronicle": (cmd_chronicle, 1, "chronicle <text>   add a line to the story so far"),
-    "validate": (cmd_validate, 0, "validate [--game <id>]   check every game's content references and settings"),
+    "validate": (cmd_validate, 0, "validate [--game <id> | --dir <folder>] [--kit-complete]   check games' content, soundness and settings"),
     "game": (cmd_game, 0, "game [list | show | switch <id>]   the installed games; switching keeps each one's save"),
     "meter": (cmd_meter, 0, "meter [refill]   the meter, or fill it (the SessionStart hook refills it)"),
     "settings": (cmd_settings, 0, "settings   the owner's switches and prices for this game (change: tools/settings.py)"),

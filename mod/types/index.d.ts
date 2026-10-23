@@ -93,6 +93,8 @@ export type CoderpgSettings = {
   promotion?: { on: boolean; max_per_run: number; after_conversations: number }
   /** Two-character side scenes (Stage 7). */
   side_scenes?: { on: boolean; max_per_run: number; replies: number }
+  /** New worlds forged on request (Stage 8). */
+  new_worlds?: { on: boolean }
 }
 
 /** `promoted`: a generated person the player kept coming back to, who now speaks for themselves (version 8+). */

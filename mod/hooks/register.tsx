@@ -225,6 +225,7 @@ const PRICE_NAMES: Record<string, string> = {
   reuse: 'someone or something coming back from an earlier game',
   promote: 'someone you keep coming back to finding their own voice',
   scene: 'a little scene between two characters',
+  new_world: 'a whole new world', new_world_resume: 'finishing a new world that was interrupted',
 }
 
 /** The meter's color: plain while there's plenty, then the warning and danger colors. */
@@ -250,6 +251,7 @@ export function budgetText(s: CoderpgSave): string {
     ...(v.building ? [`**Having places built:** ${on(v.building.on)}, up to ${v.building.max_per_run} per game.`] : []),
     ...(v.promotion ? [`**People finding their own voice:** ${on(v.promotion.on)}${v.promotion.on ? `, after ${v.promotion.after_conversations} conversations, up to ${v.promotion.max_per_run} per game` : ''}.`] : []),
     ...(v.side_scenes ? [`**Little scenes between two characters:** ${on(v.side_scenes.on && v.npc_agents.on)}${v.side_scenes.on && v.npc_agents.on ? `, up to ${v.side_scenes.max_per_run} per game, ${v.side_scenes.replies} replies each` : ''}.`] : []),
+    ...(v.new_worlds ? [`**New worlds made to order** (\`/newworld\`): ${on(v.new_worlds.on)}.`] : []),
     `*Preset: ${v.preset}. The owner changes these with \`python3 tools/settings.py\`.*`,
   ].join('\n\n')
 }

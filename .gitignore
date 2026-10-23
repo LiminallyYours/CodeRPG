@@ -7,6 +7,9 @@ state/active.json
 state/meter.json
 # each game's library: what lasts across its runs (the owner manages it with tools/library.py)
 state/library/
+# new worlds: drafts being forged, and the worlds forged in play (tools/worlds.py keep moves one into games/)
+state/forge/
+state/worlds/
 state/*.tmp
 # world-agent proposals waiting to be applied; the script deletes them
 proposals/*.json
