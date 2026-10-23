@@ -818,7 +818,9 @@ export const register: Register = on => {
     const flashing = await read($, flash)
     const { hp, max_hp, might, agility, wits, coins } = s.stats
     const objective = currentObjective(s)
-    const say = (text: string) => () => void $.prompt.submit({ text, asUser: true })
+    // Buttons put the words in the prompt box for the player to send with Enter. A prompt the mod submitted itself
+    // would carry Claude Code's "Prompt from the coderpg plugin" label, and its row never reaches our render hook.
+    const say = (text: string) => () => void $.prompt.fill({ text, mode: 'replace' })
     const exits = s.map ? exitsOf(s.map, s.location) : []
     const here = s.view?.characters_here ?? []
     const items = itemsOf(s)
@@ -1014,7 +1016,7 @@ export const register: Register = on => {
             {open === 'here' ? hereTab : open === 'map' ? mapTab : journalTab}
           </Box>
         </Box>
-        <Text dimColor wrap="truncate">1–9 go  ·  l look  ·  {tabs.map(t => t.hotkey).join(' ')} tabs</Text>
+        <Text dimColor wrap="truncate">1–9 then ⏎ go  ·  l look  ·  {tabs.map(t => t.hotkey).join(' ')} tabs</Text>
       </Box>
     )
   })

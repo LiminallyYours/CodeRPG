@@ -482,7 +482,7 @@ test('the pane: vitals in a titled frame, a tab strip, and a footer of keys, wit
   expect(await ui.find({ text: 'VITALS' })).toBeDefined()
   expect(await ui.find({ text: /^╰─+╯$/ })).toBeDefined()
   expect(await ui.find({ text: /^MIG $/ })).toBeDefined()
-  expect(await ui.find({ text: /1–9 go/ })).toBeDefined()
+  expect(await ui.find({ text: /1–9 then ⏎ go/ })).toBeDefined()
   // the open tab is a solid pill, not a button; the others are dim buttons
   const pill = await ui.find({ type: 'Text', text: ' h: Here ' })
   expect(pill?.props.backgroundColor).toBe('#d7a640')
