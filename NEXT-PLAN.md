@@ -147,6 +147,12 @@ Session totals alone serve neither job, because they depend on how long you play
 - **Section labels:** the lighthouse keeps the defaults; the station's are `LOCATION · STATUS · AT RISK · ACTIONS · KIT · MORE`.
 - **Technical:** the pane is requested at 58 body columns; the text art is drawn at its own size (no 14-row box) until 3.4; the adventure title, the `◌` working line and the key footer leave the pane (the band carries the working line).
 
+**Found and decided while building 3.4 (2026-10-23):**
+- **The mod's runtime has no deflate** (no `DecompressionStream`, no zlib), so the fallback holds: `rpg.py` decodes the picture (`rules/png.py`, stdlib) into `view.picture` (the 44x28 mosaic as base64 RGB, about 5 KB in the save, carried over while the file is unchanged). The mod reads only the save, so invariant 4 needs no exception.
+- **Limits for a picture** (`validate`): a real PNG, 4:3 or wider, at most 256 pixels wide and 64 KB, not interlaced; any color type. They keep decoding at a few milliseconds a move.
+- **A forged world's own terrains** have no pictures; they get the tinted field. `WORLD-GUIDE.md` asks the worldsmith to use a kit terrain name where one fits.
+- **A short dock crops the picture before dropping it** (JW, 2026-10-23): at 184×46 the docked margin has about 40 rows and a busy room (Harbor Square, the start) needs 42 with the full picture. The order is now: trim the carried list, then the picture's middle 10 rows, then 7, then none. This refines the 3.3 decision above.
+
 **3.4 Pictures:**
 - **`tools/pictures.py`** (stdlib only, writes PNGs): simple pixel art at 44×28, redrawable.
   - **Kit generics:** 3 variants each for water, grass, stone and indoors, in `rules/art/terrain/`.

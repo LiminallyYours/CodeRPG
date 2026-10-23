@@ -459,6 +459,102 @@ class Engine(unittest.TestCase):
         self.write(g + "/look.json", json.dumps(look))
         self.assertIn("look.json tab_keys: two tabs share a key", self.rpg("validate", "--game", "dark_lighthouse", ok=False))
 
+    def test_rooms_carry_their_picture_as_a_mosaic(self):
+        sys.path.insert(0, str(self.dir / "rules"))
+        import base64
+        import png
+        self.at_the_lighthouse()
+        pic = self.save()["view"]["picture"]
+        self.assertEqual(pic["source"], "games/dark_lighthouse/art/lighthouse.png")
+        self.assertEqual((pic["width"], pic["height"]), (44, 28))
+        self.assertEqual(len(base64.b64decode(pic["rgb"])), 44 * 28 * 3)
+        # a hand-made picture of another size replaces it: cropped to shape around its middle, averaged down
+        red, blue = (200, 0, 0), (0, 0, 200)
+        rows = [[red if x < 66 else blue for x in range(132)] for _ in range(70)]   # 132x70: wider than 44:28, sides trimmed
+        png.write(self.dir / "games/dark_lighthouse/art/lighthouse.png", 132, 70, rows)
+        self.step_out_and_back()
+        rgb = base64.b64decode(self.save()["view"]["picture"]["rgb"])
+        self.assertEqual(tuple(rgb[0:3]), red)
+        self.assertEqual(tuple(rgb[43 * 3:44 * 3]), blue)
+        # without its own picture, a room takes its terrain's; with none for its terrain, none at all
+        (self.dir / "games/dark_lighthouse/art/lighthouse.png").unlink()
+        self.step_out_and_back()
+        self.assertRegex(self.save()["view"]["picture"]["source"], r"^rules/art/terrain/stone-\d\.png$")
+        for f in (self.dir / "rules/art/terrain").glob("stone-*.png"):
+            f.unlink()
+        self.step_out_and_back()
+        self.assertIsNone(self.save()["view"]["picture"])
+
+    def test_pictures_from_other_programs_decode(self):
+        """Palette, grey and transparent PNGs, with every row filter, read back as the pixels they hold."""
+        sys.path.insert(0, str(self.dir / "rules"))
+        import struct
+        import zlib
+        import png
+
+        def paeth(a, b, c):
+            p = a + b - c
+            pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+            return a if pa <= pb and pa <= pc else b if pb <= pc else c
+
+        def encode(w, h, depth, ctype, lines, bpp, plte=b"", interlace=0):
+            out, prev = b"", bytes(len(lines[0]))
+            for y, line in enumerate(lines):
+                kind = y % 5
+                f = bytearray()
+                for x, v in enumerate(line):
+                    a = line[x - bpp] if x >= bpp else 0
+                    b, c = prev[x], prev[x - bpp] if x >= bpp else 0
+                    f.append((v - (0, a, b, (a + b) >> 1, paeth(a, b, c))[kind]) & 255)
+                out += bytes([kind]) + bytes(f)
+                prev = line
+
+            def chunk(k, body):
+                return struct.pack(">I", len(body)) + k + body + struct.pack(">I", zlib.crc32(k + body) & 0xFFFFFFFF)
+            return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, depth, ctype, 0, 0, interlace))
+                    + (chunk(b"PLTE", plte) if plte else b"") + chunk(b"IDAT", zlib.compress(out)) + chunk(b"IEND", b""))
+
+        w, h = 8, 6
+        colors = [(10 * x + 3 * y, 200 - 20 * x, 7 * y) for y in range(h) for x in range(w)]
+        rgba = encode(w, h, 8, 6, [bytes(c for x in range(w) for c in colors[y * w + x] + (255,)) for y in range(h)], 4)
+        self.assertEqual([px for row in png.pixels(rgba)[2] for px in row], colors)
+        half = encode(w, h, 8, 6, [bytes(c for x in range(w) for c in (200, 100, 50, 128)) for y in range(h)], 4)
+        self.assertEqual(png.pixels(half)[2][0][0], (100, 50, 25))  # half see-through, over black
+        plte = bytes([0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255])
+        idx = [[(x + y) % 4 for x in range(w)] for y in range(h)]
+        packed = [bytes((r[i] << 4) | r[i + 1] for i in range(0, w, 2)) for r in idx]   # 4 bits a pixel
+        pal = png.pixels(encode(w, h, 4, 3, packed, 1, plte))[2]
+        self.assertEqual(pal[1][2], (0, 0, 255))
+        grey = png.pixels(encode(w, h, 8, 0, [bytes(x * 30 for x in range(w)) for _ in range(h)], 1))[2]
+        self.assertEqual(grey[3][5], (150, 150, 150))
+        self.assertIsNone(png.problem(encode(64, 48, 8, 6, [bytes(4 * 64)] * 48, 4)))
+        self.assertIn("interlaced", png.problem(encode(64, 48, 8, 2, [bytes(3 * 64)] * 48, 3, interlace=1)))
+
+    def step_out_and_back(self):
+        """Leave the lighthouse and come back: a move saves, so the view (and its picture) is made afresh."""
+        self.rpg("move", "east")
+        self.rpg("move", "west")
+
+    def test_validate_checks_pictures(self):
+        sys.path.insert(0, str(self.dir / "rules"))
+        import png
+        g = "games/dark_lighthouse/art/"
+        png.write(self.dir / (g + "nowhere.png"), 44, 28, [[(0, 0, 0)] * 44] * 28)
+        png.write(self.dir / (g + "lighthouse.png"), 40, 40, [[(0, 0, 0)] * 40] * 40)
+        png.write(self.dir / (g + "coast_road.png"), 300, 200, [[(0, 0, 0)] * 300] * 200)
+        self.write(g + "gull_tavern.png", "not a picture")
+        (self.dir / (g + "terrain")).mkdir()
+        png.write(self.dir / (g + "terrain/lava-1.png"), 44, 28, [[(0, 0, 0)] * 44] * 28)
+        out = self.rpg("validate", "--game", "dark_lighthouse", ok=False)
+        self.assertIn("art/nowhere.png: unknown room 'nowhere'", out)
+        self.assertIn("art/lighthouse.png: 40x40; a picture is 4:3 or wider", out)
+        self.assertIn("art/coast_road.png: 300 pixels wide; a picture is at most 256", out)
+        self.assertIn("art/gull_tavern.png: not a PNG file", out)
+        self.assertIn("art/terrain/lava-1.png: names no terrain of the look's", out)
+        # the kit's own terrain pictures are checked too
+        self.write("rules/art/terrain/water-9.png", "nope")
+        self.assertIn("kit: rules/art/terrain/water-9.png: not a PNG file", self.rpg("validate", "--game", "flooded_station", ok=False))
+
     def test_a_generated_room_takes_a_terrain(self):
         self.at_the_lighthouse()
         self.rpg("move", "east")  # Harbor Square, water, may grow south
@@ -467,6 +563,11 @@ class Engine(unittest.TestCase):
         self.rpg("generate", "room", "proposals/r.json")
         self.rpg("move", "south")
         self.assertEqual(self.save()["map"]["mooring_steps"]["terrain"], "water")  # the room it opens off
+        picture = self.save()["view"]["picture"]["source"]
+        self.assertRegex(picture, r"^rules/art/terrain/water-\d\.png$")  # no picture of its own: the kit's for its terrain
+        self.rpg("move", "north")
+        self.rpg("move", "south")
+        self.assertEqual(self.save()["view"]["picture"]["source"], picture, "the same room always gets the same one")
         self.rpg("game", "switch", "flooded_station")
         self.rpg("newgame", seed=31)
         self.rpg("move", "north")
@@ -480,6 +581,7 @@ class Engine(unittest.TestCase):
         self.rpg("move", "north")
         self.assertEqual(self.save()["map"]["specimen_store"]["terrain"], "metal")
         self.assertEqual(self.save()["map"]["specimen_store"]["made_by"], "world")
+        self.assertRegex(self.save()["view"]["picture"]["source"], r"^games/flooded_station/art/terrain/metal-\d\.png$")  # the game's own
 
 
     # ---------------------------------------------------------------- Stage 4: curses

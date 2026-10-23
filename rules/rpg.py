@@ -18,12 +18,15 @@ import json
 import os
 import re
 import shutil
+import struct
 import sys
 import uuid
+import zlib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import content  # noqa: E402
+import png  # noqa: E402
 import curse  # noqa: E402
 import dice  # noqa: E402
 import generate  # noqa: E402
@@ -807,6 +810,7 @@ def refresh_view(state):
                  for c in here if c in state["npcs"] and state["npcs"][c]["hp"] > 0],  # fought and still standing
         "quests": [quest_view(q, flags) for q in ent_ids("quests")],  # ids come from files that exist
         "art": art.read_text(encoding="utf-8").rstrip("\n") if art.is_file() else None,
+        "picture": picture_view(state, room),
         "time": time_of_day(state),
         "weather": run.get("weather"),
         "clock": {"name": clock["name"], "left": clock["left"], "total": clock["total"]} if clock else None,
@@ -817,6 +821,52 @@ def refresh_view(state):
         "rumors": run["rumors"][-BALANCE["world"]["rumors_kept"]:],
         "signals": [{"n": x["n"], "text": x["text"], "kind": x.get("kind", "plan")} for x in run.get("signals", [])],  # what the player noticed close by
     }
+
+
+KIT_ART = Path(__file__).resolve().parent / "art" / "terrain"
+
+
+def terrain_pictures(folder, terrain):
+    """A terrain's pictures in a folder, `<terrain>.png` and `<terrain>-<n>.png`, in name order."""
+    if not terrain or not folder.is_dir():
+        return []
+    return sorted(p for p in folder.glob("*.png") if p.stem == terrain or re.fullmatch(re.escape(terrain) + r"-\d+", p.stem))
+
+
+def picture_path(room):
+    """The room's picture: its own (`art/<room>.png`), else its terrain's from the game (`art/terrain/`), else from
+    the kit (`rules/art/terrain/`), the variant picked by a stable hash of the room's id so a room always looks the
+    same; else None. Generated and forged rooms go through the same chain."""
+    own = content.game_dir() / "art" / ("%s.png" % room["id"])
+    if own.is_file():
+        return own
+    for folder in (content.game_dir() / "art" / "terrain", KIT_ART):
+        found = terrain_pictures(folder, room.get("terrain"))
+        if found:
+            return found[zlib.crc32(room["id"].encode("utf-8")) % len(found)]
+    return None
+
+
+def picture_view(state, room):
+    """The room's picture as the margin draws it: the mosaic (44 x 28 pixels, base64 of r, g, b bytes), decoded
+    once and carried over from the last save while the file is unchanged. None when there's no picture."""
+    path = picture_path(room)
+    if path is None:
+        return None
+    st = path.stat()
+    try:
+        source = path.relative_to(ROOT).as_posix()
+    except ValueError:
+        source = str(path)
+    stamp = "%d:%d" % (st.st_size, st.st_mtime_ns)
+    old = (state.get("view") or {}).get("picture") or {}
+    if old.get("source") == source and old.get("stamp") == stamp:
+        return old
+    try:
+        rgb = png.mosaic(path.read_bytes())
+    except (ValueError, KeyError, IndexError, zlib.error, struct.error):
+        return None  # validate says why
+    return {"source": source, "stamp": stamp, "width": png.MOSAIC_W, "height": png.MOSAIC_H, "rgb": rgb}
 
 
 def settings_view():
@@ -2342,6 +2392,12 @@ def validate_game(kit=False):
     art_dir = content.game_dir() / "art"
     for a in (sorted(art_dir.glob("*.txt")) if art_dir.is_dir() else []):
         need("rooms", a.stem, "art/%s" % a.name)
+    for a in (sorted(art_dir.glob("*.png")) if art_dir.is_dir() else []):
+        need("rooms", a.stem, "art/%s" % a.name)
+        why = png.problem(a.read_bytes())
+        if why:
+            problems.append("art/%s: %s" % (a.name, why))
+    problems.extend("art/terrain/%s" % x for x in terrain_art_problems(art_dir / "terrain", terrains))
     for c in content.ids("characters"):
         ch = content.load("characters", c)
         if str(ch.get("minor", "no")).lower() not in ("yes", "no"):
@@ -2647,6 +2703,23 @@ def validate_soundness(w, problems):
                     problems.append("%s: `%s`: %s" % (where, span, why))
 
 
+def terrain_art_problems(folder, terrains):
+    """Problems with a folder of terrain pictures: each `<terrain>.png` or `<terrain>-<n>.png`, for a terrain the
+    look knows, and a picture the margin can draw."""
+    out = []
+    for a in (sorted(folder.iterdir()) if folder.is_dir() else []):
+        kind = re.sub(r"-\d+$", "", a.stem)
+        if a.suffix != ".png" or not a.is_file():
+            out.append("%s: only .png pictures go here" % a.name)
+        elif kind not in terrains:
+            out.append("%s: names no terrain of the look's (%s)" % (a.name, ", ".join(terrains)))
+        else:
+            why = png.problem(a.read_bytes())
+            if why:
+                out.append("%s: %s" % (a.name, why))
+    return out
+
+
 KIT_ROOMS = (5, 8)
 KIT_CHARACTERS = (3, 4)
 KIT_TOP_FILES = ("world.md", "look.json", "balance.json", "settings.json", "forged.json")
@@ -2665,12 +2738,13 @@ def validate_kit_complete(w, problems):
         problems.append("kit: %d files; a world holds at most %d" % (len(files), KIT_MAX_FILES))
     for f in files:
         parts = f.relative_to(d).parts
-        known = (len(parts) == 1 and parts[0] in KIT_TOP_FILES) or (len(parts) == 2 and (
+        picture = f.suffix == ".png" and parts[0] == "art" and (len(parts) == 2 or (len(parts) == 3 and parts[1] == "terrain"))
+        known = picture or (len(parts) == 1 and parts[0] in KIT_TOP_FILES) or (len(parts) == 2 and (
             (parts[0] in content.KINDS and f.suffix == ".md") or (parts[0] == "art" and f.suffix == ".txt")))
         if not known:
-            problems.append("kit: unexpected file %s (a world holds %s, and .md files in %s/)"
+            problems.append("kit: unexpected file %s (a world holds %s, .md files in %s/, and pictures in art/)"
                             % ("/".join(parts), ", ".join(KIT_TOP_FILES), "/, ".join(content.KINDS)))
-        elif len(f.read_text(encoding="utf-8", errors="replace")) > KIT_MAX_CHARS:
+        elif not picture and len(f.read_text(encoding="utf-8", errors="replace")) > KIT_MAX_CHARS:
             problems.append("kit: %s is longer than %d characters" % ("/".join(parts), KIT_MAX_CHARS))
     for k in ("title", "start_room", "stats", "rolls", "coins", "inventory", "variants", "clock", "weather", "generation"):
         if w.get(k) in (None, "", [], {}):
@@ -2769,6 +2843,10 @@ def cmd_validate(args):
     if not targets:
         raise Refused("no games installed in games/")
     bad = False
+    kit_art = terrain_art_problems(KIT_ART, list(content.kit_look().get("terrain") or {}))
+    if kit_art:
+        bad = True
+        print("\n".join("kit: rules/art/terrain/%s" % x for x in kit_art))
     for g, folder in targets:
         try:
             choose_game(g, folder)

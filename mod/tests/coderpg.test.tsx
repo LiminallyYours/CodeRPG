@@ -584,11 +584,16 @@ test("the margin's rows: aligned columns, bars of 16 cells, segments that fit, a
 })
 
 test('the margin gives way in order when the pane is short: the list first, then the picture', () => {
-  expect(fitMargin(40, 30, 6, 5)).toEqual({ items: 5, more: 0, art: true })
-  expect(fitMargin(33, 30, 6, 5)).toEqual({ items: 2, more: 3, art: true }) // 2 items and "+3 more"
-  expect(fitMargin(28, 30, 6, 5)).toEqual({ items: 3, more: 2, art: false }) // one item won't fit with the picture
-  expect(fitMargin(20, 30, 6, 5)).toEqual({ items: 1, more: 4, art: false }) // never fits: one item and the rest counted
-  expect(fitMargin(20, 30, 6, 0)).toEqual({ items: 0, more: 0, art: false })
+  expect(fitMargin(40, 24, [6], 5)).toEqual({ items: 5, more: 0, art: 6 })
+  expect(fitMargin(33, 24, [6], 5)).toEqual({ items: 2, more: 3, art: 6 }) // 2 items and "+3 more"
+  expect(fitMargin(28, 24, [6], 5)).toEqual({ items: 3, more: 2, art: 0 }) // one item won't fit with the art
+  expect(fitMargin(20, 24, [6], 5)).toEqual({ items: 1, more: 4, art: 0 }) // never fits: one item and the rest counted
+  expect(fitMargin(20, 24, [6], 0)).toEqual({ items: 0, more: 0, art: 0 })
+  // a picture crops to its middle before it goes: 14 rows, then 10, then 7
+  expect(fitMargin(40, 24, [14, 10, 7], 2)).toEqual({ items: 2, more: 0, art: 14 })
+  expect(fitMargin(39, 24, [14, 10, 7], 2)).toEqual({ items: 2, more: 0, art: 10 }) // one item and "+1 more" saves nothing
+  expect(fitMargin(33, 24, [14, 10, 7], 2)).toEqual({ items: 2, more: 0, art: 7 })
+  expect(fitMargin(32, 24, [14, 10, 7], 2)).toEqual({ items: 2, more: 0, art: 0 })
   const stacked: CoderpgSave = { ...SAVE, inventory: [...SAVE.inventory, 'healing_tonic'], view: { ...SAVE.view!, items: [...SAVE.view!.items, { id: 'healing_tonic', name: 'Healing Tonic', equipped: false }] } }
   expect(carried(stacked).map(i => [i.name, i.count])).toEqual([['Boarding Cutlass', 1], ['Healing Tonic', 2]])
 })
@@ -685,6 +690,81 @@ test('a short dock: CARRYING shows what fits and counts the rest, then the pictu
   ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'Pane', requestId: 'coderpg-sheet', props: { ...PANE_PROPS, placement: 'inline', scroll: { offset: 0, bodyRows: 10 } } })
   expect(await ui.find({ type: 'Text', text: 'Thing F' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'three' })).toBeDefined()
+  await ui.unmount()
+})
+
+/** A 44x28 test picture: each pixel's red is its column, green its row, blue 7. */
+const PICTURE = (() => {
+  const px = new Uint8Array(44 * 28 * 3)
+  for (let y = 0; y < 28; y++) for (let x = 0; x < 44; x++) px.set([x, y, 7], (y * 44 + x) * 3)
+  return { source: 'games/dark_lighthouse/art/greywater_bridge.png', stamp: '1:1', width: 44, height: 28, rgb: (px as Uint8Array & { toBase64(): string }).toBase64() }
+})()
+const cellsOf = (b64: string) => new Uint32Array((Uint8Array as unknown as { fromBase64(s: string): Uint8Array }).fromBase64(b64).buffer)
+
+test('WHERE draws the room picture as a mosaic: two pixels a cell, the top one in front', async ($, on) => {
+  on('state.get', { plugin: 'coderpg', key: 'save' }, () => ({ value: { value: { ...SAVE, view: { ...SAVE.view!, picture: PICTURE } }, version: 1 } }))
+  const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'Pane', requestId: 'coderpg-sheet', props: { ...PANE_PROPS, scroll: { offset: 0, bodyRows: 46 } } })
+  const r = await ui.find({ type: 'Raster', key: 'picture' })
+  expect([r?.props.columns, r?.props.rows]).toEqual([44, 14])
+  const cells = cellsOf(String(r?.props.cells))
+  expect(cells.length).toBe(44 * 14 * 3)
+  expect([cells[0], cells[1], cells[2]]).toEqual([0x2580, 0x000007, 0x000107]) // pixel (0,0) over pixel (0,1)
+  const last = (14 * 44 - 1) * 3
+  expect([cells[last + 1], cells[last + 2]]).toEqual([(43 << 16) | (26 << 8) | 7, (43 << 16) | (27 << 8) | 7])
+  expect(await ui.find({ text: '  /\\' })).toBeUndefined() // the picture, not the text art
+  await ui.unmount()
+})
+
+test('a narrow pane shows the middle of the picture', async ($, on) => {
+  on('state.get', { plugin: 'coderpg', key: 'save' }, () => ({ value: { value: { ...SAVE, view: { ...SAVE.view!, picture: PICTURE } }, version: 1 } }))
+  const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'Pane', requestId: 'coderpg-sheet', props: { ...PANE_PROPS, bodyColumns: 46, scroll: { offset: 0, bodyRows: 46 } } })
+  const r = await ui.find({ type: 'Raster', key: 'picture' })
+  expect(r?.props.columns).toBe(40)
+  expect(cellsOf(String(r?.props.cells))[1]! >> 16).toBe(2) // two columns trimmed from each side
+  await ui.unmount()
+})
+
+test('a room with no picture gets a field in its terrain colors', async ($, on) => {
+  const s: CoderpgSave = { ...SAVE, map: { ...MAP, greywater_bridge: { ...MAP.greywater_bridge!, terrain: 'water' } } }
+  on('state.get', { plugin: 'coderpg', key: 'save' }, () => ({ value: { value: s, version: 1 } }))
+  const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'Pane', requestId: 'coderpg-sheet', props: { ...PANE_PROPS, scroll: { offset: 0, bodyRows: 46 } } })
+  const cells = cellsOf(String((await ui.find({ type: 'Raster', key: 'picture' }))?.props.cells))
+  expect(cells[2]).toBe(0x1f4060) // the kit's water background
+  expect([...cells].filter((_, i) => i % 3 === 0).some(g => g === 0x7e)).toBe(true) // ripples: water moves
+  await ui.unmount()
+})
+
+test('off the terminal, and with no picture or terrain, WHERE falls back to the text art', async ($, on) => {
+  on('state.get', { plugin: 'coderpg', key: 'save' }, () => ({ value: { value: { ...SAVE, view: { ...SAVE.view!, picture: PICTURE } }, version: 1 } }))
+  const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'desktop', component: 'Pane', requestId: 'coderpg-sheet', props: PANE_PROPS })
+  expect(await ui.find({ type: 'Raster' })).toBeUndefined()
+  expect(await ui.find({ text: ' /  \\' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a short dock trims the carried list first, then crops the picture to its middle, then lets it go', async ($, on) => {
+  const many = ['a', 'b', 'c', 'd', 'e', 'f'].map(x => ({ id: `thing_${x}`, name: `Thing ${x.toUpperCase()}`, equipped: false }))
+  const s: CoderpgSave = { ...SAVE, inventory: many.map(i => i.id), view: { ...SAVE.view!, items: many, picture: PICTURE } }
+  on('state.get', { plugin: 'coderpg', key: 'save' }, () => ({ value: { value: s, version: 1 } }))
+  const at = (bodyRows: number) => $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'Pane', requestId: 'coderpg-sheet',
+    props: { ...PANE_PROPS, scroll: { offset: 0, bodyRows } } })
+  // everything but the picture and the list takes 22 rows
+  let ui = await at(40)
+  expect((await ui.find({ type: 'Raster', key: 'picture' }))?.props.rows).toBe(14)
+  expect(await ui.find({ type: 'Text', text: '  +3 more · /inventory' })).toBeDefined() // the list gave way first
+  await ui.unmount()
+  ui = await at(34)
+  const cropped = await ui.find({ type: 'Raster', key: 'picture' })
+  expect(cropped?.props.rows).toBe(10)
+  expect(cellsOf(String(cropped?.props.cells))[1]! & 0xff00).toBe(4 << 8) // its middle: rows 2 to 11 of 14, pixel row 4 on top
+  expect(await ui.find({ type: 'Text', text: '  +5 more · /inventory' })).toBeDefined()
+  await ui.unmount()
+  ui = await at(31)
+  expect((await ui.find({ type: 'Raster', key: 'picture' }))?.props.rows).toBe(7)
+  await ui.unmount()
+  ui = await at(30)
+  expect(await ui.find({ type: 'Raster', key: 'picture' })).toBeUndefined() // gone: the whole list comes back
+  expect(await ui.find({ type: 'Text', text: 'Thing F' })).toBeDefined()
   await ui.unmount()
 })
 

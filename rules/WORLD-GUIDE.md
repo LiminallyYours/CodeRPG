@@ -19,7 +19,7 @@ tables/<id>.md            encounter tables: small things that can happen on arri
 curses/<id>.md            at least one curse with a cure
 scenes/<id>.md            at least one side scene between two characters with their own agents
 ```
-Nothing else: no other files, no subfolders beyond these, no room art, and no `settings.json` (installing the world writes it). Each file at most 20,000 characters; most are a tenth of that.
+Nothing else: no other files, no subfolders beyond these, no room art or pictures, and no `settings.json` (installing the world writes it). Rooms take the kit's pictures for their terrain, so where a kit terrain fits (`water`, `grass`, `stone`, `indoors`), use its name; a terrain of the world's own is drawn as a field in its map colors. Each file at most 20,000 characters; most are a tenth of that.
 
 **Scale:** small. About six places a few steps apart, three or four people, one problem to solve in an hour of play, with at least two different ways to solve it. A clock that makes it urgent. Ordinary people with wants, not chosen ones; small places, not empires.
 

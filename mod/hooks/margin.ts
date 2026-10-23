@@ -2,7 +2,7 @@
 // its rows; register.tsx draws them. Quiet until it changes: numbers and bars are grey, a value the last play
 // turn changed takes a color until the next one ends, and red is for danger only.
 
-import type { CoderpgLook, CoderpgMarks, CoderpgSave } from '../types'
+import type { CoderpgLook, CoderpgMarks, CoderpgPicture, CoderpgSave } from '../types'
 
 /** The body columns the pane asks the dock for. */
 export const MARGIN_COLUMNS = 58
@@ -14,6 +14,10 @@ export const BAR_GREY = '#767269'
 export const MUTED_ACCENT = '#a47f3c'
 /** Cells in a status bar. */
 export const BAR_CELLS = 16
+/** The room picture's box: 44 cells wide, two pixels to a cell. */
+export const PICTURE_COLUMNS = 44
+/** Its heights in rows, tallest (the whole picture) first; a short dock crops it to its middle before it goes. */
+export const PICTURE_STEPS = [14, 10, 7]
 
 /** A run of styled text in one row; lengths are counted in cells. */
 export type Cell = { text: string; color?: string; dim?: boolean; bold?: boolean; italic?: boolean }
@@ -68,6 +72,64 @@ export function statusRow(glyph: string, label: string, value: number, max: numb
   ]
 }
 
+/** The upper-half block: its foreground is a cell's top pixel, its background the bottom one. */
+const UPPER_HALF = 0x2580
+const pictureCache = new Map<string, string>()
+
+/** A Raster's cells, as its `cells` prop wants them: little-endian u32 triplets [glyph, foreground, background]. */
+function packCells(words: Uint32Array): string {
+  return (new Uint8Array(words.buffer) as Uint8Array & { toBase64(): string }).toBase64()
+}
+
+/**
+ * A room picture as Raster cells, `columns` wide and `rows` tall (its middle, when the box is narrower or
+ * shorter than the picture), worked out once per picture and size.
+ */
+export function pictureCells(p: CoderpgPicture, columns: number, rows = Math.floor(p.height / 2)): string {
+  const key = `${p.source}|${p.stamp}|${columns}|${rows}`
+  const known = pictureCache.get(key)
+  if (known) return known
+  const rgb = (Uint8Array as unknown as { fromBase64(s: string): Uint8Array }).fromBase64(p.rgb)
+  const cut = Math.max(0, Math.floor((p.width - columns) / 2))
+  const top = Math.max(0, Math.floor((Math.floor(p.height / 2) - rows) / 2))
+  const words = new Uint32Array(columns * rows * 3)
+  const at = (x: number, y: number) => {
+    const i = (y * p.width + x) * 3
+    return ((rgb[i] ?? 0) << 16) | ((rgb[i + 1] ?? 0) << 8) | (rgb[i + 2] ?? 0)
+  }
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < columns; c++) {
+      const x = Math.min(p.width - 1, c + cut), k = (r * columns + c) * 3
+      words[k] = UPPER_HALF
+      words[k + 1] = at(x, (r + top) * 2)
+      words[k + 2] = at(x, (r + top) * 2 + 1)
+    }
+  }
+  const cells = packCells(words)
+  if (pictureCache.size > 32) pictureCache.clear()
+  pictureCache.set(key, cells)
+  return cells
+}
+
+/**
+ * A room with no picture, drawn as a field in its terrain's map colors: the background, with a sparse pattern in
+ * the foreground (ripples where the terrain moves, specks elsewhere) placed by the room's id, so it stays put.
+ */
+export function fieldCells(colors: { bg: string; fg: string; moves?: boolean }, id: string, columns: number, rows: number): string {
+  const hex = (c: string) => parseInt(c.replace('#', ''), 16) || 0
+  const bg = hex(colors.bg), fg = hex(colors.fg)
+  let seed = [...id].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7)
+  const words = new Uint32Array(columns * rows * 3)
+  for (let i = 0; i < columns * rows; i++) {
+    seed = (seed * 1103515245 + 12345) >>> 0
+    const mark = (seed >>> 16) % 11 === 0
+    words[i * 3] = mark ? (colors.moves ? 0x7e : 0xb7) : 0x20   // '~' or '·', else a space
+    words[i * 3 + 1] = fg
+    words[i * 3 + 2] = bg
+  }
+  return packCells(words)
+}
+
 /** The color a value's row takes: up in the heal color, down in amber, for the turn it changed. */
 export function changeColor(way: 'up' | 'down' | undefined, look: CoderpgLook): string | undefined {
   return way === 'up' ? look.palette.heal : way === 'down' ? look.palette.warn : undefined
@@ -118,17 +180,15 @@ export function carried(s: CoderpgSave): { id: string; name: string; count: numb
 }
 
 /**
- * What fits in a docked pane `rows` tall: every carried item if it can, else as many as leave a row for
- * "+N more"; and if the margin still overflows with one item showing, the room picture goes. `fixed` is every
- * other row of the margin, the picture's `art` rows included.
+ * What fits in a docked pane `rows` tall. At each of the picture's heights in turn (`art`, tallest first, then
+ * none): every carried item, else as many as leave a row for "+N more" (one at least). So the list gives way
+ * first, then the picture shrinks to its middle, then it goes. `fixed` is every other row of the margin.
  */
-export function fitMargin(rows: number, fixed: number, art: number, items: number): { items: number; more: number; art: boolean } {
-  const fits = (withArt: boolean, n: number, more: boolean) => fixed - (withArt ? 0 : art) + Math.max(1, n) + (more ? 1 : 0) <= rows
-  if (fits(true, items, false)) return { items, more: 0, art: true }
-  for (const withArt of [true, false]) {
-    if (!withArt && art === 0) break
-    if (fits(withArt, items, false)) return { items, more: 0, art: withArt }
-    for (let n = items - 1; n >= 1; n--) if (fits(withArt, n, true)) return { items: n, more: items - n, art: withArt }
+export function fitMargin(rows: number, fixed: number, art: number[], items: number): { items: number; more: number; art: number } {
+  const fits = (a: number, n: number, more: boolean) => fixed + a + Math.max(1, n) + (more ? 1 : 0) <= rows
+  for (const a of [...art.filter(x => x > 0), 0]) {
+    if (fits(a, items, false)) return { items, more: 0, art: a }
+    for (let n = items - 1; n >= 1; n--) if (fits(a, n, true)) return { items: n, more: items - n, art: a }
   }
-  return { items: Math.min(items, 1), more: Math.max(0, items - 1), art: false }
+  return { items: Math.min(items, 1), more: Math.max(0, items - 1), art: 0 }
 }

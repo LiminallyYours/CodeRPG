@@ -50,6 +50,8 @@ export type CoderpgSave = {
     foes?: (CoderpgPerson & { hp: number; max_hp: number })[]
     quests?: CoderpgQuest[]
     art?: string | null
+    /** The room's picture as a mosaic: `rgb` is base64 of width x height r, g, b bytes (version 8, optional). */
+    picture?: CoderpgPicture | null
     location_generated?: boolean
     time?: string | null
     weather?: string | null
@@ -60,6 +62,9 @@ export type CoderpgSave = {
     signals?: { n: number; text: string; kind?: 'plan' | 'world' }[]
   }
 }
+
+/** A room picture, decoded by the rules script: which file, its size and time (`stamp`), and its pixels. */
+export type CoderpgPicture = { source: string; stamp: string; width: number; height: number; rgb: string }
 
 /** Something this run brought into being: its front matter. */
 export type CoderpgRunRecord = { meta?: { name?: string; made_by?: string } }

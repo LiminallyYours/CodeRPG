@@ -42,6 +42,8 @@ rules/                        THE KIT: knows nothing about any particular game
   presets.json                the owner's presets: thrifty, normal, rich
   dice.py  content.py  rpg.py the code that rolls dice and does the arithmetic
   generate.py                 checks world-agent proposals and turns them into run content
+  png.py                      reads, checks and writes room pictures (standard library only)
+  art/terrain/                the kit's pictures for rooms without their own: water, grass, stone, indoors
 proposals/                    world-agent JSON waiting to be applied (emptied automatically)
 state/save.json               what has happened in the game being played (created by /newgame)
 state/shelf/<id>.json         the other games' saves, waiting while you play another
@@ -51,6 +53,7 @@ state/forge/<draft>/          a new world being written by the worldsmith agent 
 state/worlds/<id>/            the worlds forged in play: games like those in games/, but yours, not the kit's
 mod/                          the Claude Code interface mod (Phase 3), loaded with --plugin-dir
 tools/                        check.sh (every automated check), test_rules.py (engine tests), play.py (drive a live session),
+                              pictures.py (redraws the shipped room pictures),
                               settings.py (the owner's switches; the GM can't run it), library.py and worlds.py
                               (the owner keeps or forgets library entries and forged worlds)
 DEVELOPING.md                 how to work on the game safely: checks, testing, invariants, gotchas
@@ -154,7 +157,7 @@ Generated things are then as real as authored ones for the rest of the run: `loo
 | **Curses.** Under a curse, your row shows your words as they came out (✶), the band and the margin name the curse, and characters react to what you actually said; the game master still knows what you meant, so a cursed "go north" still goes north. `ooc:` and slash commands are never cursed. | The prompt hook asks `rpg.py curse-text` and gives the GM both versions; the mod draws your row with a port of the same transforms. |
 | **A clean start.** `/newgame`, and `/game <id>` when it switches to another game, first clear the screen and Claude's conversation, so the new game starts lean. The save keeps everything that matters. | The mod runs `/clear` first. Without the mod, nothing is cleared. |
 
-Checks: `sh tools/check.sh` runs everything, including `claude plugin test mod` (82 tests) and `python3 tools/test_rules.py`.
+Checks: `sh tools/check.sh` runs everything, including `claude plugin test mod` (99 tests) and `python3 tools/test_rules.py`.
 
 ## Content format
 ```markdown
@@ -178,7 +181,8 @@ Extra prose shown only when that flag is set.
 - **Items** have a `weight`, plus `damage` (for weapons) or `heal` (for consumables).
 - **Flags** are set by the GM only when a content file says so. All branching is written in the content files. Conditions can also use two automatic names: `has_<item>` (carrying it) and `met_<character>` (have seen them).
 - **Quests** list their `objectives:` in front matter, each ending `(done when <condition>)`. The journal shows the finished objectives and the current one.
-- **Room art** is optional: `games/<id>/art/<room id>.txt`, plain text up to about 30 columns, shown in the margin's Where section.
+- **Room pictures** are optional: `games/<id>/art/<room id>.png`, shown in the margin's Where section as a mosaic 44 cells wide and 14 rows tall (two pixels to a cell, so 44 x 28 pixels; a picture 4:3 or wider is cropped to that around its middle and averaged down). At most 256 pixels wide and 64 KB, not interlaced. A room without one takes a picture for its terrain: the game's own (`games/<id>/art/terrain/<terrain>-<n>.png`), else the kit's (`rules/art/terrain/`, for water, grass, stone and indoors), always the same one for the same room; with none, a field in the terrain's map colors. `python3 tools/pictures.py` redraws the shipped ones (`--preview sheet.png` shows them all); any can be replaced by a hand-made PNG of the same name. `rpg.py` decodes the picture into the save (`view.picture`), so the interface only ever reads the save.
+- **Room art** (text) is optional too: `games/<id>/art/<room id>.txt`, plain text up to about 30 columns, shown where there's no picture (off the terminal).
 - **Starting items** in a room may have conditions; they're placed at `/newgame`, after the variants are rolled.
 - **Rooms** may also list `expand:` (the directions a generated room may attach in; `no` for none) and `encounters:` (a table id).
 - **Build spots:** a room may give `build:`, each direction with what could be built there (`southwest: the bare stone footing of a burned-out net-loft`). Say so in the room's prose, so the player can see it. A build spot is kept for the player: the world never grows onto its map square. A character with `builds: yes` among the room's characters builds there to order; a `## What <she|he|it|they> build(s)` section describes what they build. `validate` checks each spot has a builder and a free map square.

@@ -13,14 +13,14 @@
 // Nothing here knows a particular game: colors, labels, tabs and phrases come from the game's look in the save.
 
 import { atom, read, update } from 'claude-code'
-import type { ClientProps, ElementConstructor, EngineInterface, Register, RenderChildren } from 'claude-code'
+import type { ClientProps, ElementConstructor, EngineInterface, RasterProps, Register, RenderChildren } from 'claude-code'
 
 import type { CoderpgLook, CoderpgPhase, CoderpgSave, CoderpgScreen, CoderpgStory } from '../types'
 import { cursedWords } from './curse'
 import { changesOf, feedback, marksOf } from './feedback'
 import { accentOf, lookOf, money, phasePhrase, sectionsOf, soundFor, tabsOf } from './look'
 import { exitsOf, keyText, mapText, usesUpDown } from './map'
-import { barWidth, carried, changeColor, clockSegments, conditions, FAINT, fitMargin, healthColor, MARGIN_COLUMNS, MARGIN_PAD, meterTint, MUTED_ACCENT, openObjectives, ruleCells, statusRow } from './margin'
+import { barWidth, carried, changeColor, clockSegments, conditions, FAINT, fieldCells, fitMargin, healthColor, MARGIN_COLUMNS, MARGIN_PAD, meterTint, MUTED_ACCENT, openObjectives, PICTURE_COLUMNS, PICTURE_STEPS, pictureCells, ruleCells, statusRow } from './margin'
 import type { Cell } from './margin'
 import { commandPhrase, idlePhrase, npcPhrase, phaseOf } from './phrases'
 import { drawBlocks, pageMs, STEP_MS } from './page'
@@ -362,6 +362,10 @@ async function nowMs($: EngineInterface): Promise<number> {
 /** The surface's `Client` element, where it has one (the terminal and the desktop app). */
 function clientOf(elements: object): ElementConstructor<ClientProps> | undefined {
   return 'Client' in elements ? (elements as { Client: ElementConstructor<ClientProps> }).Client : undefined
+}
+
+function rasterOf(elements: object): ElementConstructor<RasterProps> | undefined {
+  return 'Raster' in elements ? (elements as { Raster: ElementConstructor<RasterProps> }).Raster : undefined
 }
 
 /** Rows of styled text drawn still: what reveal.tsx shows once it's done. */
@@ -1016,8 +1020,21 @@ export const register: Register = on => {
     )
     const signedStat = (stat: 'might' | 'agility' | 'wits', n: number) => `${look.stat_labels[stat].toLowerCase()} ${signed(n)}`
 
-    // ---- WHERE: the room's picture (its text art until pictures land), its name, the time and the weather
-    const art = (s.view?.art ?? '').split('\n').filter(l => l.trim().length > 0)
+    // ---- WHERE: the room's picture (else a field in its terrain's colors, else its text art, dim), its name,
+    // the time and the weather. Pictures are the terminal's (a Raster); elsewhere the text art.
+    const Raster = e.surface === 'terminal' ? rasterOf($.ui.resolve(e)) : undefined // elsewhere a Raster draws nothing
+    const picture = s.view?.picture
+    const terrain = s.map?.[s.location]?.terrain
+    const field = terrain ? look.terrain?.[terrain] : undefined
+    const columns = Math.min(PICTURE_COLUMNS, width)
+    const textArt = (s.view?.art ?? '').split('\n').filter(l => l.trim().length > 0)
+    const drawn = Raster && (picture || field)
+    // the heights it can take in a short dock: a picture or a field shrinks to its middle rows; text art doesn't
+    const artSteps = drawn ? PICTURE_STEPS : [textArt.length]
+    const artOf = (rows: number) => !rows ? []
+      : Raster && picture ? [<Raster key="picture" columns={columns} rows={rows} cells={pictureCells(picture, columns, rows)} />]
+      : Raster && field ? [<Raster key="picture" columns={columns} rows={rows} cells={fieldCells(field, s.location, columns, rows)} />]
+      : textArt.map((l, i) => <Text key={`art-${i}`} color={accent} dimColor wrap="truncate">{l}</Text>)
     const cond = conditions(s.view?.time, s.view?.weather)
     const whereRows = [
       <Text key="place" color={accent} bold wrap="truncate">{s.view?.location_name ?? s.location}</Text>,
@@ -1082,9 +1099,9 @@ export const register: Register = on => {
     const things = carried(s)
     const gained = new Set(marks?.gained ?? [])
     const sections = 4 + (stakeRows.length ? 1 : 0) + 1 // where, you, act, carrying, (at stake), more
-    const fixed = (1 + art.length + whereRows.length) + (1 + youRows.length) + (stakeRows.length ? 1 + stakeRows.length : 0)
+    const fixed = (1 + whereRows.length) + (1 + youRows.length) + (stakeRows.length ? 1 + stakeRows.length : 0)
       + (1 + actRows.length) + 1 + 2 + (sections - 1)
-    const fit = docked && bodyRows > 0 ? fitMargin(bodyRows, fixed, art.length, things.length) : { items: things.length, more: 0, art: true }
+    const fit = docked && bodyRows > 0 ? fitMargin(bodyRows, fixed, artSteps, things.length) : { items: things.length, more: 0, art: artSteps[0] ?? 0 }
     const carryRows = things.length === 0 ? [<Text key="nothing" dimColor>{'  nothing'}</Text>] : [
       ...things.slice(0, fit.items).map(it => row(`item-${it.id}`, [
         { text: '  ' }, { text: it.name, color: gained.has(it.id) ? look.palette.heal : undefined },
@@ -1103,7 +1120,7 @@ export const register: Register = on => {
     )
     const margin = [
       section('where', labels.where, [
-        ...(fit.art ? art.map((l, i) => <Text key={`art-${i}`} color={accent} dimColor wrap="truncate">{l}</Text>) : []),
+        ...artOf(fit.art),
         ...whereRows,
       ], true),
       section('you', labels.you, youRows, false),
