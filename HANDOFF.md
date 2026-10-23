@@ -6,7 +6,7 @@ As of 2026-10-23 (end of the session that built `NEXT-PLAN.md` 3.3, the margin, 
 - **Current work: `NEXT-PLAN.md`** (approved 2026-10-23): (1) the real-spend meter (R3), (2) one-step moves and looks, (3) the interface redesign (`UI-REDESIGN-SPEC.md`), in that order. It replaces the old "Stage 8 playtest, then Stage 6" sequence below.
 - **Requirements:** `IMPLEMENTATION-PLAN.md` (JW's game-owner requirements, Stages 1–8).
 - **Technical plan:** `~/.claude/plans/please-read-implementation-plan-md-in-sunny-cake.md` (approved). The decisions below override it where they differ.
-- **Done:** Stages 1–5: kit split, second game and seeds; the meter and switches; look and feel; curses; the player leaves a mark (crafting, building, the library, promotion). Stage 7: people with plans, side scenes (playtested, no notes). Stage 8: new worlds, built (8.1, 8.2, 8.3) and live-tested. `NEXT-PLAN.md` parts 1, 2 (playtested, no notes), 3.1 and 3.2 (playtested: one note, fixed), 3.3 and 3.4 (built and live-checked, waiting for JW's second playtest), and the alignment fix (`357d710`). Everything is committed on `main` and pushed to GitHub (`origin`, https://github.com/LiminallyYours/CodeRPG, public; the old 21 October snapshot there was replaced at JW's request, 2026-10-23); `sh tools/check.sh` passes (67 engine tests, 100 mod tests, both games validate).
+- **Done:** Stages 1–5: kit split, second game and seeds; the meter and switches; look and feel; curses; the player leaves a mark (crafting, building, the library, promotion). Stage 7: people with plans, side scenes (playtested, no notes). Stage 8: new worlds, built (8.1, 8.2, 8.3) and live-tested. `NEXT-PLAN.md` parts 1, 2 (playtested, no notes), 3.1 and 3.2 (playtested: one note, fixed), 3.3 and 3.4 (built and live-checked, waiting for JW's second playtest), and the alignment fix (`662492d`). Everything is committed on `main` and pushed to GitHub (`origin`, https://github.com/LiminallyYours/CodeRPG, public; the old 21 October snapshot there was replaced at JW's request, 2026-10-23); `sh tools/check.sh` passes (67 engine tests, 100 mod tests, both games validate).
 - **Now:** `NEXT-PLAN.md` 3.3 (the margin) and 3.4 (the pictures) are built and live-checked (see *NEXT-PLAN 3.3 notes* and *3.4 notes*); open points were decided with JW first (`NEXT-PLAN.md`, *Decided before building 3.3* and *Found and decided while building 3.4*). **Next is JW's second playtest**, covering 3.3, 3.4 and the alignment fix together (*Playtest 2 script* below; JW was given it at the end of the session). JW hasn't yet seen the margin or the pictures on a real screen: their one screenshot showed no pane docked (not reproduced; see *Alignment note*). After it, `NEXT-PLAN.md` is done; ask JW what comes next (R1/R2, puzzles from scratch). The Stage 8 playtest had no further notes; new worlds don't use the meter (see *Stage 8 cost, measured*).
 - **Stage 6 (puzzles) is no longer next (2026-10-23, JW):** it will be rethought from scratch later, and its earlier decisions (*Stage 6 decisions so far*, the code-blocks note under *Decisions made with the user*, *Later stages*) don't carry over. They're kept below only as a record.
 - **Stage order (changed 2026-10-22, superseded 2026-10-23):** Stage 7, then Stage 8, then Stage 6; now `NEXT-PLAN.md`, with puzzles to be redesigned later. Forged worlds have no puzzles, and `validate --kit-complete` asks for none.
@@ -24,38 +24,38 @@ As of 2026-10-23 (end of the session that built `NEXT-PLAN.md` 3.3, the margin, 
 ## Commits
 | Commit | What |
 |---|---|
-| `cc057ed` | 1.1: `games/<id>/` folders, `look.json` and `balance.json` per game, `rpg.py game list/show/switch`, save v7, `show` with flag filtering, The Flooded Station, `tools/test_rules.py` |
-| `67d9dfe` | 1.2: `newgame [seed\|daily]`, per-run dice stream (`run.seed`, `run.dice_n`), run label on the title card |
-| `625aa8b` | `gm-turn` hidden from the slash menu (`user-invocable: false`) |
-| `81b9853` | `/newgame` and `/game <other>` clear the screen and conversation first |
-| `854bff8` | Stage 2: meter, presets, `settings.json`, `tools/settings.py`, `/budget` |
-| `7c50996` | The meter charges only extras; baseline play is free |
-| `c13e285` | Stage 3: block-letter banners, transitions, combat strip, tile map, sounds per beat, waiting phases, character cards, accent by time |
-| `b8334c8` | Stage 4: curses (content kind, transforms with shared vectors, the prompt hook tells the GM both versions, the mod draws the cursed row) |
-| `770f5e8` | Speaker cards: the speaker is named outside the quotes (playtest bug: Dunstan's line labelled Pell) |
-| `2e21092` | 5.1 Crafting: makers (`makes:`/`accepts:`), `world-brief craft`, `generate craft`, `pay`, `made_by` on every run entity, save v8; Morwen the net-mender, Bucket makes from scrap |
-| `e971501` | 5.2 Building and growth: `generation: rooms: anywhere`, map squares in the engine, build spots (`build:`) and builders (`builds: yes`), `world-brief build`, `generate build`, `pay` starts the work, a move finishes it; ⌂ on the tile map. Also the first progress-line filter fix |
-| `e99289b` | 5.3 The library: `rules/library.py`, `state/library/<game>.json`; befriending, carry-over on `newgame`, `{"reuse": id}`, `rpg.py library suggest`, owner tool `tools/library.py` |
-| `42a9e8a` | 5.4 Promotion: `rpg.py talk <id>`, promotion to an agent after N conversations, the journal's ★. Also the second progress-line filter fix |
-| `f500269` | This file: Stage 5 done |
-| `ea79ba6` | 7.1 People with plans: `## Plan:` sections, world-turn `plans`, `SIGNAL`/`NOW HERE`, `view.signals` toast and chime, `world_turns.plans`; Ysolde, Grukk, Halloran, Bucket (now `minor: no`) |
-| `3002c5d` | 7.2 Side scenes: `scenes/`, `rpg.py scene start\|end`, scene part and reply count in `npc-brief`, `side_scenes`, price 2; The Shiniest Thing, The Mopping Dispute; `onlyRecords` and a note-filter case in the mod |
-| `26ce9d8` | Validate: a plan step may not leave a character nowhere; the gm-turn signal example names no game |
-| `66a582b` | Playtest bug: the pane's exit and look buttons fill the prompt box instead of submitting (a plugin-submitted prompt is labelled "Prompt from the coderpg plugin" and can't be restyled); footer "1–9 then ⏎ go" |
-| `e4f9701` | 8.1 New worlds, engine: soundness checks for every game, `validate --dir`/`--kit-complete`, `state/worlds/`, `forge quote\|start\|resume\|status\|install\|discard`, `new_world` 15 / `new_world_resume` 5, switch `new_worlds`, `NEW WORLD READY` in `look`, `/budget` line |
-| `c86b720` | 8.2 New worlds: the worldsmith (Opus) and its guard hook, `rules/WORLD-GUIDE.md`, `/newworld`, gm-turn *New worlds*, the install toast, the mod hiding its rows |
-| `b840d0d` | 8.3 `tools/worlds.py list\|keep\|forget` |
-| `be3574e` | `NEXT-PLAN.md`; Stage 6 no longer next |
-| `6fb8d50` | NEXT-PLAN part 1: the real-spend meter in `/budget` (`mod/hooks/spend.ts`) |
-| `074e5d3` | NEXT-PLAN part 2: one-step moves and looks (`ROOM TEXT:` in `look`/`move`; gm-turn moves first) |
-| `90ccbba` | Playtest bug: real use was lost after `/newgame` (`$.state` resets on `/clear`); `ensureSpend` restores it from the store |
-| `5715017` | NEXT-PLAN 3.1 and 3.2: the page (measure, arrival rule, keylines, change line, paragraph reveal), the band's two modes, the play hint, `/guide`, signal kinds, `speaker_colors`; skill reads are plumbing |
-| `27581ff` | Playtest 1: the page centered beside the pane; the permission-mode label can't be hidden (docs) |
-| `18f378a` | NEXT-PLAN 3.3: the margin (six sections, `margin.ts`, screens behind m/j/g, one-turn marks, `look.sections`, tab-key checks) |
-| `129f6c8` | NEXT-PLAN 3.4: room pictures (`rules/png.py`, `view.picture`, the chain, `tools/pictures.py`, 30 pictures, half-block Raster, crop steps, picture checks) |
-| `357d710` | The page centered in at most the first 120 columns (`CENTER_SPAN`); `/sheet` hides its success line and reports why the pane can't be placed |
-| `f9af185` | Pictures: QA pass at real size (no dithering, faint grain, six redrawn) |
-| `81a7970` | Pictures: nine room pictures redrawn as one bold subject each |
+| `e932eec` | 1.1: `games/<id>/` folders, `look.json` and `balance.json` per game, `rpg.py game list/show/switch`, save v7, `show` with flag filtering, The Flooded Station, `tools/test_rules.py` |
+| `5d6a79b` | 1.2: `newgame [seed\|daily]`, per-run dice stream (`run.seed`, `run.dice_n`), run label on the title card |
+| `c5330da` | `gm-turn` hidden from the slash menu (`user-invocable: false`) |
+| `37ecae3` | `/newgame` and `/game <other>` clear the screen and conversation first |
+| `20eb2d3` | Stage 2: meter, presets, `settings.json`, `tools/settings.py`, `/budget` |
+| `b278236` | The meter charges only extras; baseline play is free |
+| `ccbd7aa` | Stage 3: block-letter banners, transitions, combat strip, tile map, sounds per beat, waiting phases, character cards, accent by time |
+| `87fdf2f` | Stage 4: curses (content kind, transforms with shared vectors, the prompt hook tells the GM both versions, the mod draws the cursed row) |
+| `40ed336` | Speaker cards: the speaker is named outside the quotes (playtest bug: Dunstan's line labelled Pell) |
+| `413b90d` | 5.1 Crafting: makers (`makes:`/`accepts:`), `world-brief craft`, `generate craft`, `pay`, `made_by` on every run entity, save v8; Morwen the net-mender, Bucket makes from scrap |
+| `89df270` | 5.2 Building and growth: `generation: rooms: anywhere`, map squares in the engine, build spots (`build:`) and builders (`builds: yes`), `world-brief build`, `generate build`, `pay` starts the work, a move finishes it; ⌂ on the tile map. Also the first progress-line filter fix |
+| `a6cfe65` | 5.3 The library: `rules/library.py`, `state/library/<game>.json`; befriending, carry-over on `newgame`, `{"reuse": id}`, `rpg.py library suggest`, owner tool `tools/library.py` |
+| `56bb745` | 5.4 Promotion: `rpg.py talk <id>`, promotion to an agent after N conversations, the journal's ★. Also the second progress-line filter fix |
+| `e9bc59e` | This file: Stage 5 done |
+| `b82bfda` | 7.1 People with plans: `## Plan:` sections, world-turn `plans`, `SIGNAL`/`NOW HERE`, `view.signals` toast and chime, `world_turns.plans`; Ysolde, Grukk, Halloran, Bucket (now `minor: no`) |
+| `94ca5fa` | 7.2 Side scenes: `scenes/`, `rpg.py scene start\|end`, scene part and reply count in `npc-brief`, `side_scenes`, price 2; The Shiniest Thing, The Mopping Dispute; `onlyRecords` and a note-filter case in the mod |
+| `c8c534d` | Validate: a plan step may not leave a character nowhere; the gm-turn signal example names no game |
+| `e9bc3a0` | Playtest bug: the pane's exit and look buttons fill the prompt box instead of submitting (a plugin-submitted prompt is labelled "Prompt from the coderpg plugin" and can't be restyled); footer "1–9 then ⏎ go" |
+| `f1860f9` | 8.1 New worlds, engine: soundness checks for every game, `validate --dir`/`--kit-complete`, `state/worlds/`, `forge quote\|start\|resume\|status\|install\|discard`, `new_world` 15 / `new_world_resume` 5, switch `new_worlds`, `NEW WORLD READY` in `look`, `/budget` line |
+| `6666157` | 8.2 New worlds: the worldsmith (Opus) and its guard hook, `rules/WORLD-GUIDE.md`, `/newworld`, gm-turn *New worlds*, the install toast, the mod hiding its rows |
+| `b8e9e4d` | 8.3 `tools/worlds.py list\|keep\|forget` |
+| `cf52cb9` | `NEXT-PLAN.md`; Stage 6 no longer next |
+| `33202f4` | NEXT-PLAN part 1: the real-spend meter in `/budget` (`mod/hooks/spend.ts`) |
+| `c3acaf8` | NEXT-PLAN part 2: one-step moves and looks (`ROOM TEXT:` in `look`/`move`; gm-turn moves first) |
+| `a97f4d3` | Playtest bug: real use was lost after `/newgame` (`$.state` resets on `/clear`); `ensureSpend` restores it from the store |
+| `6c9cd5e` | NEXT-PLAN 3.1 and 3.2: the page (measure, arrival rule, keylines, change line, paragraph reveal), the band's two modes, the play hint, `/guide`, signal kinds, `speaker_colors`; skill reads are plumbing |
+| `61c1aa0` | Playtest 1: the page centered beside the pane; the permission-mode label can't be hidden (docs) |
+| `bf6d6f0` | NEXT-PLAN 3.3: the margin (six sections, `margin.ts`, screens behind m/j/g, one-turn marks, `look.sections`, tab-key checks) |
+| `55957eb` | NEXT-PLAN 3.4: room pictures (`rules/png.py`, `view.picture`, the chain, `tools/pictures.py`, 30 pictures, half-block Raster, crop steps, picture checks) |
+| `662492d` | The page centered in at most the first 120 columns (`CENTER_SPAN`); `/sheet` hides its success line and reports why the pane can't be placed |
+| `cbe56f2` | Pictures: QA pass at real size (no dithering, faint grain, six redrawn) |
+| `e56d413` | Pictures: nine room pictures redrawn as one bold subject each |
 
 Commits that change only this file (`HANDOFF.md: …`) are left out.
 
@@ -127,7 +127,7 @@ Asked to report: pictures that read badly or clash, rows cut with `…`, colors 
   - **Render hooks may not write state** ("drawing is pure"); a value one draw needs from another must come from an event or an engine read.
   - **The game master sometimes `Read`s `.claude/skills/gm-turn/SKILL.md`** instead of loading the skill. That Read wasn't plumbing, so Claude Code drew the whole call group ("Read 1 file, ran 2 shell commands", and the running `rpg.py` command). Earlier captures missed it because the grep wanted `Ran \d` with a capital. Reads of `.claude/skills|agents/` are plumbing now; grep `shell command` in live checks.
   - The capture collapses runs of spaces, so grep single-spaced pieces. It is a stream of writes, so a row drawn once (the permission-mode label) shows only at startup: that's how "auto mode on" passed the live checks and was caught in JW's playtest.
-- **Playtest 1, note 1 (2026-10-23):** the text sat on the left with a wide gap to its right; now centered (`indentOf`), agreed with JW, reversing the spec (`27581ff`).
+- **Playtest 1, note 1 (2026-10-23):** the text sat on the left with a wide gap to its right; now centered (`indentOf`), agreed with JW, reversing the spec (`61c1aa0`).
 - **Live checks** (Sonnet, scratch copies, `newgame 7`): 184×46: look, take the hilt, south with generation, `/newgame 7`, west; 120×40: west, `/guide`; then both widths again after the fixes above. Seen: the arrival rule with the time, keylines with names (Ysolde), the change line (`✧ gained Boarding Cutlass`), the title card between rules, the hint line, `◌` while working, `/guide`; no `ROOM TEXT`, no `rpg.py` after the fix.
 
 ## NEXT-PLAN parts 1–2 playtest checklist (what should happen)
@@ -141,7 +141,7 @@ Asked to report: pictures that read badly or clash, rows cut with `…`, colors 
   - plan usage: the 5-hour and weekly windows;
   - development turns, if any;
   - from the second session on, a table of earlier sessions.
-  It should survive `/newgame` and `/game` (the bug fixed in `90ccbba`).
+  It should survive `/newgame` and `/game` (the bug fixed in `a97f4d3`).
 - **Moves:** the same story as before, a little quicker. A plain "go west" is one command. Room descriptions are still right, including what changes with flags (the lighthouse lit, Ysolde asleep and so on).
 - **Watch for:**
   - a room described wrongly or from an earlier state;
@@ -199,7 +199,7 @@ Asked to report: pictures that read badly or clash, rows cut with `…`, colors 
   - **From the transcript, per turn** (GM only): look 53k/3 requests (the first turn also loads the skill), move west 29k/4 (`look`; `move`; `show rooms`), Ysolde 34k/4, move east 16k/2 (the GM chained `look && move`), south with generation 51k/5.
   - **A point therefore cost about 11.5k**, inside the 10–15k the prices assume. One sample: measure again over longer play.
   - The plan windows didn't move a whole point in this run.
-- **Playtest bug (fixed, `90ccbba`):** `/budget` showed no real-use section after `/newgame`. `$.state` belongs to a Claude Code session, and the `/clear` that `/newgame` and `/game` run starts a new one in the same process, so the atom came back empty (the save atom recovers by re-reading the file; this one didn't). `ensureSpend` now restores it from the store's `current` whenever it's empty. Tested by a mod test that empties the state between two turns, and live (`/newgame 7`, a turn, `/budget`: 2 turns and the earlier sessions shown). **Any new `$.state` value that must outlive a turn needs the same care.**
+- **Playtest bug (fixed, `a97f4d3`):** `/budget` showed no real-use section after `/newgame`. `$.state` belongs to a Claude Code session, and the `/clear` that `/newgame` and `/game` run starts a new one in the same process, so the atom came back empty (the save atom recovers by re-reading the file; this one didn't). `ensureSpend` now restores it from the store's `current` whenever it's empty. Tested by a mod test that empties the state between two turns, and live (`/newgame 7`, a turn, `/budget`: 2 turns and the earlier sessions shown). **Any new `$.state` value that must outlive a turn needs the same care.**
 - **Checked live:** subagent steps arrive with `agentId`, and their spawns name the type; the store is written each turn; `/budget` draws; no plumbing in any frame (the capture's one `rpg.py` is Claude Code's trust prompt for the scratch folder).
 
 ## Stage 7 decisions (agreed 2026-10-22)
