@@ -105,6 +105,8 @@ All of these are built into the kit, styled per game from 1.1's look settings, a
 
 ### Stage 6 — Easy puzzles solved with code
 
+**Changed 2026-10-23 · JW:** no longer next. The puzzle stage will be rethought from scratch later, and its earlier decisions don't carry over. The current work is `NEXT-PLAN.md` (real-spend meter, one-step moves, interface redesign). The text below is kept as the original request.
+
 Both puzzles have Claude write and run a small piece of code during play. That code must run without a permission prompt, since a prompt breaks the fiction; it goes through the same trusted route the rules script uses today.
 
 **6.1 Locks with rules** (item 14)
@@ -164,7 +166,7 @@ Two more suggestions:
 
 ## Owner's reminders (to plan later with Claude)
 
-Added 2026-10-23 · JW. Not part of Stages 1–8 and not yet designed: each needs its decisions proposed (with options and implications) before anything is built. Pick them up after Stage 6.
+Added 2026-10-23 · JW. Not part of Stages 1–8 and not yet designed: each needs its decisions proposed (with options and implications) before anything is built. R3 is part 1 of `NEXT-PLAN.md` (2026-10-23); R1 and R2 come after that plan.
 
 **R1 Admin mode.** Run the game as its owner, from inside it: do in play what is otherwise done before launching, such as switching preset (how expensive the game is), changing single switches, refilling the meter, or turning the meter off.
 - **Also:** new worlds (`/newworld`) become available only in admin mode. Until then they're on in the normal and rich presets and don't use the meter.
