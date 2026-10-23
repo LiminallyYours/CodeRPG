@@ -44,6 +44,7 @@ As of 2026-10-23. The state of the kit build for whoever picks it up next, human
 | `b840d0d` | 8.3 `tools/worlds.py list\|keep\|forget` |
 | `be3574e` | `NEXT-PLAN.md`; Stage 6 no longer next |
 | `6fb8d50` | NEXT-PLAN part 1: the real-spend meter in `/budget` (`mod/hooks/spend.ts`) |
+| `074e5d3` | NEXT-PLAN part 2: one-step moves and looks (`ROOM TEXT:` in `look`/`move`; gm-turn moves first) |
 
 Commits that change only this file (`HANDOFF.md: …`) are left out.
 
