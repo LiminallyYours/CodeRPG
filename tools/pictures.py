@@ -7,7 +7,13 @@
 Writes the kit's terrain pictures (rules/art/terrain/<terrain>-<n>.png), each game's own terrain pictures
 (games/<id>/art/terrain/) and one per authored room (games/<id>/art/<room>.png). Any of them can be replaced by
 a hand-made PNG of the same name (4:3 or wider, at most 256 pixels wide); nothing else needs to change.
-Standard library only; the drawing is seeded, so a redraw gives the same pictures."""
+Standard library only; the drawing is seeded, so a redraw gives the same pictures.
+
+What reads at the margin's size (about 8 screen pixels a pixel, on a dark terminal), learned the hard way:
+no dithering (the terminal shows full color; a dither pattern becomes a checkerboard), almost no per-pixel
+grain (it turns to mush), a mid-key scene with one clear light source and one main subject against it
+(dark-on-dark vanishes into the terminal's background), and a few deliberate details rather than scattered
+speckle. Check every picture with --preview before keeping it."""
 
 import argparse
 import math
@@ -31,9 +37,6 @@ def mix(a, b, t):
     return tuple(round(x + (y - x) * t) for x, y in zip(a, b))
 
 
-BAYER = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]]
-
-
 class Canvas:
     def __init__(self, seed, fill="#000000"):
         self.px = [[rgb(fill)] * W for _ in range(H)]
@@ -51,17 +54,22 @@ class Canvas:
             for x in range(max(0, x0), min(W, x1)):
                 self.set(x, y, c)
 
-    def vgrad(self, y0, y1, c0, c1, x0=0, x1=W, steps=None):
-        """A vertical gradient, dithered between bands so it reads as pixel art."""
+    def vgrad(self, y0, y1, c0, c1, x0=0, x1=W):
+        """A vertical gradient, one color a row. No dithering: the terminal shows full color, and a dither
+        pattern reads as a checkerboard at the size the margin draws."""
         a, b = rgb(c0), rgb(c1)
-        n = steps or max(2, (y1 - y0) // 2)
         for y in range(y0, y1):
             t = (y - y0) / max(1, y1 - y0 - 1)
             for x in range(x0, x1):
-                k = t * (n - 1)
-                lo = math.floor(k)
-                up = (k - lo) > (BAYER[y % 4][x % 4] + 0.5) / 16
-                self.set(x, y, mix(a, b, min(n - 1, lo + up) / (n - 1)))
+                self.set(x, y, mix(a, b, t))
+
+    def hshade(self, x0, x1, y0, y1, dark, edge=0.5):
+        """Darken a region toward its left and right edges: a curved wall, a vignette."""
+        mid, half = (x0 + x1 - 1) / 2, max(1, (x1 - x0) / 2)
+        for y in range(max(0, y0), min(H, y1)):
+            for x in range(max(0, x0), min(W, x1)):
+                t = (abs(x - mid) / half) ** 2 * edge
+                self.set(x, y, mix(self.get(x, y), rgb(dark), t))
 
     def ellipse(self, cx, cy, rx, ry, c):
         for y in range(int(cy - ry) - 1, int(cy + ry) + 2):
@@ -96,10 +104,11 @@ class Canvas:
                     self.set(x, y, self.rnd.choice(colors))
 
     def texture(self, x0, y0, x1, y1, base, var=10):
-        """Each pixel of a region nudged a little lighter or darker: stone, wood, grass."""
+        """A region of `base`, each pixel nudged a touch lighter or darker: stone, wood, grass. Kept faint (a
+        third of `var`): stronger grain turns to mush at the size the margin draws."""
         for y in range(max(0, y0), min(H, y1)):
             for x in range(max(0, x0), min(W, x1)):
-                d = self.rnd.randint(-var, var)
+                d = round(self.rnd.randint(-var, var) / 3)
                 self.set(x, y, tuple(max(0, min(255, v + d)) for v in rgb(base)))
 
     def stars(self, y1, n, c="#d8d4c0"):
@@ -160,11 +169,13 @@ def gorse(c, x, y, r=3, green="#3d5a2c", dark="#2a3f20", bloom="#d8b440"):
               where=lambda px, py: c.get(px, py) == rgb(green))
 
 
-def rain(c, density=0.025, color="#9fb3bf"):
-    for _ in range(int(W * H * density)):
-        x, y = c.rnd.randrange(W), c.rnd.randrange(H - 1)
-        c.set(x, y, mix(c.get(x, y), rgb(color), 0.5))
-        c.set(x - 1, y + 1, mix(c.get(x - 1, y + 1), rgb(color), 0.3))
+def rain(c, density=0.012, color="#9fb3bf", y0=0, y1=H):
+    """Sparse slanting streaks, three pixels long and faint: more reads as static."""
+    for _ in range(int(W * (y1 - y0) * density)):
+        x, y = c.rnd.randrange(W), c.rnd.randrange(y0, max(y0 + 1, y1 - 2))
+        for k in range(3):
+            if 0 <= x - k < W and y + k < y1:
+                c.set(x - k, y + k, mix(c.get(x - k, y + k), rgb(color), 0.35))
 
 
 def lamp_glow(c, cx, cy, r, color, strength=0.5):
@@ -242,17 +253,21 @@ def kit_stone(n):
             c.poly([(x0, y0), (x0 - 4, y0 + 6), (x0, y0 + 9)], "#73767a")
         c.poly([(0, 28), (0, 18), (12, 15), (26, 19), (44, 16), (44, 28)], "#3e4044")
         c.texture(0, 18, W, H, "#3e4044", 7)
-    elif n == 2:    # an old wall and its arch
-        c.texture(0, 0, W, H, "#5e5a54", 10)
+    elif n == 2:    # an old wall and its arch, a lit passage beyond
+        c.rect(0, 0, W, H, "#6a655c")
         for y in range(0, H, 4):
             for x in range(W):
-                c.set(x, y, mix(c.get(x, y), (25, 24, 22), 0.5))
+                c.set(x, y, mix(c.get(x, y), rgb("#3a3630"), 0.35))
             for x in range((y // 4 % 2) * 4, W, 8):
-                for k in range(4):
-                    c.set(x, y + k, mix(c.get(x, y + k), (25, 24, 22), 0.5))
-        c.ellipse(22, 16, 8, 9, "#1c1c20")
-        c.rect(14, 16, 31, H, "#1c1c20")
-        c.speckle(0, 0, W, H, ["#4f6a3a"], 0.05)
+                for k in range(1, 4):
+                    c.set(x, y + k, mix(c.get(x, y + k), rgb("#3a3630"), 0.3))
+        c.ellipse(22, 14, 8, 9, "#2a2824")
+        c.rect(14, 14, 31, H, "#2a2824")
+        c.vgrad(10, H, "#3a3630", "#8a7a5a", x0=17, x1=28)    # the far end of the passage, in daylight
+        c.rect(19, 12, 26, 20, "#c8c0a0")
+        c.rect(14, 24, 31, H, "#4a453c")
+        c.speckle(0, 0, W, H, ["#5a7a40"], 0.02)
+        c.hshade(0, W, 0, H, "#2a2824", 0.5)
     else:           # a scree slope under stars
         sky(c, NIGHT, 16)
         c.stars(14, 12)
@@ -278,13 +293,17 @@ def kit_indoors(n):
         c.rect(16, 9, 28, 10, "#4a3a2c")
         c.rect(15, 4, 29, 5, "#4a3a2c")
     elif n == 2:    # a cellar by candlelight
-        c.texture(0, 0, W, H, "#3a322c", 8)
-        c.rect(0, 22, W, H, "#2a2420")
-        for x in (6, 11, 33):
-            barrel(c, x, 17)
-        c.rect(24, 15, 25, 18, "#e6d6a0")
-        c.set(24, 14, "#ffcf60")
-        lamp_glow(c, 24.5, 14.5, 14, "#d8963c", 0.45)
+        c.vgrad(0, 21, "#3a322c", "#56483a")
+        for y in range(4, 21, 5):
+            c.rect(0, y, W, y + 1, "#2e2822")
+        c.rect(0, 21, W, H, "#3e342a")
+        c.rect(19, 13, 30, 15, "#6a5038")             # a shelf with the candle on it
+        for x in (4, 10, 33):
+            barrel(c, x, 16, wood="#7a5432", band="#3a2e24")
+        c.rect(24, 10, 25, 13, "#e8dcb0")
+        c.set(24, 9, "#ffd060")
+        lamp_glow(c, 24.5, 10, 20, "#e0a048", 0.55)
+        c.hshade(0, W, 0, H, "#1a1612", 0.6)
     else:           # a hall with a hearth
         c.texture(0, 0, W, H, "#4a3c30", 7)
         c.rect(0, 0, W, 3, "#2c221a")
@@ -374,95 +393,132 @@ def coast_road():
         c.set(int(22 + (28 - y) * 0.05), y, "#5e5040")
     for x, y, r in ((4, 18, 3), (11, 14, 2), (5, 25, 3), (14, 22, 2)):
         gorse(c, x, y, r)
-    for y in range(20, H):                                       # surf breaking at the foot of the cliff
-        x = int(35 + (y - 16) * 0.35) + c.rnd.randrange(2)
-        c.rect(x, y, x + 2, y + 1, "#c8d8dc")
+    for x, y in ((37, 21), (41, 22), (36, 24), (40, 25), (38, 27), (42, 27)):   # surf breaking at the cliff's foot
+        c.rect(x, y, x + 3, y + 1, "#c8d8dc")
     return c
 
 
 def greywater_bridge():
     c = Canvas("greywater_bridge")
-    sky(c, DUSK, 8)
-    # the gorge walls
-    c.poly([(0, 6), (10, 8), (14, 28), (0, 28)], "#3a3c40")
-    c.poly([(44, 5), (32, 8), (30, 28), (44, 28)], "#36383c")
-    c.texture(0, 6, 14, H, "#3a3c40", 9)
-    c.texture(30, 5, W, H, "#36383c", 9)
-    # the river, roaring white below
-    c.vgrad(19, H, "#4a6470", "#2c3e48", x0=12, x1=32)
-    c.speckle(10, 19, 34, H, ["#d8e4e8", "#a8bcc4"], 0.3, where=lambda x, y: 11 + (y - 19) * 0.2 < x < 33 - (y - 19) * 0.2)
-    # the humpbacked bridge and its arch
-    c.poly([(0, 12), (22, 8), (44, 12), (44, 17), (0, 17)], "#6e6c68")
-    c.texture(0, 9, W, 17, "#6e6c68", 10)
-    c.ellipse(22, 19, 9, 7, "#1a1c20")
-    c.vgrad(21, H, "#2c3e48", "#1a262c", x0=14, x1=31)             # the river seen through the arch
-    for x in range(14, 31, 3):
-        c.set(x + (x // 3) % 2, 23, "#a8bcc4")
-    c.rect(0, 17, 4, 19, "#5a5854")
-    c.rect(40, 17, W, 19, "#5a5854")
-    c.speckle(0, 8, W, 12, ["#4f6a3a", "#5d7a44"], 0.35, where=lambda x, y: y >= 8 + abs(x - 22) * 4 / 22 - 0.5)  # moss
+    sky(c, DUSK, 12)
+    # the gorge: dark cliffs falling to the river from both sides
+    c.poly([(0, 9), (8, 10), (13, 22), (15, 28), (0, 28)], "#3e4038")
+    c.poly([(44, 8), (35, 10), (31, 22), (29, 28), (44, 28)], "#3a3c36")
+    c.poly([(0, 9), (8, 10), (9, 13), (0, 12)], "#4f5a3c")        # grass along the tops
+    c.poly([(44, 8), (35, 10), (34, 13), (44, 12)], "#4b5638")
+    # the river, white where it roars over the rocks
+    c.vgrad(22, H, "#4f6c7a", "#2e4450", x0=0, x1=W)
+    c.poly([(0, 28), (0, 24), (13, 22), (15, 28)], "#3e4038")
+    c.poly([(44, 28), (44, 24), (31, 22), (29, 28)], "#3a3c36")
+    for y, xs in ((23, (16, 20, 25)), (24, (14, 22, 27)), (25, (17, 24)), (26, (15, 20, 26)), (27, (18, 23, 28))):
+        for x in xs:
+            c.rect(x, y, x + 2, y + 1, "#d8e4e8")
+    # the humpbacked bridge: deck, parapet, one round arch, piers into the water
+    stone, light, dark = "#7c776e", "#99938a", "#57534d"
+    deck = lambda x: 12 - 4 * math.sin(math.pi * x / (W - 1))       # the hump: 12 at the ends, 8 at the crown
+    for x in range(W):
+        top = round(deck(x))
+        c.rect(x, top, x + 1, top + 6, stone)
+        c.set(x, top, light)                                          # the parapet's lit top
+        if x % 5 == 2:
+            c.set(x, top + 1, dark)                                   # joints in the parapet
+        c.set(x, top + 5, dark)
+    for x in range(11, 34):                                           # the spandrels: solid stone down to the arch
+        c.rect(x, round(deck(x)) + 5, x + 1, 23, stone)
+    c.ellipse(22, 22, 8, 8, "#2a3a42")                              # the arch, the gorge seen through it
+    c.rect(14, 22, 31, H, "#2a3a42")
+    c.vgrad(23, H, "#3e5866", "#2a3e48", x0=15, x1=30)
+    for x in (17, 21, 26):
+        c.rect(x, 25, x + 2, 26, "#c8d8dc")
+    c.rect(11, 14, 14, H, stone)                                     # the piers
+    c.rect(30, 14, 33, H, stone)
+    c.rect(11, 14, 12, H, light)
+    for x, y in ((6, 10), (7, 10), (19, 8), (20, 8), (33, 9), (38, 10), (39, 10)):
+        c.set(x, y - 1, "#5d7a44")                                   # moss on the parapet
     return c
 
 
 def lighthouse():
     c = Canvas("lighthouse")
-    c.vgrad(0, H, "#22242a", "#4a463e")
-    # the round stone wall, its blocks curving away at the edges
-    for y in range(0, 23, 3):
+    # the round stone room, lit by a lantern: the wall curves away into shadow at both sides
+    c.vgrad(0, 22, "#5e574e", "#6e665a")
+    for y in range(3, 22, 4):                     # a few courses of stone, faint
         for x in range(W):
-            c.set(x, y, mix(c.get(x, y), (18, 18, 20), 0.6))
-        for x in range((y // 3 % 2) * 3, W, 6 + abs(22 - W // 2) // 6):
-            for k in range(3):
-                c.set(x, y + k, mix(c.get(x, y + k), (18, 18, 20), 0.4))
-    c.rect(0, 23, W, H, "#3a3630")
+            c.set(x, y, mix(c.get(x, y), rgb("#3a352e"), 0.3))
+        for x in range((y // 4 % 2) * 5, W, 10):
+            for k in range(1, 4):
+                c.set(x, y + k, mix(c.get(x, y + k), rgb("#3a352e"), 0.25))
+    c.rect(0, 22, W, H, "#4a443a")                # the flagstone floor
+    for x in range(0, W, 7):
+        c.rect(x, 22, x + 1, H, "#3e3830")
+    c.rect(0, 22, W, 23, "#3a342c")
+    lamp_glow(c, 12, 9, 22, "#e8b860", 0.45)
+    c.hshade(0, W, 0, H, "#1e1c1a", 0.8)
     # a slit window with the last of the dusk in it
-    c.vgrad(5, 12, "#7a5f6e", "#b98a6e", x0=37, x1=39)
-    # the iron stair spiralling up into the dark, the column at its heart
-    c.rect(21, 0, 24, 23, "#26262a")
-    for i in range(11):
-        y = 21 - i * 2
-        w = round(math.sin(i * 0.95) * 7)
-        x0, x1 = (22, 23 + w) if w > 0 else (22 + w, 23)
-        c.rect(x0, y, x1 + 1, y + 1, "#8a8478" if w > 0 else "#5e5a54")
-        c.set(x1 if w > 0 else x0, y - 1, "#4a4640")
-    c.vgrad(0, 7, "#08080a", "#1e2024", x0=12, x1=33)
-    # barrels of lamp oil, coils of rope, the cot
-    for x in (2, 6):
-        barrel(c, x, 18)
-    c.ellipse(12, 25, 3, 1.5, "#8a7a58")
-    c.ellipse(12, 25, 1.5, 0.8, "#5a4e3a")
-    c.rect(32, 21, 42, 23, "#7a6a50")
-    c.rect(32, 23, 33, 25, "#4a3a2a")
-    c.rect(41, 23, 42, 25, "#4a3a2a")
-    c.rect(33, 20, 36, 21, "#c8c0a8")
+    c.vgrad(5, 12, "#9a7a86", "#d8a880", x0=39, x1=41)
+    # the iron stair spiralling up into the dark: dark treads against the lit wall, round a central post
+    iron = "#24211e"
+    c.rect(27, 0, 29, 22, iron)
+    for i in range(10):
+        y = 20 - i * 2
+        w = round(math.sin(i * 1.05) * 8)
+        x0, x1 = (29, 29 + w) if w > 0 else (27 + w, 27)
+        c.rect(x0, y, x1, y + 1, iron)
+        c.set(x1 if w > 0 else x0 - 1, y - 1, iron)   # the rail post at each tread's end
+    c.vgrad(0, 6, "#141210", "#3a352e", x0=16, x1=40)     # it climbs out of the light
+    c.rect(27, 0, 29, 6, iron)
+    # the lantern on its hook
+    c.line(12, 4, 12, 6, iron)
+    c.rect(11, 7, 14, 10, "#3a2e20")
+    c.rect(12, 8, 13, 9, "#ffe08a")
+    # barrels of lamp oil, a coil of rope, the cot
+    for x in (2, 7):
+        barrel(c, x, 17, wood="#7a5432", band="#3a2e24")
+    c.ellipse(16, 24.5, 3, 1.4, "#a8925e")
+    c.ellipse(16, 24.5, 1.4, 0.6, "#5e5034")
+    c.rect(32, 19, 43, 21, "#8a7a5c")             # the cot, its blanket and legs
+    c.rect(32, 18, 37, 19, "#d8d0b8")
+    c.rect(37, 18, 43, 19, "#6a5a7a")
+    c.rect(33, 21, 34, 24, "#3a3026")
+    c.rect(41, 21, 42, 24, "#3a3026")
     return c
 
 
 def trolls_hollow():
     c = Canvas("trolls_hollow")
-    c.texture(0, 0, W, H, "#2a2a2c", 8)
-    # the mouth of the cave, the river bright beyond it
-    c.ellipse(9, 14, 8, 11, "#5e7c88")
-    mouth = rgb("#5e7c88")
-    for y in range(3, H):
-        for x in range(0, 18):
-            if c.get(x, y) == mouth:
-                t = (y - 3) / 22
-                col = mix(rgb("#5a7480"), rgb("#22323a"), t)    # brighter at the top: the dusk outside
-                if 17 <= y <= 21 and (x * 2 + y * 5) % 9 < 3:
-                    col = rgb("#b8c8cc")                         # the river's white water going past
+    # the cave: rough rock, darker toward the roof and the back
+    c.vgrad(0, 22, "#2a2724", "#46413a")
+    c.texture(0, 0, W, 22, "#3a3631", 6)
+    c.vgrad(0, 6, "#1c1a18", "#34302b")
+    # the mouth on the left: the dusk and the river outside, framed by ragged rock
+    mouth = [(2, 22), (2, 10), (4, 6), (8, 4), (12, 5), (15, 9), (16, 14), (16, 22)]
+    c.poly(mouth, "#000000")
+    for y in range(4, 22):
+        for x in range(2, 17):
+            if c.get(x, y) == (0, 0, 0):
+                t = (y - 4) / 17
+                col = mix(rgb("#8a7480"), rgb("#c8a080"), min(1, t * 1.6)) if y < 14 else mix(rgb("#4a6672"), rgb("#2e4652"), (y - 14) / 8)
                 c.set(x, y, col)
-    c.rect(0, 22, W, H, "#323028")
-    c.texture(0, 22, W, H, "#34322a", 8)
-    # the magpie hoard against the back wall
-    c.poly([(20, 24), (28, 13), (36, 12), (44, 18), (44, 24)], "#4a4236")
-    c.speckle(20, 12, W, 24, ["#e0c060", "#f0e8d0", "#7ac0c8", "#c87850", "#a0a8b0"], 0.22,
-              where=lambda x, y: c.get(x, y) == rgb("#4a4236"))
-    c.rect(37, 9, 41, 15, "#8a9aa4")      # the cracked mirror
-    c.line(38, 9, 40, 14, "#3a4248")
-    c.set(30, 20, "#e8e0c8")              # bones
-    c.line(26, 21, 29, 20, "#d8d0b8")
-    c.speckle(0, 0, W, 6, ["#1a1a1c"], 0.3)
+    for y, xs in ((15, (4, 10)), (17, (6, 12)), (19, (3, 9, 14)), (21, (5, 11))):
+        for x in xs:
+            c.rect(x, y, x + 2, y + 1, "#d8e4e8")    # white water going past
+    lamp_glow(c, 9, 14, 20, "#9ab0b8", 0.25)
+    # the damp floor, a puddle catching the light
+    c.rect(0, 22, W, H, "#4a453c")
+    c.texture(0, 22, W, H, "#4a453c", 6)
+    c.ellipse(12, 25, 6, 1.2, "#6a8088")
+    # the magpie hoard against the back wall: a heap, a few things catching the light
+    c.poly([(21, 23), (26, 15), (31, 12), (37, 13), (43, 18), (44, 23)], "#5a5040")
+    c.poly([(26, 15), (31, 12), (33, 13), (29, 17)], "#6e624e")
+    for x, y, col in ((28, 16, "#f0d060"), (33, 15, "#f0d060"), (38, 17, "#e8e8e0"), (24, 20, "#7ac8d0"),
+                      (35, 20, "#e07850"), (41, 21, "#f0d060"), (30, 21, "#e8e8e0")):
+        c.rect(x, y, x + 2, y + 1, col)
+    c.rect(35, 8, 40, 14, "#9aaab4")              # the cracked mirror, propped against the wall
+    c.rect(35, 8, 40, 9, "#6a5a48")
+    c.line(36, 9, 39, 13, "#4a5258")
+    c.rect(22, 25, 27, 26, "#e0d8c0")             # a bone on the floor
+    c.rect(21, 24, 22, 27, "#e0d8c0")
+    c.rect(27, 24, 28, 27, "#e0d8c0")
     return c
 
 
@@ -513,17 +569,20 @@ def station_flooded(n):
         c.poly([(0, 0), (13, 8), (13, 15), (0, 15)], "#46525a")
         c.poly([(44, 0), (31, 8), (31, 15), (44, 15)], "#404c54")
         c.rect(13, 8, 31, 15, "#1a2226")
-    elif n == 2:    # a room half under water
-        c.rect(6, 4, 18, 13, "#4e5a60")
-        c.rect(26, 6, 38, 13, "#4a565c")
+    elif n == 2:    # a store room half under water: a door, shelving, a wall lamp
+        c.rect(4, 3, 14, 15, "#56626a")             # the door and its frame
+        c.rect(5, 4, 13, 15, "#2a3438")
+        c.rect(11, 9, 12, 10, "#c8a040")
+        for y in (5, 9, 13):                       # shelving, boxes on it
+            c.rect(22, y, 40, y + 1, "#6a747a")
+        for x, y, col in ((23, 3, "#8a6a40"), (28, 3, "#5a7a8a"), (34, 7, "#8a6a40"), (25, 11, "#7a5a3a")):
+            c.rect(x, y, x + 4, y + 2, col)
+        c.rect(17, 4, 19, 5, "#e8e0b0")            # the wall lamp
+        lamp_glow(c, 18, 4.5, 10, "#d8d0a0", 0.3)
     else:           # under the strip-lights
         for x in range(0, W, 8):
             c.rect(x, 2, x + 5, 3, "#c8e0c0")
-    c.vgrad(15, H, "#2c5a60", "#163036")
-    for y in range(15, H):
-        for x in range(W):
-            if (x + y * 2) % 9 == 0:
-                c.set(x, y, mix(c.get(x, y), rgb("#8fd0d4"), 0.4))
+    sea(c, 15, H, deep="#163036", light="#2c5a60", foam="#8fd0d4", ripples=0.04)
     c.rect(0, 15, W, 16, "#5a9aa0")
     if n == 3:
         for x in range(0, W, 8):
