@@ -49,7 +49,7 @@ As of 2026-10-23 (end of the session that built `NEXT-PLAN.md` 3.1 and 3.2). The
 | `6fb8d50` | NEXT-PLAN part 1: the real-spend meter in `/budget` (`mod/hooks/spend.ts`) |
 | `074e5d3` | NEXT-PLAN part 2: one-step moves and looks (`ROOM TEXT:` in `look`/`move`; gm-turn moves first) |
 | `90ccbba` | Playtest bug: real use was lost after `/newgame` (`$.state` resets on `/clear`); `ensureSpend` restores it from the store |
-| (this commit) | NEXT-PLAN 3.1 and 3.2: the page (measure, arrival rule, keylines, change line, paragraph reveal), the band's two modes, the play hint, `/guide`, signal kinds, `speaker_colors`; skill reads are plumbing |
+| `5715017` | NEXT-PLAN 3.1 and 3.2: the page (measure, arrival rule, keylines, change line, paragraph reveal), the band's two modes, the play hint, `/guide`, signal kinds, `speaker_colors`; skill reads are plumbing |
 
 Commits that change only this file (`HANDOFF.md: …`) are left out.
 
