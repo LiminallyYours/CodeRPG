@@ -6,7 +6,7 @@ As of 2026-10-22. The state of the kit build for whoever picks it up next, human
 - **Requirements:** `IMPLEMENTATION-PLAN.md` (JW's game-owner requirements, Stages 1–8).
 - **Technical plan:** `~/.claude/plans/please-read-implementation-plan-md-in-sunny-cake.md` (approved). The decisions below override it where they differ.
 - **Done:** Stages 1–5: kit split, second game and seeds; the meter and switches; look and feel; curses; the player leaves a mark (crafting, building, the library, promotion). Stage 7: people with plans, side scenes. Everything is committed on `main`; `sh tools/check.sh` passes (54 engine tests, 62 mod tests, both games validate).
-- **Now:** the user playtested Stages 5 and 7 and had no notes. **Stage 8 (new worlds) is next**, then Stage 6. Stage 8's decisions are agreed (below); 8.1 is built and committed, 8.2 (the worldsmith) is next.
+- **Now:** the user playtested Stages 5 and 7 and had no notes. **Stage 8 (new worlds) is next**, then Stage 6. Stage 8 is built (8.1, 8.2, 8.3 committed) and live-tested. **Open, waiting for the user: what a forge costs** (see *Stage 8 cost, measured*); then the user's playtest, then Stage 6.
 - **Stage order (changed 2026-10-22):** Stage 7 was built before Stage 6, and now Stage 8 comes before Stage 6 too (the user's call). Worlds forged before Stage 6 have no lock or mechanism; that's harmless because puzzles are optional (Stage 6 D1). When Stage 6 lands, the worldsmith's guide and `validate --kit-complete` gain puzzles, and older forged worlds can have them added.
 
 ## Starting the next session
@@ -38,6 +38,8 @@ As of 2026-10-22. The state of the kit build for whoever picks it up next, human
 | `26ce9d8` | Validate: a plan step may not leave a character nowhere; the gm-turn signal example names no game |
 | `66a582b` | Playtest bug: the pane's exit and look buttons fill the prompt box instead of submitting (a plugin-submitted prompt is labelled "Prompt from the coderpg plugin" and can't be restyled); footer "1–9 then ⏎ go" |
 | `e4f9701` | 8.1 New worlds, engine: soundness checks for every game, `validate --dir`/`--kit-complete`, `state/worlds/`, `forge quote\|start\|resume\|status\|install\|discard`, `new_world` 15 / `new_world_resume` 5, switch `new_worlds`, `NEW WORLD READY` in `look`, `/budget` line |
+| `c86b720` | 8.2 New worlds: the worldsmith (Opus) and its guard hook, `rules/WORLD-GUIDE.md`, `/newworld`, gm-turn *New worlds*, the install toast, the mod hiding its rows |
+| `b840d0d` | 8.3 `tools/worlds.py list\|keep\|forget` |
 
 Handoff-only commits (`2ac55a1`, `b6b523d`, `a2280fe`, `ab4dea9`, `7057684`, `6a2a586`) are left out.
 
@@ -63,6 +65,36 @@ Handoff-only commits (`2ac55a1`, `b6b523d`, `a2280fe`, `ab4dea9`, `7057684`, `6a
 - **S8 format:** one authoring guide, `rules/WORLD-GUIDE.md` (every format plus the kit-complete list), plus read-only access to both shipped games as examples (learn, don't copy). The README links it. When Stage 6 lands, it gains the puzzle formats.
 - **Also agreed:** a forged world's `settings.json` starts on the normal preset; no room art in forged worlds; seeds, the daily world and the library work in them unchanged.
 - **Sub-stages:** 8.1 engine (soundness and kit-complete checks, `validate --dir`, `state/worlds/`, `forge quote|start|resume|status|install|discard`, price/switch/presets/`/budget`, tests); 8.2 the worldsmith (agent and guard, guide, `/newworld`, permission rule, `NEW WORLD READY`, gm-turn, mod toast and labels, live guard test, one real forge, a few turns of play in it); 8.3 `tools/worlds.py`; then stop for the playtest.
+
+## Stage 8.2 and 8.3 notes (as built)
+- **The worldsmith** (`.claude/agents/worldsmith.md`): Opus, tools Read/Glob/Grep/Write/Edit/Bash, `maxTurns: 150`, `omitClaudeMd: true`, and a `hooks: PreToolUse` block running `.claude/hooks/forge_guard.py` on Write/Edit/MultiEdit/NotebookEdit/Bash. Its prompt is the brief `forge start`/`resume` prints; its procedure (read the guide, glance at examples, plan, write, check until OK, READY last) is in the definition.
+- **The guard** answers `allow` for writes inside the forging draft's `world/` (and its READY), the exact check command, and `rm state/forge/<draft>/world/<file>` (one file, no flags); `deny` for every other write or command, with a reason that restates the rule; nothing for reads, or for other agents (`agent_type` set and not `worldsmith`), so it could also be registered project-wide. "Forging" means: no READY, `status: forging`, and the meter's current session mark. **Live (Sonnet GM, trusted scratch folder):** all six probes behaved; the worldsmith's first write even went to the real project path and was denied. **In an untrusted folder the agent's hooks don't run at all** ("this workspace has not been trusted"); the player's folder is trusted, and live tests must use a trusted scratch folder (one `play.py --trust` run trusts it). A headless test must start the forge inside the session (the SessionStart hook's refill changes the session mark).
+- **Known gap:** if the player quits Claude Code choosing "move to background" while a forge runs, the next session's refill makes the draft unfinished and the guard stops the still-running worldsmith; the player finishes it with `/newworld` (price 5).
+- **`rules/WORLD-GUIDE.md`:** every format, writing for the game master, the soundness rules and the kit-complete list. README links it. Stage 6 adds puzzles to it.
+- **`/newworld`** (`.claude/skills/newworld/`, player-only): `forge quote`; one-line answers for off, can't pay, forging, ready; otherwise AskUserQuestion (Forge it / Not now; with an unfinished draft: finish it / start this one / throw it away / not now); `forge start "<sentence>"` or `forge resume`; spawns the worldsmith in the background with the brief verbatim and the description "A new world takes shape"; one line of story.
+- **gm-turn *New worlds*:** on the completion notice or `NEW WORLD READY`, `forge install`; `INSTALLED` → one line at the end of the narration (or the whole reply); `REFUSED` → nothing.
+- **Install toast:** `add_signal` (now shared with plans) puts "A new world has taken shape: <title>. /game <id> goes there." into the active save's `view.signals`, so the mod's existing toast and chime show it.
+- **Mod:** `newworld` (Skill) and `worldsmith` (Agent) are plumbing; the worldsmith's running-agents label is "A new world takes shape"; AskUserQuestion doesn't make a turn count as development (so the `/newworld` reply is still drawn as story). Its hand-back row ("Message from @worldsmith": the old pattern `world\b` missed it) and the task-notification row "Agent … finished · 8m 24s" (a `UserMessage` whose `task.toolUseId` is a hidden call) are hidden in play. The running-agents bar still shows "◯ worldsmith" (mods can't redraw it; same as "◯ npc"). These two row fixes came after the live forge: verify them on the next one.
+- **Permissions:** `Edit(state/forge/**)` added to the allow list.
+- **8.3 `tools/worlds.py`:** `list` (title, date, the request, save state), `keep <id>` (moves to games/, validates as a kit game, moves back on failure; the save and library carry on under the same id), `forget <id> --yes` (deletes the world, its shelved save and its library; refuses the world being played; without `--yes` says what would go).
+- **Tests:** the guard (allow/deny cases, no say for other agents, hands off once READY); the install toast; keep and forget.
+
+## Stage 8 live results (2026-10-22, Sonnet GM, trusted scratch copy)
+- **Forge:** `/newworld a smugglers cove under white chalk cliffs, where the customs men are closing in` → the dialog (Forge it / Not now) → `forge start` → worldsmith in the background → one line of story; play went on (a look turn); after 8 m 24 s the completion notice started a turn by itself and the GM ran `forge install` and wrote one line, with the toast. The `look` fallback wasn't needed. No GM plumbing in any frame; Claude Code's own rows showed the worldsmith (now hidden, see above).
+- **The world:** *The Run at Hollin Cove* (7 rooms, 4 characters, quest with two ways and four endings, a variant-craving sentry, curse, scene, its own look: Candle-ends ✧, shillings, chalk and shingle tiles), kit-complete first time it was installed. It wrote `see rooms/chalk_head.md` in GM notes; the guide now says to name things, not paths.
+- **Played:** `/game run_at_hollin_cove`, `/newgame`, two actions: title card, banners and look right; Wenna voiced through her agent with her GM-only lines applied; no plumbing.
+
+## Stage 8 cost, measured (open decision)
+- **The worldsmith used** 62 messages, 47 tool calls, 189k output tokens, 2.77M cache reads, 258k cache writes: about **$5.60** (Opus 5.5: $4 / $20 / $0.20 cache read; writes assumed at 1.25× input). A Sonnet GM turn is about $0.08, so a forge is about **70 meter points** against the price of 15 (normal capacity 30, rich 60).
+- **Why:** two-thirds is output, mostly thinking; the definition sets no `effort`, so it ran at Claude Code's default for subagents.
+- **Proposed to the user (no answer yet):** (1) set `effort: medium` in the worldsmith's definition and measure one more forge, then price from it (recommended); (2) price at ~70 and raise capacities; (3) Sonnet 5.5 for the worldsmith; (4) take new worlds off the meter and keep only the confirmation. The next forge also verifies the hidden rows.
+
+## Stage 8 playtest checklist (what should happen)
+- **Ask:** `/newworld <a sentence>` (or alone, for a surprise). A dialog asks to confirm, naming the price in the game's resource. Yes: one line ("a new world begins to take shape…"), and the game goes on; the running-agents bar shows "A new world takes shape".
+- **Ready:** some minutes later, unprompted, one line names the new world and `/game <id>`, with a toast and chime. `/game` lists it as forged.
+- **Play it:** `/game <id>`, `/newgame`. It should feel like its own small game: its own look, people with their own voices, two ways through.
+- **Owner:** `python3 tools/worlds.py list`, `keep <id>` (into games/), `forget <id> --yes`.
+- **Watch for:** any visible machinery (agent names, "finished" rows, draft names); a forged world that can't be finished; one too close to the shipped games.
 
 ## Stage 8.1 notes (as built)
 - **Where games live:** `content.authored_games()` (games/) and `list_games()` (games/ plus `state/worlds/`); `is_forged`, `game_path`. `use_game(ident, folder)` keeps the id apart from the folder (a draft's folder is `world/`); `choose_game(ident, folder)` likewise. `validate` with no options covers only games/.
