@@ -55,6 +55,7 @@ As of 2026-10-23 (end of the session that built `NEXT-PLAN.md` 3.3, the margin, 
 | `129f6c8` | NEXT-PLAN 3.4: room pictures (`rules/png.py`, `view.picture`, the chain, `tools/pictures.py`, 30 pictures, half-block Raster, crop steps, picture checks) |
 | `357d710` | The page centered in at most the first 120 columns (`CENTER_SPAN`); `/sheet` hides its success line and reports why the pane can't be placed |
 | `f9af185` | Pictures: QA pass at real size (no dithering, faint grain, six redrawn) |
+| `81a7970` | Pictures: nine room pictures redrawn as one bold subject each |
 
 Commits that change only this file (`HANDOFF.md: …`) are left out.
 
