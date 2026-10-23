@@ -139,6 +139,14 @@ Session totals alone serve neither job, because they depend on how long you play
 - Removed: the VITALS frame, the tab strip and the Here tab. The Map and Journal screens keep their current design (out of scope).
 - Until 3.4 lands, WHERE draws the room's text art dim.
 
+**Decided before building 3.3 (JW, 2026-10-23):**
+- **The map, journal and guide take over the pane** when their key is pressed: a `‹ back` row at the top (the old `here` key, `h` or the station's `d`, also goes back), MORE still pinned below, and pressing the open one's key again comes back too. `look.tabs` keeps its format; `here` now means the margin itself.
+- **Help is `g guide`, not `? help`:** a mod Button's hotkey must be a digit or a lowercase letter (the API refuses `?`). It shows the `/guide` text.
+- **When the margin is taller than the docked pane:** CARRYING shows what fits, then `+N more · /inventory`; if that still doesn't fit, the room picture drops out. MORE stays pinned. Inline (`/sheet` without a dock), the margin takes its natural height and scrolls.
+- **The one-turn flash** covers health (red hurt, heal color healed), coins and the meter (heal color up, amber down: red stays for danger), and a newly gained item (its CARRYING row in the heal color). It lasts until the next play turn ends, from the `latest` atom; the old 1.6-second HP flash goes.
+- **Section labels:** the lighthouse keeps the defaults; the station's are `LOCATION · STATUS · AT RISK · ACTIONS · KIT · MORE`.
+- **Technical:** the pane is requested at 58 body columns; the text art is drawn at its own size (no 14-row box) until 3.4; the adventure title, the `◌` working line and the key footer leave the pane (the band carries the working line).
+
 **3.4 Pictures:**
 - **`tools/pictures.py`** (stdlib only, writes PNGs): simple pixel art at 44×28, redrawable.
   - **Kit generics:** 3 variants each for water, grass, stone and indoors, in `rules/art/terrain/`.

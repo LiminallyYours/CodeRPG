@@ -69,6 +69,8 @@ export type CoderpgLook = {
   palette: { accent: string; good: string; bad: string; warn: string; heal: string; accent_by_time?: Record<string, string> }
   /** The colors speakers without a card of their own take, in order of first meeting. */
   speaker_colors?: string[]
+  /** The margin's six section labels. */
+  sections?: Partial<CoderpgSections>
   stat_labels: { might: string; agility: string; wits: string }
   stat_short: { might: string; agility: string; wits: string }
   currency: string
@@ -157,6 +159,15 @@ export type CoderpgStory = {
 
 export type CoderpgTab = 'here' | 'map' | 'journal'
 
+/** What the pane shows: the margin (`here`), one of the deeper screens, or the guide. */
+export type CoderpgScreen = CoderpgTab | 'guide'
+
+/** The margin's sections, in order, each with its label. */
+export type CoderpgSections = { where: string; you: string; at_stake: string; act: string; carrying: string; more: string }
+
+/** What the last play turn changed, so the margin and the band color it until the next play turn ends. */
+export type CoderpgMarks = { hp?: 'hurt' | 'heal'; coins?: 'up' | 'down'; meter?: 'up' | 'down'; gained?: string[] }
+
 /** Which stage a turn is in, while the game master works. */
 export type CoderpgPhase = 'reading' | 'considering' | 'shaping' | 'stirring' | 'resolving'
 
@@ -209,12 +220,10 @@ declare module 'claude-code' {
       hidden: string[]
       /** What the spinner says while a play turn runs. */
       activity: string | null
-      /** The HP bar flashes after damage or healing. */
-      flash: 'hurt' | 'heal' | null
       /** A play turn is running: text is held back until it ends. */
       running: boolean
-      /** The pane's open tab. */
-      tab: CoderpgTab
+      /** What the pane shows: the margin, the map, the journal or the guide. */
+      tab: CoderpgScreen
       /** Sound effects off. */
       muted: boolean
       /** The player's rows typed under a curse: how the words came out, by the row's story key. */
@@ -223,8 +232,8 @@ declare module 'claude-code' {
       spend: Spend | null
       /** A key pressed while a turn's narration was appearing: blocks shown at or before this time show whole. */
       revealSkip: number
-      /** The last play turn's change line, for the band; `hp` only for the turn health changed. */
-      latest: { changes: string[]; hp?: 'hurt' | 'heal' } | null
+      /** The last play turn's change line, for the band; the marks only for the turn their values changed. */
+      latest: ({ changes: string[] } & CoderpgMarks) | null
     }
   }
 }

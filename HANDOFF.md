@@ -1,13 +1,13 @@
 # Handoff: building the kit
 
-As of 2026-10-23 (end of the session that built `NEXT-PLAN.md` 3.1 and 3.2 and took the user's first playtest of them). The state of the kit build for whoever picks it up next, human or Claude. Read `DEVELOPING.md` first (invariants, checks, testing, API gotchas). This file covers only where the build stands and what was decided along the way. Update it at the end of each stage.
+As of 2026-10-23 (end of the session that built `NEXT-PLAN.md` 3.3, the margin). The state of the kit build for whoever picks it up next, human or Claude. Read `DEVELOPING.md` first (invariants, checks, testing, API gotchas). This file covers only where the build stands and what was decided along the way. Update it at the end of each stage.
 
 ## Where things are
 - **Current work: `NEXT-PLAN.md`** (approved 2026-10-23): (1) the real-spend meter (R3), (2) one-step moves and looks, (3) the interface redesign (`UI-REDESIGN-SPEC.md`), in that order. It replaces the old "Stage 8 playtest, then Stage 6" sequence below.
 - **Requirements:** `IMPLEMENTATION-PLAN.md` (JW's game-owner requirements, Stages 1–8).
 - **Technical plan:** `~/.claude/plans/please-read-implementation-plan-md-in-sunny-cake.md` (approved). The decisions below override it where they differ.
-- **Done:** Stages 1–5: kit split, second game and seeds; the meter and switches; look and feel; curses; the player leaves a mark (crafting, building, the library, promotion). Stage 7: people with plans, side scenes (playtested, no notes). Stage 8: new worlds, built (8.1, 8.2, 8.3) and live-tested. `NEXT-PLAN.md` parts 1, 2 (playtested, no notes), 3.1 and 3.2 (playtested: one note, fixed). Everything is committed on `main`; `sh tools/check.sh` passes (64 engine tests, 83 mod tests, both games validate).
-- **Now:** `NEXT-PLAN.md` 3.1 (the page) and 3.2 (band, hint, footer) are built, live-checked and playtested (see *NEXT-PLAN 3.1–3.2 notes*). The user's one note (center the text) is fixed in `27581ff`; they had no other notes, and haven't yet seen the centered page on a real screen, so ask how it looks. Next is **3.3, the margin**, then 3.4 and the second playtest. The Stage 8 playtest had no further notes; new worlds don't use the meter (see *Stage 8 cost, measured*).
+- **Done:** Stages 1–5: kit split, second game and seeds; the meter and switches; look and feel; curses; the player leaves a mark (crafting, building, the library, promotion). Stage 7: people with plans, side scenes (playtested, no notes). Stage 8: new worlds, built (8.1, 8.2, 8.3) and live-tested. `NEXT-PLAN.md` parts 1, 2 (playtested, no notes), 3.1 and 3.2 (playtested: one note, fixed), 3.3 (built and live-checked). Everything is committed on `main`; `sh tools/check.sh` passes (64 engine tests, 94 mod tests, both games validate).
+- **Now:** `NEXT-PLAN.md` 3.3 (the margin) is built and live-checked (see *NEXT-PLAN 3.3 notes*); its open points were decided with JW first (`NEXT-PLAN.md`, *Decided before building 3.3*). Next is **3.4, pictures**, then the second playtest, which covers 3.3 and 3.4 together (checklist below). JW had no playtest feedback at the start of the 3.3 session and hasn't yet seen the centered page or the margin on a real screen. The Stage 8 playtest had no further notes; new worlds don't use the meter (see *Stage 8 cost, measured*).
 - **Stage 6 (puzzles) is no longer next (2026-10-23, JW):** it will be rethought from scratch later, and its earlier decisions (*Stage 6 decisions so far*, the code-blocks note under *Decisions made with the user*, *Later stages*) don't carry over. They're kept below only as a record.
 - **Stage order (changed 2026-10-22, superseded 2026-10-23):** Stage 7, then Stage 8, then Stage 6; now `NEXT-PLAN.md`, with puzzles to be redesigned later. Forged worlds have no puzzles, and `validate --kit-complete` asks for none.
 
@@ -15,8 +15,8 @@ As of 2026-10-23 (end of the session that built `NEXT-PLAN.md` 3.1 and 3.2 and t
 1. The user starts dev sessions with `ooc:` (or says the whole session is development). Read `DEVELOPING.md`, then this file, then run `sh tools/check.sh` and report the state.
 2. **If the user brings new playtest feedback:** diagnose from the session transcript (`DEVELOPING.md`, *Debugging a real session*), reproduce in a scratch copy, propose the fix and wait for an OK, then fix with a test. One commit per agreed fix, with a live check if players see it. The playtest checklists below say what each stage was meant to do.
 3. **Follow `NEXT-PLAN.md`** part by part: its decisions are agreed; anything it leaves open is proposed first, with context, options and downstream implications, assuming little knowledge of the project. It says where to stop for the user's playtests.
-   - **Next is 3.3, the margin** (`UI-REDESIGN-SPEC.md` section 6, the mock, and the 3.3 list in `NEXT-PLAN.md`, with its *Decided while building 3.1 and 3.2*). It replaces the pane's body in `register.tsx` (`component: 'Pane'`): VITALS frame, tab strip and Here tab go. The pane is requested at 58 columns there (`$.ui.open` `columns: 58`); the page's measure needs no change (a render's viewport is already the transcript's column). `?` in MORE shows `guideText` (the `/guide` text). The one-turn flash in YOU can use the `latest` atom's `hp` (set at each play turn's end).
-   - Then 3.4, pictures, and the second playtest.
+   - **Next is 3.4, pictures** (`UI-REDESIGN-SPEC.md` section 8 and the 3.4 list in `NEXT-PLAN.md`). The picture goes in WHERE where the dim text art is now (`art` rows in the `Pane` hook in `register.tsx`); `fitMargin` (`mod/hooks/margin.ts`) already drops the picture rows when the dock is short, so pass the picture's 14 rows as `art`. Check first that the mod's runtime can inflate a PNG (the fallback is `rpg.py` decoding it into the save).
+   - Then the second playtest (3.3 and 3.4 together).
    - **Measure** with the part 1 script (*NEXT-PLAN part 1 notes*) if a change could affect speed; `/budget`'s history table compares sessions.
 4. **Puzzles** are not planned: when the user brings them back, start from scratch (the old Stage 6 notes are a record, not decisions).
 5. **Everything stays kit-generic** (invariant 7): commands, agents and procedure name no game. Forged worlds must each include plans and a side scene, and `validate --kit-complete` must be able to check all of it.
@@ -53,6 +53,23 @@ As of 2026-10-23 (end of the session that built `NEXT-PLAN.md` 3.1 and 3.2 and t
 | `27581ff` | Playtest 1: the page centered beside the pane; the permission-mode label can't be hidden (docs) |
 
 Commits that change only this file (`HANDOFF.md: …`) are left out.
+
+## NEXT-PLAN 3.3 playtest checklist (what should happen; played with 3.4)
+- **Restart Claude Code** wide (184×46), so the margin docks; it asks for 58 columns.
+- **Six sections** under thin rules, no boxes: WHERE (art, place, `Dusk. A thin, needling drizzle.`), YOU (`♥ health 14/14` and a grey bar, the lamp oil, coins, stats in lower case), AT STAKE (the clock in segments, every open objective, curses), ACT (`1: north → The Gull`…, `l: look around`, `talk to <name>` in their color, or `no one here to talk to`), CARRYING with the weight at the rule's end, MORE pinned at the bottom: `m: map  j: journal  g: guide`. The station says LOCATION, STATUS, AT RISK, ACTIONS, KIT and `p: plan  n: notes`.
+- **Keys** (after ctrl+x tab or a click): `m`, `j`, `g` each take over the pane with `h: ‹ back` on top; the same key again, `h` (`d` on the station) or the back row returns.
+- **One-turn color:** hurt, health red; healed, the heal color; coins or oil up, the heal color, down, amber; a new item's row in the heal color. It stays until the next play turn ends. Health at a quarter or less stays red; oil low is amber, spent red with `spent`.
+- **Short screen:** in a short window the carried list ends `+N more · /inventory`, then the art goes.
+- **Watch for:** a row cut short with `…` that shouldn't be, the margin scrolling when it should fit, colors that don't fade after a turn, a key that does nothing.
+
+## NEXT-PLAN 3.3 notes (as built, 2026-10-23)
+- **Engine:** `sections` in `rules/look.default.json` (six labels), checked by `validate` (non-empty; unknown keys already refused); the station's labels in its `look.json`. `validate` also refuses a `tab_keys` key that isn't one lowercase letter, is `l` or `g` (the margin's), or is shared. No save change.
+- **Mod:** `mod/hooks/margin.ts` (pure: `ruleCells`, `statusRow`, `barCells`/`barWidth`, `conditions`, `clockSegments`, `openObjectives`, `carried`, `fitMargin`, the colors) and a new `Pane` hook in `register.tsx`. The `tab` atom holds the screen (`here` is the margin, or `map`, `journal`, `guide`). `marksOf` (`feedback.ts`) gives the turn's marks, kept in the `latest` atom with the change line; the old `flash` atom, its 1.6-second timer and `Feedback.flash` are gone. `smoothBar`, `pipBar` and `hpColor` went with the VITALS frame. `$.ui.open` asks for `columns: 58`.
+- **Learned:**
+  - **A Button's hotkey must be one digit or one lowercase letter**; `?` is refused, so help is `g guide`.
+  - A plain Button draws its hotkey as `1: label` (the engine's style, in its own accent); a mod can't draw `1 label` without the colon and keep the hotkey.
+  - In mod tests `find({ text: 'x' })` matches text that *contains* x and may return a Box; use `type: 'Text'` and an anchored regex to check a color. The test harness reads a state atom once per test, so a test that changes the save between mounts needs splitting.
+- **Live checks** (Sonnet, `/tmp/rpg-test`, seed 7): 184×46: north into the Gull, take the cutlass (Pell asks first, as his content says, so nothing was gained), `/sheet`, `m`, `m`, `g`, `h`, Esc, `/newgame 7`, east (a gull took a coin: `◎ coins 2`). Seen: all six sections, exits `3: west → The Lighthouse`, `talk to Morwen`, `no one here to talk to`, `CARRYING … 2/12`, `Worn Dagger equipped`, the map and guide screens with `h: ‹ back`; no `rpg.py`, shell rows or GM notes in any frame. 120×40: `/sheet` inline, `j` and back. Colors can't be read from a capture; the mod tests cover them.
 
 ## NEXT-PLAN 3.1–3.2 playtest checklist (what should happen)
 - **Restart Claude Code** in the game folder, wide (184×46 is the mock's size), so the pane docks.

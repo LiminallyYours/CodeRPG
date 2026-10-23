@@ -1,10 +1,10 @@
-// What changed between two saves: the change line under a turn's narration, and the sounds, the HP flash
-// and the few toasts. Pure: compares two copies of state/save.json.
+// What changed between two saves: the change line under a turn's narration, what the margin colors for a turn,
+// the sounds and the few toasts. Pure: compares two copies of state/save.json.
 
-import type { CoderpgSave } from '../types'
+import type { CoderpgMarks, CoderpgSave } from '../types'
 import { lookOf, money } from './look'
 
-export type Feedback = { toast?: string; sounds: string[]; flash?: 'hurt' | 'heal' }
+export type Feedback = { toast?: string; sounds: string[] }
 
 function names(s: CoderpgSave): Map<string, string> {
   return new Map((s.view?.items ?? []).map(i => [i.id, i.name]))
@@ -72,7 +72,27 @@ export function changesOf(prev: CoderpgSave | null, next: CoderpgSave | null): s
 }
 
 /**
- * Sounds, the HP flash, and a toast only for what needs attention now and isn't in the story: the meter
+ * What a turn changed in the margin, so it can color it until the next play turn ends: health hurt or healed,
+ * coins and the meter up or down, and the items gained (by id).
+ */
+export function marksOf(prev: CoderpgSave | null, next: CoderpgSave | null): CoderpgMarks {
+  if (!prev || !next || isReset(prev, next)) return {}
+  const way = (a: number, b: number) => (b > a ? 'up' as const : b < a ? 'down' as const : undefined)
+  const dhp = next.stats.hp - prev.stats.hp
+  const marks: CoderpgMarks = {
+    ...(dhp ? { hp: dhp > 0 ? 'heal' as const : 'hurt' as const } : {}),
+    coins: way(prev.stats.coins, next.stats.coins),
+    meter: prev.view?.meter && next.view?.meter ? way(prev.view.meter.left, next.view.meter.left) : undefined,
+  }
+  const { gained } = itemsDiff(prev, next)
+  if (gained.length) marks.gained = gained
+  if (!marks.coins) delete marks.coins
+  if (!marks.meter) delete marks.meter
+  return marks
+}
+
+/**
+ * Sounds, and a toast only for what needs attention now and isn't in the story: the meter
  * running low, out or refilled, a curse taking hold, a new world ready. Routine changes go in the change line.
  */
 export function feedback(prev: CoderpgSave | null, next: CoderpgSave): Feedback {
@@ -80,9 +100,7 @@ export function feedback(prev: CoderpgSave | null, next: CoderpgSave): Feedback 
   if (!prev || isReset(prev, next)) return fb
   const parts: string[] = []
 
-  const dhp = next.stats.hp - prev.stats.hp
-  if (dhp < 0) fb.flash = 'hurt'
-  if (dhp > 0) { fb.flash = 'heal'; fb.sounds.push('heal') }
+  if (next.stats.hp > prev.stats.hp) fb.sounds.push('heal')
   if (next.stats.coins !== prev.stats.coins) fb.sounds.push('coin')
   if (next.location !== prev.location) fb.sounds.push('step')
 

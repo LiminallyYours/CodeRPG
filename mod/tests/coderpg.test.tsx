@@ -3,15 +3,16 @@ import type { TestBody } from 'claude-code/testing'
 
 import type { CoderpgSave } from '../types'
 import { exitsOf, keyText, mapText } from '../hooks/map'
-import { changesOf, feedback, isReset } from '../hooks/feedback'
-import { accentOf, DEFAULT_LOOK, lookOf, money, phasePhrase, soundFor, tabsOf } from '../hooks/look'
+import { changesOf, feedback, isReset, marksOf } from '../hooks/feedback'
+import { accentOf, DEFAULT_LOOK, lookOf, money, phasePhrase, sectionsOf, soundFor, tabsOf } from '../hooks/look'
+import { barCells, BAR_CELLS, carried, clockSegments, conditions, fitMargin, statusRow } from '../hooks/margin'
 import { commandPhrase, idlePhrase, npcPhrase, phaseOf } from '../hooks/phrases'
 import { pageFrame, pageMs, STEP_MS } from '../hooks/page'
 import { revealFrame } from '../hooks/reveal'
 import { arrivalRow, blocksOf, endingRows, indentOf, measureOf, paragraphsOf, rowsOf, speakerCards, speakerOf, speechTag } from '../hooks/story'
 import { tileGrid, tilesAt } from '../hooks/tiles'
 import { FX_MS, hpAt, lineAt, numberAt, stripAt, TUMBLE_MS } from '../hooks/trayfx'
-import { bandHpColor, bandParts, budgetText, currentObjective, guideText, PLAY_HINT, WORKING_HINT, fitCells, startsAfresh, isGmNote, isPendingPlumbing, isPlumbing, onlyRecords, pipBar, smoothBar, spaced, storyKey, stripPreamble, trayFor } from '../hooks/register'
+import { bandHpColor, bandParts, budgetText, currentObjective, GUIDE_KEY, guideText, PLAY_HINT, WORKING_HINT, fitCells, startsAfresh, isGmNote, isPendingPlumbing, isPlumbing, onlyRecords, spaced, storyKey, stripPreamble, trayFor } from '../hooks/register'
 import { combatOf, trayLines, traySound } from '../hooks/tray'
 import { applyCurse, cursedWords } from '../hooks/curse'
 import { addUsage, allTokens, byRole, count, endTurn, helperStep, HISTORY_SIZE, looseStep, measured, newSpend, perPoint, roleOf, rowOf, spawned, spendText, weighted, withRow, ZERO } from '../hooks/spend'
@@ -56,7 +57,7 @@ const SAVE: CoderpgSave = {
 }
 
 const PANE_PROPS = {
-  title: 'Character', isFocused: false, bodyColumns: 40, placement: 'dock' as const,
+  title: 'Character', isFocused: false, bodyColumns: 58, placement: 'dock' as const,
   scroll: { offset: 0, bodyRows: 30 }, view: {},
 }
 
@@ -74,6 +75,7 @@ const STATION: CoderpgSave = {
     look: {
       ...DEFAULT_LOOK,
       palette: { ...DEFAULT_LOOK.palette, accent: '#4fc3c7' },
+      sections: { where: 'LOCATION', you: 'STATUS', at_stake: 'AT RISK', act: 'ACTIONS', carrying: 'KIT', more: 'MORE' },
       stat_labels: { might: 'Grit', agility: 'Reflex', wits: 'Know-how' },
       stat_short: { might: 'GRT', agility: 'RFX', wits: 'KNW' },
       currency: 'credits',
@@ -146,18 +148,19 @@ test('story keys ignore whitespace differences', () => {
   expect(storyKey('  The troll\n\nsniffs. ')).toBe(storyKey('The troll sniffs.'))
 })
 
-test('the pane shows stats, inventory and the map from the save', async ($, on) => {
+test('the margin shows where you are, your numbers, what is at stake, what you can do and what you carry', async ($, on) => {
   on('state.get', { plugin: 'coderpg', key: 'save' }, () => ({ value: { value: SAVE, version: 1 } }))
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ plugin: 'coderpg', surface, component: 'Pane', requestId: 'coderpg-sheet', props: PANE_PROPS })
-    expect(await ui.find({ text: /The Dark Lighthouse/ })).toBeDefined()
-    expect(await ui.find({ text: /4\/12/ })).toBeDefined()
-    expect(await ui.find({ text: /Boarding Cutlass/ })).toBeDefined()
-    expect(await ui.find({ text: /^1 coin$/ })).toBeDefined()
-    expect(await ui.find({ text: /Greywater Bridge/ })).toBeDefined()
-    expect(await ui.find({ text: /\(equipped\)/ })).toBeDefined()
-    expect(await ui.find({ text: /⚔ Grukk/ })).toBeDefined() // the foe's bar
-    expect(await ui.find({ text: /▸ Get past the troll/ })).toBeDefined() // current objective
+    expect(await ui.find({ type: 'Text', text: /The Dark Lighthouse/ })).toBeUndefined() // no title: WHERE comes first
+    expect(await ui.find({ type: 'Text', text: '4/12   ' })).toBeDefined() // health, in its 7-cell column
+    expect(await ui.find({ type: 'Text', text: 'Boarding Cutlass' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'coins     ' })).toBeDefined() // the label in its 10-cell column
+    expect(await ui.find({ type: 'Text', text: 'Greywater Bridge' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: ' equipped' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'Grukk     ' })).toBeDefined() // the foe's row, under health
+    expect(await ui.find({ type: 'Text', text: '▸ Get past the troll on Greywater Bridge.' })).toBeDefined() // the objective
+    expect(await ui.find({ type: 'Text', text: 'might +1 · agility +1 · wits +1' })).toBeDefined()
     expect(await ui.find({ type: 'Button', key: 'go-down' })).toBeDefined() // clickable exit
     expect(await ui.find({ type: 'Button', key: 'talk-grukk' })).toBeDefined()
     await ui.unmount()
@@ -167,7 +170,7 @@ test('the pane shows stats, inventory and the map from the save', async ($, on) 
 test('the pane invites a new game when there is no save', async ($, on) => {
   on('state.get', { plugin: 'coderpg', key: 'save' }, () => ({ value: { value: null, version: 1 } }))
   const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'Pane', requestId: 'coderpg-sheet', props: PANE_PROPS })
-  expect(await ui.find({ text: /\/newgame/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Type /newgame to start.' })).toBeDefined()
   await ui.unmount()
 })
 
@@ -315,7 +318,7 @@ test('the rules script output parses into tray lines and a sound', () => {
   expect(trayFor('Bash', { command: 'python3 rules/rpg.py look' }, { stdout: 'STATUS: playing' })).toEqual([])
 })
 
-test('routine changes go in the change line, not a toast; sounds and the HP flash stay', () => {
+test('routine changes go in the change line, not a toast; the margin marks them; sounds stay', () => {
   const next: CoderpgSave = {
     ...SAVE, stats: { ...SAVE.stats, hp: 2, coins: 6 }, inventory: [...SAVE.inventory, 'brass_lens'],
     view: { ...SAVE.view!, items: [...SAVE.view!.items, { id: 'brass_lens', name: 'Brass Lens', equipped: false }] },
@@ -323,7 +326,7 @@ test('routine changes go in the change line, not a toast; sounds and the HP flas
   const fb = feedback(SAVE, next)
   expect(fb.toast).toBeUndefined()
   expect(changesOf(SAVE, next)).toEqual(['−2 ♥', '+5 coins', 'gained Brass Lens'])
-  expect(fb.flash).toBe('hurt')
+  expect(marksOf(SAVE, next)).toEqual({ hp: 'hurt', coins: 'up', gained: ['brass_lens'] })
   expect(fb.sounds).toEqual(['coin'])
   const healed: CoderpgSave = { ...SAVE, stats: { ...SAVE.stats, hp: 8, coins: 0 }, inventory: ['boarding_cutlass'] }
   expect(changesOf(SAVE, healed)).toEqual(['+4 ♥', '−1 coin', 'lost Healing Tonic'])
@@ -403,18 +406,45 @@ test('a failed quest and a new side quest are in the change line', () => {
   expect(changesOf(SAVE, won)).toEqual(['★ quest complete: Light the Lamp'])
 })
 
-test('the pane shows the time, weather and clock; the journal shows the story so far and rumors', async ($, on) => {
-  const save: CoderpgSave = {
-    ...SAVE,
-    view: { ...SAVE.view!, time: 'nightfall', weather: 'sea fog rolling in over the quay', clock: { name: 'The fleet comes home', left: 2, total: 18 },
-      chronicle: ['Befriended the troll with a honey cake.'], rumors: ['A stranger is asking about the light.'] },
-  }
-  on('state.get', { plugin: 'coderpg', key: 'save' }, () => ({ value: { value: save, version: 1 } }))
+const TIMED: CoderpgSave = {
+  ...SAVE,
+  view: { ...SAVE.view!, time: 'nightfall', weather: 'sea fog rolling in over the quay', clock: { name: 'The fleet comes home', left: 14, total: 18 },
+    chronicle: ['Befriended the troll with a honey cake.'], rumors: ['A stranger is asking about the light.'] },
+}
+
+test('the margin tells the time and weather as a sentence, and the clock in segments', async ($, on) => {
+  on('state.get', { plugin: 'coderpg', key: 'save' }, () => ({ value: { value: TIMED, version: 1 } }))
+  const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'Pane', requestId: 'coderpg-sheet', props: PANE_PROPS })
+  expect(await ui.find({ type: 'Text', text: 'Nightfall. Sea fog rolling in over the quay.' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'The fleet comes home' })).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: '14 moves' }))?.props.dimColor).toBe(true)
+  expect((await ui.find({ type: 'Text', text: '◉'.repeat(14) }))?.props.color).toBe('#a47f3c') // one per move left, muted accent
+  expect(await ui.find({ type: 'Text', text: '○○○○' })).toBeDefined() // one per move spent
+  await ui.unmount()
+})
+
+test('with three moves or fewer the clock turns red', async ($, on) => {
+  const clock = { name: 'The fleet comes home', left: 2, total: 18 }
+  on('state.get', { plugin: 'coderpg', key: 'save' }, () => ({ value: { value: { ...TIMED, view: { ...TIMED.view!, clock } }, version: 1 } }))
+  const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'Pane', requestId: 'coderpg-sheet', props: PANE_PROPS })
+  expect((await ui.find({ type: 'Text', text: '2 moves' }))?.props.color).toBe('red')
+  expect((await ui.find({ type: 'Text', text: /^◉◉$/ }))?.props.color).toBe('red')
+  await ui.unmount()
+})
+
+test('a clock run out says so, with no segments', async ($, on) => {
+  const clock = { name: 'The fleet comes home', left: 0, total: 18 }
+  on('state.get', { plugin: 'coderpg', key: 'save' }, () => ({ value: { value: { ...TIMED, view: { ...TIMED.view!, clock } }, version: 1 } }))
+  const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'Pane', requestId: 'coderpg-sheet', props: PANE_PROPS })
+  expect((await ui.find({ type: 'Text', text: '⧗ The fleet comes home: it has happened' }))?.props.color).toBe('red')
+  expect(await ui.find({ type: 'Text', text: /◉/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('the journal shows the story so far and rumors', async ($, on) => {
+  on('state.get', { plugin: 'coderpg', key: 'save' }, () => ({ value: { value: TIMED, version: 1 } }))
   on('state.get', { plugin: 'coderpg', key: 'tab' }, () => ({ value: { value: 'journal', version: 1 } }))
   const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'Pane', requestId: 'coderpg-sheet', props: PANE_PROPS })
-  expect(await ui.find({ text: /nightfall · sea fog/ })).toBeDefined()
-  expect(await ui.find({ text: /^The fleet comes home$/ })).toBeDefined()
-  expect(await ui.find({ text: /2 moves left/ })).toBeDefined()
   expect(await ui.find({ text: /Befriended the troll/ })).toBeDefined()
   expect(await ui.find({ text: /A stranger is asking/ })).toBeDefined()
   await ui.unmount()
@@ -535,13 +565,32 @@ test('searching the game files with Grep or Glob is plumbing too', () => {
   expect(isPlumbing('Grep', { pattern: 'TODO', path: 'mod/hooks' })).toBe(false)
 })
 
-test('bars fill to the nearest eighth of a cell and always keep their width', () => {
-  expect(smoothBar(12, 12, 10)).toEqual(['██████████', ''])
-  expect(smoothBar(0, 12, 10)).toEqual(['', '░░░░░░░░░░'])
-  const [full, empty] = smoothBar(7, 12, 10) // 5.83 cells = 47 eighths: 5 full and a 7/8 block
-  expect(full).toBe('█████▉')
-  expect(full.length + empty.length).toBe(10)
-  expect(pipBar(3, 12, 8)).toEqual(['▰▰', '▱▱▱▱▱▱'])
+test("the margin's rows: aligned columns, bars of 16 cells, segments that fit, a sentence of conditions", () => {
+  const bar = barCells(7, 12)
+  expect(bar.map(c => c.text.length).reduce((a, b) => a + b)).toBe(BAR_CELLS)
+  expect(bar[0]!.text).toBe('▇'.repeat(9)) // 9.33 cells, rounded
+  expect(barCells(5, 10, undefined, 8).map(c => c.text.length)).toEqual([4, 4]) // a narrow pane: a shorter bar
+  expect(bar[1]!.color).toBe('#3a3d46') // empty cells faint
+  const hp = statusRow('♥', 'health', 10, 10)
+  expect(hp.slice(0, 3).map(c => c.text)).toEqual(['♥ ', 'health    ', '10/10  '])
+  expect(statusRow('◎', 'coins', 3, undefined).map(c => c.text)).toEqual(['◎ ', 'coins     ', '3']) // no bar
+  expect(statusRow('☼', 'lamp oil', 0, 30, 'red', 'spent')[2]!.text).toBe('0/30 spent ')
+  expect(statusRow('⚔', 'The Drowned Warden', 7, 9)[1]!.text).toBe('The Drow… ')
+  expect(clockSegments(14, 18, 50)).toEqual([14, 4])
+  expect(clockSegments(30, 60, 20)).toEqual([10, 10]) // more moves than fit: scaled
+  expect(conditions('dusk', 'Sea fog over the quay')).toBe('Dusk. Sea fog over the quay.')
+  expect(conditions(null, 'rain.')).toBe('Rain.')
+  expect(conditions(undefined, null)).toBeUndefined()
+})
+
+test('the margin gives way in order when the pane is short: the list first, then the picture', () => {
+  expect(fitMargin(40, 30, 6, 5)).toEqual({ items: 5, more: 0, art: true })
+  expect(fitMargin(33, 30, 6, 5)).toEqual({ items: 2, more: 3, art: true }) // 2 items and "+3 more"
+  expect(fitMargin(28, 30, 6, 5)).toEqual({ items: 3, more: 2, art: false }) // one item won't fit with the picture
+  expect(fitMargin(20, 30, 6, 5)).toEqual({ items: 1, more: 4, art: false }) // never fits: one item and the rest counted
+  expect(fitMargin(20, 30, 6, 0)).toEqual({ items: 0, more: 0, art: false })
+  const stacked: CoderpgSave = { ...SAVE, inventory: [...SAVE.inventory, 'healing_tonic'], view: { ...SAVE.view!, items: [...SAVE.view!.items, { id: 'healing_tonic', name: 'Healing Tonic', equipped: false }] } }
+  expect(carried(stacked).map(i => [i.name, i.count])).toEqual([['Boarding Cutlass', 1], ['Healing Tonic', 2]])
 })
 
 test('framed rows are cut to fit with an ellipsis, never overflowing', () => {
@@ -550,35 +599,127 @@ test('framed rows are cut to fit with an ellipsis, never overflowing', () => {
   expect(cut.map(c => c.text).join('').length).toBe(20)
 })
 
-test('the pane: vitals in a titled frame, a tab strip, and a footer of keys, with room on the left', async ($, on) => {
-  on('state.get', { plugin: 'coderpg', key: 'save' }, () => ({ value: { value: SAVE, version: 1 } }))
+test('the margin: six labelled rules in reading order, no boxes, MORE pinned at the bottom', async ($, on) => {
+  on('state.get', { plugin: 'coderpg', key: 'save' }, () => ({ value: { value: TIMED, version: 1 } }))
   const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'Pane', requestId: 'coderpg-sheet', props: PANE_PROPS })
-  expect(await ui.find({ text: 'VITALS' })).toBeDefined()
-  expect(await ui.find({ text: /^╰─+╯$/ })).toBeDefined()
-  expect(await ui.find({ text: /^MIG $/ })).toBeDefined()
-  expect(await ui.find({ text: /1–9 then ⏎ go/ })).toBeDefined()
-  // the open tab is a solid pill, not a button; the others are dim buttons
-  const pill = await ui.find({ type: 'Text', text: ' h: Here ' })
-  expect(pill?.props.backgroundColor).toBe('#d7a640')
-  const tabs = await ui.findAll({ type: 'Button' })
-  expect(tabs.find(b => b.key === 'tab-here')).toBeUndefined()
-  expect(tabs.find(b => b.key === 'tab-map')?.props.dimColor).toBe(true)
-  // the tabs and their content share one rounded frame
-  expect((await ui.findAll({ type: 'Box' })).some(b => b.props.borderStyle === 'round')).toBe(true)
+  const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  const order = ['WHERE', 'YOU', 'AT STAKE', 'ACT', 'CARRYING', 'MORE'].map(l => texts.indexOf(l))
+  expect(order.every(i => i >= 0)).toBe(true)
+  expect([...order].sort((a, b) => a - b)).toEqual(order)
+  const label = await ui.find({ type: 'Text', text: 'YOU' })
+  expect(label?.props.bold && label.props.dimColor).toBe(true)
+  expect(await ui.find({ type: 'Text', text: ' ' + '─'.repeat(52 - 3 - 1) })).toBeDefined() // the rule runs to the body's edge (58 less 3 a side)
+  expect(await ui.find({ type: 'Text', text: ' 4/10' })).toBeDefined() // CARRYING's rule carries the weight
+  expect(texts).not.toContain('VITALS')
+  expect((await ui.findAll({ type: 'Box' })).some(b => b.props.borderStyle !== undefined)).toBe(false)
   const outer = (await ui.findAll({ type: 'Box' }))[0]
-  expect(outer?.props.paddingLeft).toBe(2)
+  expect(outer?.props.paddingX).toBe(3)
+  expect(outer?.props.minHeight).toBe(30) // the dock's rows, so MORE sits at the bottom
+  const keys = (await ui.findAll({ type: 'Button' })).map(b => [b.key, b.props.hotkey])
+  expect(keys).toContainEqual(['screen-map', 'm'])
+  expect(keys).toContainEqual(['screen-journal', 'j'])
+  expect(keys).toContainEqual(['screen-guide', GUIDE_KEY])
+  expect(keys).toContainEqual(['go-west', '1'])
+  expect(keys).toContainEqual(['look', 'l'])
+  expect(keys.find(k => k[0] === 'tab-here')).toBeUndefined() // no Here tab
+  await ui.unmount()
+})
+
+test("ACT: a talk row in the speaker's color", async ($, on) => {
+  const grukk = { id: 'grukk', name: 'Grukk', role: 'the troll', card: '#6a8f3a' }
+  const s: CoderpgSave = { ...SAVE, view: { ...SAVE.view!, characters_here: [grukk], people: [{ ...grukk, here: true, memory: [] }] } }
+  on('state.get', { plugin: 'coderpg', key: 'save' }, () => ({ value: { value: s, version: 1 } }))
+  const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'Pane', requestId: 'coderpg-sheet', props: PANE_PROPS })
+  expect((await ui.find({ type: 'Text', text: /^Grukk$/ }))?.props.color).toBe('#6a8f3a')
+  await ui.unmount()
+})
+
+test('ACT: a quiet note when no one is here', async ($, on) => {
+  const s: CoderpgSave = { ...SAVE, view: { ...SAVE.view!, characters_here: [] } }
+  on('state.get', { plugin: 'coderpg', key: 'save' }, () => ({ value: { value: s, version: 1 } }))
+  const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'Pane', requestId: 'coderpg-sheet', props: PANE_PROPS })
+  const note = await ui.find({ type: 'Text', text: '   no one here to talk to' })
+  expect(note?.props.italic && note.props.dimColor).toBe(true)
+  await ui.unmount()
+})
+
+test('what the last play turn changed is colored in the margin until the next one: health, coins, the meter, a new item', async ($, on) => {
+  const s: CoderpgSave = { ...metered(20, 'ok'), stats: { ...SAVE.stats, hp: 9 } }
+  on('state.get', { plugin: 'coderpg', key: 'save' }, () => ({ value: { value: s, version: 1 } }))
+  on('state.get', { plugin: 'coderpg', key: 'latest' }, () => ({ value: { value: { changes: ['−2 ♥'], hp: 'hurt', coins: 'down', meter: 'up', gained: ['healing_tonic'] }, version: 1 } }))
+  const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'Pane', requestId: 'coderpg-sheet', props: PANE_PROPS })
+  const pal = s.view!.look!.palette
+  expect((await ui.find({ type: 'Text', text: '9/12   ' }))?.props.color).toBe(pal.bad)
+  expect((await ui.find({ type: 'Text', text: '20/30  ' }))?.props.color).toBe(pal.heal)
+  expect((await ui.find({ type: 'Text', text: /^1$/ }))?.props.color).toBe(pal.warn) // coins down: amber, not red
+  expect((await ui.find({ type: 'Text', text: 'Healing Tonic' }))?.props.color).toBe(pal.heal)
+  expect((await ui.find({ type: 'Text', text: 'Boarding Cutlass' }))?.props.color).toBeUndefined()
+  await ui.unmount()
+})
+
+test('health at a quarter or less stays red; with no change marked, numbers are plain', async ($, on) => {
+  const low: CoderpgSave = { ...SAVE, stats: { ...SAVE.stats, hp: 3 } }
+  on('state.get', { plugin: 'coderpg', key: 'save' }, () => ({ value: { value: low, version: 1 } }))
+  const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'Pane', requestId: 'coderpg-sheet', props: PANE_PROPS })
+  expect((await ui.find({ type: 'Text', text: '3/12   ' }))?.props.color).toBe('red')
+  expect((await ui.find({ type: 'Text', text: /^1$/ }))?.props.color).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a short dock: CARRYING shows what fits and counts the rest, then the picture goes', async ($, on) => {
+  const many = ['a', 'b', 'c', 'd', 'e', 'f'].map(x => ({ id: `thing_${x}`, name: `Thing ${x.toUpperCase()}`, equipped: false }))
+  const s: CoderpgSave = { ...SAVE, inventory: many.map(i => i.id), view: { ...SAVE.view!, items: many, art: 'one\ntwo\nthree' } }
+  on('state.get', { plugin: 'coderpg', key: 'save' }, () => ({ value: { value: s, version: 1 } }))
+  // the rest of the margin takes 25 rows here, the picture's 3 among them
+  let ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'Pane', requestId: 'coderpg-sheet', props: { ...PANE_PROPS, scroll: { offset: 0, bodyRows: 29 } } })
+  expect(await ui.find({ type: 'Text', text: 'Thing C' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Thing D' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: '  +3 more · /inventory' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'three' })).toBeDefined()
+  await ui.unmount()
+  ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'Pane', requestId: 'coderpg-sheet', props: { ...PANE_PROPS, scroll: { offset: 0, bodyRows: 26 } } })
+  expect(await ui.find({ type: 'Text', text: 'three' })).toBeUndefined() // the picture gave way
+  expect(await ui.find({ type: 'Text', text: 'Thing C' })).toBeDefined()
+  await ui.unmount()
+  // inline (no dock), nothing gives way: the pane scrolls
+  ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'Pane', requestId: 'coderpg-sheet', props: { ...PANE_PROPS, placement: 'inline', scroll: { offset: 0, bodyRows: 10 } } })
+  expect(await ui.find({ type: 'Text', text: 'Thing F' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'three' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('the map, the journal and the guide take over the pane, with a way back and MORE still below', async ($, on) => {
+  on('state.get', { plugin: 'coderpg', key: 'save' }, () => ({ value: { value: SAVE, version: 1 } }))
+  on('state.get', { plugin: 'coderpg', key: 'tab' }, () => ({ value: { value: 'guide', version: 1 } }))
+  const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'Pane', requestId: 'coderpg-sheet', props: PANE_PROPS })
+  expect((await ui.find({ type: 'Button', key: 'back' }))?.props.hotkey).toBe('h')
+  expect(await ui.find({ type: 'Text', text: 'GUIDE' })).toBeDefined()
+  expect(await ui.find({ type: 'Markdown' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'YOU' })).toBeUndefined() // the margin's sections give way
+  expect(await ui.find({ type: 'Text', text: 'MORE' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'screen-map' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('game over: THE END in place of the objectives', async ($, on) => {
+  on('state.get', { plugin: 'coderpg', key: 'save' }, () => ({ value: { value: { ...SAVE, status: 'defeated' }, version: 1 } }))
+  const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'Pane', requestId: 'coderpg-sheet', props: PANE_PROPS })
+  expect((await ui.find({ type: 'Text', text: 'THE END · type /newgame' }))?.props.color).toBe('red')
+  expect(await ui.find({ type: 'Text', text: /Get past the troll/ })).toBeUndefined()
   await ui.unmount()
 })
 
 test("each game's look comes from the save: colors, stat and tab labels, currency, phrases", async ($, on) => {
   on('state.get', { plugin: 'coderpg', key: 'save' }, () => ({ value: { value: STATION, version: 1 } }))
   const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'Pane', requestId: 'coderpg-sheet', props: PANE_PROPS })
-  const pill = await ui.find({ type: 'Text', text: ' d: Deck ' })
-  expect(pill?.props.backgroundColor).toBe('#4fc3c7')
-  expect(await ui.find({ text: /^GRT $/ })).toBeDefined()
-  expect(await ui.find({ text: /^1 credit$/ })).toBeDefined()
-  expect(await ui.find({ text: /d p n tabs/ })).toBeDefined()
-  expect(await ui.find({ text: /^MIG $/ })).toBeUndefined()
+  expect((await ui.find({ type: 'Text', text: 'Greywater Bridge' }))?.props.color).toBe('#4fc3c7')
+  for (const label of ['LOCATION', 'STATUS', 'AT RISK', 'ACTIONS', 'KIT', 'MORE']) expect(await ui.find({ type: 'Text', text: label })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'WHERE' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'grit +1 · reflex +1 · know-how +1' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'credits   ' })).toBeDefined()
+  const keys = (await ui.findAll({ type: 'Button' })).map(b => [b.key, b.props.hotkey, b.props.label])
+  expect(keys).toContainEqual(['screen-map', 'p', 'plan'])
+  expect(keys).toContainEqual(['screen-journal', 'n', 'notes'])
   await ui.unmount()
 })
 
@@ -589,6 +730,8 @@ test('a save without a look falls back to the kit default, and partial looks are
   expect(partial.palette.bad).toBe('red')
   expect(partial.stat_short.might).toBe('MIG')
   expect(tabsOf(partial).map(t => t.hotkey)).toEqual(['h', 'm', 'j'])
+  expect(sectionsOf(partial).at_stake).toBe('AT STAKE')
+  expect(sectionsOf(lookOf({ ...SAVE, view: { ...SAVE.view!, look: { sections: { you: 'CREW' } } as never } })).you).toBe('CREW')
   expect(money(1, DEFAULT_LOOK)).toBe('1 coin')
   expect(money(3, lookOf(STATION))).toBe('3 credits')
 })
@@ -627,9 +770,9 @@ const metered = (left: number, state: 'ok' | 'low' | 'spent'): CoderpgSave => ({
 test("the pane shows the meter under the game's own name, colored when it runs low", async ($, on) => {
   on('state.get', { plugin: 'coderpg', key: 'save' }, () => ({ value: { value: metered(6, 'low'), version: 1 } }))
   const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'Pane', requestId: 'coderpg-sheet', props: PANE_PROPS })
-  const icon = await ui.find({ type: 'Text', text: 'ϟ Power ' })
-  expect(icon?.props.color).toBe(STATION.view!.look!.palette.warn)
-  expect(await ui.find({ text: ' 6/30' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'power     ' })).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: 'ϟ ' }))?.props.color).toBe(STATION.view!.look!.palette.warn)
+  expect((await ui.find({ type: 'Text', text: '6/30   ' }))?.props.color).toBe(STATION.view!.look!.palette.warn)
   await ui.unmount()
 })
 

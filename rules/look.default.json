@@ -15,6 +15,14 @@
     "#6fb3a8",
     "#a08fc9"
   ],
+  "sections": {
+    "where": "WHERE",
+    "you": "YOU",
+    "at_stake": "AT STAKE",
+    "act": "ACT",
+    "carrying": "CARRYING",
+    "more": "MORE"
+  },
   "stat_labels": {
     "might": "Might",
     "agility": "Agility",

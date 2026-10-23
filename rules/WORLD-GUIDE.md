@@ -128,7 +128,7 @@ How the interface draws this world. Required: a `palette` and a `resource`; ever
 ```
 - Colours are `#rrggbb`. `resource` is the in-world name for the session's budget of extras: something that runs out and comes back (lamp oil, breath, nerve). `low` and `spent` are one sentence each, in the world's voice.
 - `terrain`: each room's `terrain:` must be a kind here or in the defaults (`water`, `grass`, `stone`, `indoors`). Add your own kinds with `bg`, `fg` and `moves` (true for water that ripples on the map).
-- Optional: `phrases` (`idle`: a few short in-world lines shown while the game master thinks), `tab_labels` and `tab_keys` (renaming the pane's here/map/journal tabs and their one-letter keys), `sounds` (only names from the kit's bank in `mod/sounds/`). Unknown keys are rejected.
+- Optional: `phrases` (`idle`: a few short in-world lines shown while the game master thinks), `tab_labels` and `tab_keys` (renaming the margin's map and journal screens and the key back to the margin, each one lowercase letter other than `l` and `g`), `sections` (the margin's six labels: `where`, `you`, `at_stake`, `act`, `carrying`, `more`), `sounds` (only names from the kit's bank in `mod/sounds/`). Unknown keys are rejected.
 
 ## Rooms
 

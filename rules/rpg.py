@@ -2222,6 +2222,9 @@ def validate_game(kit=False):
     speakers = look.get("speaker_colors")
     if not isinstance(speakers, list) or not speakers or not all(color.match(str(x)) for x in speakers):
         problems.append("look.json speaker_colors: must be a list of colors like #8fae4a")
+    for key, label in (look.get("sections") or {}).items():
+        if not isinstance(label, str) or not label.strip():
+            problems.append("look.json sections: %s needs a label" % key)
     for c in content.ids("characters"):
         card = content.load("characters", c).get("card")
         if card is not None and not color.match(str(card)):
@@ -2229,6 +2232,13 @@ def validate_game(kit=False):
     for t in look.get("tabs") or []:
         if t not in ("here", "map", "journal"):
             problems.append("look.json tabs: unknown tab %r (tabs: here, map, journal)" % t)
+    keys = look.get("tab_keys") or {}
+    for tab, key in keys.items():
+        # the margin's own keys are l (look around), g (the guide) and 1-9 (the ways out); a mod's hotkey must be one letter
+        if not re.fullmatch(r"[a-z]", str(key)) or key in ("l", "g"):
+            problems.append("look.json tab_keys: %s's key must be one lowercase letter other than l and g (the margin's own)" % tab)
+    if len(set(keys.values())) < len(keys):
+        problems.append("look.json tab_keys: two tabs share a key")
     for stat in STATS:
         if not str(look["stat_labels"].get(stat, "")).strip():
             problems.append("look.json stat_labels: %s needs a label" % stat)

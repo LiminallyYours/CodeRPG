@@ -443,6 +443,21 @@ class Engine(unittest.TestCase):
         look["speaker_colors"] = ["#8fae4a", "#12"]
         self.write(g + "/look.json", json.dumps(look))
         self.assertIn("look.json speaker_colors: must be a list of colors", self.rpg("validate", "--game", "dark_lighthouse", ok=False))
+        look["speaker_colors"] = ["#8fae4a"]
+        look["sections"] = {"you": "", "pockets": "POCKETS"}
+        self.write(g + "/look.json", json.dumps(look))
+        out = self.rpg("validate", "--game", "dark_lighthouse", ok=False)
+        self.assertIn("look.json sections: you needs a label", out)
+        self.assertIn("look.json sections: unknown key 'pockets'", out)
+        look["sections"] = {}
+        look["tab_keys"] = {"map": "g", "journal": "J", "here": "h"}
+        self.write(g + "/look.json", json.dumps(look))
+        out = self.rpg("validate", "--game", "dark_lighthouse", ok=False)
+        self.assertIn("tab_keys: map's key must be one lowercase letter other than l and g", out)
+        self.assertIn("tab_keys: journal's key must be one lowercase letter", out)
+        look["tab_keys"] = {"map": "h", "journal": "j", "here": "h"}
+        self.write(g + "/look.json", json.dumps(look))
+        self.assertIn("look.json tab_keys: two tabs share a key", self.rpg("validate", "--game", "dark_lighthouse", ok=False))
 
     def test_a_generated_room_takes_a_terrain(self):
         self.at_the_lighthouse()

@@ -2,11 +2,12 @@
 // (view.look, the kit's rules/look.default.json with the game's look.json laid over it), so the mod
 // never reads game folders. DEFAULT_LOOK is only for the moments before any save exists.
 
-import type { CoderpgLook, CoderpgPhase, CoderpgSave, CoderpgTab } from '../types'
+import type { CoderpgLook, CoderpgPhase, CoderpgSave, CoderpgSections, CoderpgTab } from '../types'
 
 export const DEFAULT_LOOK: CoderpgLook = {
   palette: { accent: '#d7a640', good: 'green', bad: 'red', warn: 'yellow', heal: 'cyan' },
   speaker_colors: ['#8fae4a', '#7fa7c9', '#c98a8a', '#c9a35a', '#6fb3a8', '#a08fc9'],
+  sections: { where: 'WHERE', you: 'YOU', at_stake: 'AT STAKE', act: 'ACT', carrying: 'CARRYING', more: 'MORE' },
   stat_labels: { might: 'Might', agility: 'Agility', wits: 'Wits' },
   stat_short: { might: 'MIG', agility: 'AGI', wits: 'WIT' },
   currency: 'coins',
@@ -32,6 +33,7 @@ export function lookOf(s: CoderpgSave | null | undefined): CoderpgLook {
     ...d, ...l,
     palette: { ...d.palette, ...l.palette },
     speaker_colors: l.speaker_colors?.length ? l.speaker_colors : d.speaker_colors,
+    sections: { ...d.sections, ...l.sections },
     stat_labels: { ...d.stat_labels, ...l.stat_labels },
     stat_short: { ...d.stat_short, ...l.stat_short },
     tab_labels: { ...d.tab_labels, ...l.tab_labels },
@@ -72,6 +74,11 @@ export function phasePhrase(look: CoderpgLook, phase: CoderpgPhase, seed: number
 export function tabsOf(look: CoderpgLook): { id: CoderpgTab; label: string; hotkey: string }[] {
   const tabs = look.tabs.length ? look.tabs : DEFAULT_LOOK.tabs
   return tabs.map(id => ({ id, label: look.tab_labels[id] ?? id, hotkey: look.tab_keys[id] ?? id.charAt(0) }))
+}
+
+/** The margin's section labels in this game's words. */
+export function sectionsOf(look: CoderpgLook): CoderpgSections {
+  return { ...DEFAULT_LOOK.sections, ...look.sections } as CoderpgSections
 }
 
 /** "3 coins", "1 credit": an amount in the game's currency. */

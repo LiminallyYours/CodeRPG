@@ -3,22 +3,25 @@
 //   beside a keyline in the speaker's color, a rule on arrival, a change line under each turn, title and ending cards
 // - the game's plumbing hidden, except dice rolls, which show as a dice tray
 // - Claude's chrome (spinner, turn timer, prompt rows) replaced with in-world touches
-// - a status band above the prompt and a tabbed character pane (Here / Map / Journal)
-//   with clickable exits and actions
-// - an HP flash and sound effects when things change; toasts only for what needs attention now
+// - a status band above the prompt, and the margin: a docked pane of six sections (where, you, at stake, act,
+//   carrying, more) with clickable exits and actions, and the map, the journal and the guide behind keys
+// - a turn's changes colored in the margin until the next play turn ends, sound effects; toasts only for what
+//   needs attention now
 // - instant /inventory, /map, /sheet and /sound commands
 // - /budget, with what the session really used in tokens (the owner's check on the meter's prices)
 // Everything it shows comes from state/save.json and the rules script's output. It never writes game files.
 // Nothing here knows a particular game: colors, labels, tabs and phrases come from the game's look in the save.
 
 import { atom, read, update } from 'claude-code'
-import type { ClientProps, ElementConstructor, EngineInterface, Register } from 'claude-code'
+import type { ClientProps, ElementConstructor, EngineInterface, Register, RenderChildren } from 'claude-code'
 
-import type { CoderpgLook, CoderpgPhase, CoderpgSave, CoderpgStory } from '../types'
+import type { CoderpgLook, CoderpgPhase, CoderpgSave, CoderpgScreen, CoderpgStory } from '../types'
 import { cursedWords } from './curse'
-import { changesOf, feedback } from './feedback'
-import { accentOf, lookOf, money, phasePhrase, soundFor, tabsOf } from './look'
+import { changesOf, feedback, marksOf } from './feedback'
+import { accentOf, lookOf, money, phasePhrase, sectionsOf, soundFor, tabsOf } from './look'
 import { exitsOf, keyText, mapText, usesUpDown } from './map'
+import { barWidth, carried, changeColor, clockSegments, conditions, FAINT, fitMargin, healthColor, MARGIN_COLUMNS, MARGIN_PAD, meterTint, MUTED_ACCENT, openObjectives, ruleCells, statusRow } from './margin'
+import type { Cell } from './margin'
 import { commandPhrase, idlePhrase, npcPhrase, phaseOf } from './phrases'
 import { drawBlocks, pageMs, STEP_MS } from './page'
 import type { Seg } from './reveal'
@@ -34,7 +37,6 @@ export { spaced }
 
 const SAVE_PATH = 'state/save.json'
 const PANE = 'coderpg-sheet'
-const FLASH_MS = 1600
 const FRESH_MS = 1500 // a story card or tray this new still animates; older ones are drawn still
 const TITLE_MS = 900 // the title card types itself out over this long; the narration under it waits for it
 
@@ -42,7 +44,6 @@ const save = atom({ plugin: 'coderpg', key: 'save' } as const, null)
 const story = atom({ plugin: 'coderpg', key: 'story' } as const, [])
 const hidden = atom({ plugin: 'coderpg', key: 'hidden' } as const, [])
 const activity = atom({ plugin: 'coderpg', key: 'activity' } as const, null)
-const flash = atom({ plugin: 'coderpg', key: 'flash' } as const, null)
 const tab = atom({ plugin: 'coderpg', key: 'tab' } as const, 'here')
 const muted = atom({ plugin: 'coderpg', key: 'muted' } as const, false)
 const running = atom({ plugin: 'coderpg', key: 'running' } as const, false)
@@ -186,30 +187,7 @@ function signed(n: number): string {
   return n >= 0 ? `+${n}` : `${n}`
 }
 
-function hpColor(hp: number, max: number, look: CoderpgLook): string {
-  const p = look.palette
-  return hp * 3 <= max ? p.bad : hp * 3 <= max * 2 ? p.warn : p.good
-}
-
-const EIGHTHS = ['', '▏', '▎', '▍', '▌', '▋', '▊', '▉']
-
-/** A bar filled to the nearest eighth of a cell: [filled part, empty part], `width` cells in all. */
-export function smoothBar(value: number, max: number, width: number): [string, string] {
-  const eighths = max > 0 ? Math.round(Math.max(0, Math.min(1, value / max)) * width * 8) : 0
-  const full = Math.floor(eighths / 8), rem = eighths % 8
-  return ['█'.repeat(full) + EIGHTHS[rem], '░'.repeat(Math.max(0, width - full - (rem ? 1 : 0)))]
-}
-
-/** A countdown drawn as pips: [left, spent], `width` pips in all. */
-export function pipBar(left: number, total: number, width: number): [string, string] {
-  const on = total > 0 ? Math.max(0, Math.min(width, Math.round((left / total) * width))) : 0
-  return ['▰'.repeat(on), '▱'.repeat(width - on)]
-}
-
-/** A run of styled text inside a framed row; lengths are counted in cells. */
-type Cell = { text: string; color?: string; dim?: boolean; bold?: boolean }
-
-/** Cells cut to `width`, the last one ending in '…' when something had to go. */
+/** Cells cut to `width`, the last one ending in '…' when something had to go: one row of the margin. */
 export function fitCells(cells: Cell[], width: number): Cell[] {
   const out: Cell[] = []
   let used = 0
@@ -237,6 +215,9 @@ const PRICE_NAMES: Record<string, string> = {
   scene: 'a little scene between two characters',
 }
 
+/** The margin's key for the guide (a Button's hotkey must be a digit or a lowercase letter, so not `?`). */
+export const GUIDE_KEY = 'g'
+
 /** The hint line under the prompt in play. */
 export const PLAY_HINT = '⏎ act · ooc: speak to the builder · ctrl+x tab to the margin · /guide help'
 /** The hint line while a play turn runs. */
@@ -244,9 +225,7 @@ export const WORKING_HINT = 'esc to interrupt'
 
 /** Health in the band: red or the heal color for the turn it changed, red while it's at a quarter or less. */
 export function bandHpColor(s: CoderpgSave, flashed: 'hurt' | 'heal' | undefined, look: CoderpgLook): string | undefined {
-  if (flashed === 'hurt') return look.palette.bad
-  if (flashed === 'heal') return look.palette.heal
-  return s.stats.hp * 4 <= s.stats.max_hp ? look.palette.bad : undefined
+  return healthColor(s, flashed ? { hp: flashed } : null, look)
 }
 
 /** The band without the pane: place, health, money, the resource, curses, the clock, the time and the objective. */
@@ -270,11 +249,13 @@ export function bandParts(s: CoderpgSave, accent: string): { text: string; color
 /** /guide: how to play, in the game's own names. */
 export function guideText(s: CoderpgSave | null): string {
   const look = lookOf(s)
-  const keys = tabsOf(look).filter(t => t.id !== 'here').map(t => `**${t.hotkey}** ${t.label.toLowerCase()}`).join(', ')
+  const tabs = tabsOf(look)
+  const keys = tabs.filter(t => t.id !== 'here').map(t => `**${t.hotkey}** ${t.label.toLowerCase()}`).join(', ')
+  const back = tabs.find(t => t.id === 'here')?.hotkey ?? 'h'
   return [
     `**How to play${s ? ` ${s.adventure}` : ''}**`,
     'Say what you do, in your own words, and press Enter: *I go north*, *I ask Pell about the lamp*, *I search the boat*.',
-    `**The margin** (the pane on the right, on a wide screen): click it, or press **ctrl+x** then **tab**, and its keys work: **1–9** a way out, **l** look around, ${keys}. **Esc** comes back to the prompt. Its buttons fill the prompt for you; Enter sends.`,
+    `**The margin** (the pane on the right, on a wide screen): click it, or press **ctrl+x** then **tab**, and its keys work: **1–9** a way out, **l** look around, ${keys}, **${GUIDE_KEY}** this guide; the same key again, or **${back}**, comes back to the margin. **Esc** comes back to the prompt. Its buttons fill the prompt for you; Enter sends.`,
     '**Instant, and free:** `/map` the map and the ways out, `/inventory` what you carry, `/sheet` opens the margin, `/budget` what is left to spend, `/sound` sound on or off, `/guide` this.',
     '**Games:** `/newgame` starts over (`/newgame <seed>` replays a run), `/game` lists the games and `/game <id>` switches, `/newworld <a sentence>` asks for a new world to be made.',
     '**Outside the game:** start a message with `ooc:` to talk to the builder rather than play.',
@@ -351,8 +332,6 @@ function inventoryText(s: CoderpgSave): string {
 
 /** Save-file modification time last loaded; -1 forces a reload. */
 let lastMtime = -1
-/** When the HP flash ends (clock ms), or 0. */
-let flashUntil = 0
 /** When the last turn's narration has finished appearing (clock ms): a key pressed before then shows it whole. */
 let revealUntil = 0
 
@@ -428,19 +407,11 @@ async function refresh($: EngineInterface): Promise<void> {
   const fb = feedback(prev, parsed)
   if (fb.toast) $.ui.toast(fb.toast)
   for (const s of fb.sounds) void sound($, s)
-  if (fb.flash) {
-    flashUntil = (await $.clock.now()) + FLASH_MS
-    await update($, flash, () => fb.flash ?? null)
-  }
 }
 
-/** Runs every second from session.start: picks up saves made outside a turn and ends the HP flash. */
+/** Runs every second from session.start: picks up saves made outside a turn. */
 async function tick($: EngineInterface): Promise<void> {
   await refresh($)
-  if (flashUntil && (await $.clock.now()) > flashUntil) {
-    flashUntil = 0
-    await update($, flash, () => null)
-  }
 }
 
 // ---------------------------------------------------------------- the mod
@@ -486,7 +457,7 @@ export const register: Register = on => {
     void $.store.set(await spendKey($), { current: fresh, history: withRow(Array.isArray(was.history) ? was.history : [], was.current) }).catch(() => undefined)
     await refresh($)
     $.clock.every(1000, () => void tick($))
-    void $.ui.open({ id: PANE, title: 'Character' })
+    void $.ui.open({ id: PANE, title: 'Character', columns: MARGIN_COLUMNS })
     return result
   })
 
@@ -536,12 +507,15 @@ export const register: Register = on => {
     // what the turn changed: the change line under its narration, and the band's latest change
     let changes: string[] = []
     if (isGame && isGameTurn) {
-      // the band keeps the last turn's that changed anything; health takes its color only for the turn it changed
+      // the band keeps the last turn's that changed anything; the marks (what the margin and the band color)
+      // only for the turn their values changed
       await refresh($)
-      changes = isNewGame ? [] : changesOf(turnStart, await read($, save))
-      const dhp = changes.find(c => c.endsWith(' ♥'))
-      const hp = dhp ? (dhp.startsWith('+') ? 'heal' as const : 'hurt' as const) : undefined
-      await update($, latest, was => (changes.length ? { changes, ...(hp ? { hp } : {}) } : isNewGame || !was ? null : { changes: was.changes }))
+      const after = await read($, save)
+      changes = isNewGame ? [] : changesOf(turnStart, after)
+      const marks = isNewGame ? {} : marksOf(turnStart, after)
+      const marked = Object.keys(marks).length > 0
+      await update($, latest, was => (changes.length || marked ? { changes: changes.length ? changes : was?.changes ?? [], ...marks }
+        : isNewGame || !was ? null : { changes: was.changes }))
     }
     if (isGame && !isGameTurn && turnKeys.length) {
       // the turn never touched the game: its text was held back for nothing, so draw it as Claude's own
@@ -993,7 +967,7 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'sheet' }, async $ => {
-    await $.ui.open({ id: PANE, title: 'Character', focus: true })
+    await $.ui.open({ id: PANE, title: 'Character', focus: true, columns: MARGIN_COLUMNS })
     return { text: 'Character pane opened.' }
   })
 
@@ -1004,154 +978,158 @@ export const register: Register = on => {
     return { text: isMuted ? 'Sound effects off.' : 'Sound effects on.' }
   })
 
-  // ---- the character pane
+  // ---- the margin: six sections in the order of reading during a turn (where am I, how am I, what is at
+  // stake, what can I do, what do I have, where else can I look); the map, the journal and the guide take it over
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button } = $.ui.resolve(e)
+    const { Box, Text, Button, Markdown } = $.ui.resolve(e)
     const s = await read($, save)
     const look = lookOf(s)
     const accent = accentOf(s)
-    // a little room between the pane's divider and its text
-    const PAD = 2
-    const width = Math.max(26, (e.props.bodyColumns ?? 36) - PAD - 1)
+    const width = Math.max(24, (e.props.bodyColumns ?? 40) - 2 * MARGIN_PAD)
+    const docked = e.props.placement === 'dock'
+    const bodyRows = e.props.scroll?.bodyRows ?? 0
     if (!s) {
       return (
-        <Box flexDirection="column" paddingLeft={PAD}>
+        <Box flexDirection="column" paddingX={MARGIN_PAD}>
           <Text color={accent} bold>CodeRPG</Text>
-          <Text dimColor>No game yet. Type /newgame to start.</Text>
+          <Text>Type /newgame to start.</Text>
         </Box>
       )
     }
+    const bad = look.palette.bad
+    const labels = sectionsOf(look)
     const tabs = tabsOf(look)
+    const hereKey = tabs.find(t => t.id === 'here')?.hotkey ?? 'h'
     const stored = await read($, tab)
-    const open = tabs.some(t => t.id === stored) ? stored : tabs[0]!.id
-    const waiting = (await read($, running)) ? await read($, activity) : null
-    const flashing = await read($, flash)
-    const { hp, max_hp, might, agility, wits, coins } = s.stats
-    const objective = currentObjective(s)
+    const screen: CoderpgScreen = stored === 'guide' || tabs.some(t => t.id === stored && t.id !== 'here') ? stored : 'here'
+    const marks = await read($, latest)
+    // The same key again comes back to the margin.
+    const show = (id: CoderpgScreen) => () => void update($, tab, now => (now === id ? 'here' : id))
     // Buttons put the words in the prompt box for the player to send with Enter. A prompt the mod submitted itself
     // would carry Claude Code's "Prompt from the coderpg plugin" label, and its row never reaches our render hook.
     const say = (text: string) => () => void $.prompt.fill({ text, mode: 'replace' })
+    const row = (key: string, cells: Cell[]) => (
+      <Box key={key} flexDirection="row">
+        {fitCells(cells, width).map(c => <Text color={c.color} dimColor={c.dim} bold={c.bold} italic={c.italic}>{c.text}</Text>)}
+      </Box>
+    )
+    const signedStat = (stat: 'might' | 'agility' | 'wits', n: number) => `${look.stat_labels[stat].toLowerCase()} ${signed(n)}`
+
+    // ---- WHERE: the room's picture (its text art until pictures land), its name, the time and the weather
+    const art = (s.view?.art ?? '').split('\n').filter(l => l.trim().length > 0)
+    const cond = conditions(s.view?.time, s.view?.weather)
+    const whereRows = [
+      <Text key="place" color={accent} bold wrap="truncate">{s.view?.location_name ?? s.location}</Text>,
+      ...(cond ? [<Text key="conditions" wrap="truncate">{cond}</Text>] : []),
+    ]
+
+    // ---- YOU: exact numbers in fixed places, grey until they change or turn dangerous
+    const { hp, max_hp, might, agility, wits, coins } = s.stats
+    const meter = s.view?.meter
+    const cells = barWidth(width)
+    const youRows = [
+      row('hp', statusRow('♥', 'health', hp, max_hp, healthColor(s, marks, look), undefined, cells)),
+      ...(s.view?.foes ?? []).map(f => {
+        const [glyph, name, number, ...bar] = statusRow('⚔', f.name, f.hp, f.max_hp, bad, undefined, cells)
+        return row(`foe-${f.id}`, [glyph!, { ...name!, dim: false, color: bad }, { ...number!, color: undefined }, ...bar])
+      }),
+      ...(meter ? [row('meter', statusRow(look.resource.icon, look.resource.name.toLowerCase(), meter.left, meter.capacity,
+        meterTint(meter.state, marks, look), meter.state === 'spent' ? 'spent' : undefined, cells))] : []),
+      row('coins', statusRow('◎', look.currency, coins, undefined, changeColor(marks?.coins, look))),
+      row('stats', [{ text: '  ' }, { text: [signedStat('might', might), signedStat('agility', agility), signedStat('wits', wits)].join(' · '), dim: true }]),
+    ]
+
+    // ---- AT STAKE: the clock, every objective still in play, curses
+    const clock = s.view?.clock ?? null
+    const urgent = !!clock && clock.left <= 3
+    const [lit, spent] = clock ? clockSegments(clock.left, clock.total, width - 2) : [0, 0]
+    const stakeRows = [
+      ...(!clock ? [] : clock.left > 0 ? [
+        row('clock', [{ text: '⧗ ', color: urgent ? bad : MUTED_ACCENT }, { text: clock.name }, { text: ' · ', dim: true },
+          { text: `${clock.left} move${clock.left === 1 ? '' : 's'}`, ...(urgent ? { color: bad } : { dim: true }) }]),
+        row('clock-left', [{ text: '  ' }, { text: '◉'.repeat(lit), color: urgent ? bad : MUTED_ACCENT }, { text: '○'.repeat(spent), color: FAINT }]),
+      ] : [row('clock', [{ text: `⧗ ${clock.name}: it has happened`, color: bad }])]),
+      ...(s.status !== 'playing'
+        ? [row('the-end', [{ text: 'THE END · type /newgame', color: bad, bold: true }])]
+        : openObjectives(s).map((o, i) => row(`goal-${i}`, o.side ? [{ text: `▹ ${o.text}`, dim: true }] : [{ text: `▸ ${o.text}`, color: accent }]))),
+      ...(s.view?.curses ?? []).map(c => row(`curse-${c.id}`, [{ text: `✶ ${c.name}`, color: bad }])),
+    ]
+
+    // ---- ACT: the only text that does something, so the brightest
     const exits = s.map ? exitsOf(s.map, s.location) : []
     const here = s.view?.characters_here ?? []
-    const items = itemsOf(s)
-    const frameW = Math.min(width, 56)
-    const grid = s.map ? tileGrid(s.map, s.location, frameW - 4, look) : []
+    const voices = speakerCards(s, look)
+    const actRows = [
+      ...(!s.map?.[s.location] ? [<Text key="no-exits" dimColor wrap="truncate">exits appear after your next move</Text>] : []),
+      ...exits.map((x, i) => (
+        <Button key={`go-${x.dir}`} label={`${x.dir} → ${x.name === 'unexplored' ? '?' : x.name}`} hotkey={i < 9 ? String(i + 1) : undefined}
+          plain onPress={say(`go ${x.dir}`)} />
+      )),
+      <Button key="look" label="look around" hotkey="l" plain onPress={say('look around')} />,
+      ...(here.length ? here.map(p => (
+        <Box key={`talk-row-${p.id}`} flexDirection="row">
+          <Text>{'   '}</Text>
+          <Button key={`talk-${p.id}`} label={`talk to ${p.name}`} plain onPress={() => void $.prompt.fill({ text: `I say to ${p.name}: "`, mode: 'replace' })}>
+            <Text>talk to </Text>
+            <Text color={voices.find(v => v.name === p.name)?.color}>{p.name}</Text>
+          </Button>
+        </Box>
+      )) : [<Text key="no-one" dimColor italic wrap="truncate">{'   no one here to talk to'}</Text>]),
+    ]
+
+    // ---- CARRYING: what fits; in the dock, the list gives way first, then the picture
+    const things = carried(s)
+    const gained = new Set(marks?.gained ?? [])
+    const sections = 4 + (stakeRows.length ? 1 : 0) + 1 // where, you, act, carrying, (at stake), more
+    const fixed = (1 + art.length + whereRows.length) + (1 + youRows.length) + (stakeRows.length ? 1 + stakeRows.length : 0)
+      + (1 + actRows.length) + 1 + 2 + (sections - 1)
+    const fit = docked && bodyRows > 0 ? fitMargin(bodyRows, fixed, art.length, things.length) : { items: things.length, more: 0, art: true }
+    const carryRows = things.length === 0 ? [<Text key="nothing" dimColor>{'  nothing'}</Text>] : [
+      ...things.slice(0, fit.items).map(it => row(`item-${it.id}`, [
+        { text: '  ' }, { text: it.name, color: gained.has(it.id) ? look.palette.heal : undefined },
+        ...(it.equipped ? [{ text: ' equipped', dim: true }] : []),
+        ...(it.count > 1 ? [{ text: ` ×${it.count}`, dim: true }] : []),
+        ...(it.own ? [{ text: ' made for you', dim: true }] : []),
+      ])),
+      ...(fit.more ? [<Text key="more-items" dimColor wrap="truncate">{`  +${fit.more} more · /inventory`}</Text>] : []),
+    ]
+
+    const section = (key: string, label: string, rows: RenderChildren[], first: boolean, note?: string) => (
+      <Box key={key} flexDirection="column" marginTop={first ? 0 : 1}>
+        {row(`${key}-rule`, ruleCells(label, width, note))}
+        {rows}
+      </Box>
+    )
+    const margin = [
+      section('where', labels.where, [
+        ...(fit.art ? art.map((l, i) => <Text key={`art-${i}`} color={accent} dimColor wrap="truncate">{l}</Text>) : []),
+        ...whereRows,
+      ], true),
+      section('you', labels.you, youRows, false),
+      ...(stakeRows.length ? [section('at-stake', labels.at_stake, stakeRows, false)] : []),
+      section('act', labels.act, actRows, false),
+      section('carrying', labels.carrying, carryRows, false, s.view ? `${s.view.weight}/${s.view.carry_limit}` : undefined),
+    ]
+
+    // ---- the deeper screens: the map, the journal and the guide, each in place of the margin
+    const people = s.view?.people ?? []
+    const quests = s.view?.quests ?? []
+    const chronicle = s.view?.chronicle ?? []
+    const rumors = s.view?.rumors ?? []
+    const grid = s.map ? tileGrid(s.map, s.location, width, look) : []
     const Client = clientOf($.ui.resolve(e))
     const seen = new Set(Object.values(s.map ?? {}).map(r => r.terrain).filter((t): t is string => !!t))
     const swatches = Object.entries(look.terrain ?? {}).filter(([t]) => seen.has(t))
-    const quests = s.view?.quests ?? []
-    const people = s.view?.people ?? []
-    const chronicle = s.view?.chronicle ?? []
-    const rumors = s.view?.rumors ?? []
 
-    // ---- the vitals frame: a rounded box drawn by hand so its title sits in the top border
-    const inner = frameW - 4
-    const cell = (c: Cell) => <Text color={c.color} dimColor={c.dim} bold={c.bold}>{c.text}</Text>
-    const frameRow = (cells: Cell[]) => {
-      const fitted = fitCells(cells, inner)
-      const used = fitted.reduce((n, c) => n + c.text.length, 0)
-      return (
-        <Box flexDirection="row">
-          <Text dimColor>│ </Text>
-          {fitted.map(cell)}
-          <Text>{' '.repeat(Math.max(0, inner - used))}</Text>
-          <Text dimColor> │</Text>
-        </Box>
-      )
-    }
-    const barRow = (icon: Cell, value: number, max: number, color: string, bold: boolean) => {
-      const tail = ` ${value}/${max}`
-      const [full, empty] = smoothBar(value, max, Math.max(4, inner - icon.text.length - tail.length))
-      return frameRow([icon, { text: full, color, bold }, { text: empty, dim: true }, { text: tail, bold }])
-    }
-    const hpBarColor = flashing === 'hurt' ? look.palette.bad : flashing === 'heal' ? look.palette.heal : hpColor(hp, max_hp, look)
-    const clock = s.view?.clock ?? null
-    const clockColor = clock && clock.left <= 3 ? look.palette.bad : accent
-    const clockRows = !clock ? [] : clock.left > 0
-      ? (() => {
-          const tail = `  ${clock.left} move${clock.left === 1 ? '' : 's'} left`
-          const [lit, spent] = pipBar(clock.left, clock.total, Math.max(4, Math.min(16, inner - 2 - tail.length)))
-          return [
-            frameRow([{ text: '⧗ ', color: clockColor }, { text: clock.name, color: clockColor }]),
-            frameRow([{ text: '  ' }, { text: lit, color: clockColor }, { text: spent, dim: true }, { text: tail, dim: true }]),
-          ]
-        })()
-      : [frameRow([{ text: '⧗ ', color: look.palette.bad }, { text: `${clock.name}: it has happened`, color: look.palette.bad }])]
-
-    const vitals = (
-      <Box flexDirection="column">
-        <Box flexDirection="row">
-          <Text dimColor>╭─ </Text>
-          <Text color={accent} bold>VITALS</Text>
-          <Text dimColor>{' ' + '─'.repeat(Math.max(0, frameW - 11)) + '╮'}</Text>
-        </Box>
-        {barRow({ text: '♥ ', color: hpBarColor }, hp, max_hp, hpBarColor, flashing !== null)}
-        {(s.view?.foes ?? []).map(f => barRow({ text: `⚔ ${f.name} `, color: look.palette.bad, bold: true }, f.hp, f.max_hp, look.palette.bad, false))}
-        {frameRow([
-          { text: `${look.stat_short.might} `, dim: true }, { text: signed(might) },
-          { text: `    ${look.stat_short.agility} `, dim: true }, { text: signed(agility) },
-          { text: `    ${look.stat_short.wits} `, dim: true }, { text: signed(wits) },
-        ])}
-        {frameRow([{ text: '◎ ', color: accent }, { text: money(coins, look) }])}
-        {s.view?.meter && barRow({ text: `${look.resource.icon} ${look.resource.name} `, color: meterColor(s.view.meter.state, look) ?? accent },
-          s.view.meter.left, s.view.meter.capacity, meterColor(s.view.meter.state, look) ?? accent, false)}
-        {clockRows}
-        <Text dimColor>{'╰' + '─'.repeat(Math.max(0, frameW - 2)) + '╯'}</Text>
-      </Box>
-    )
-
-    // ---- tabs: the active one a solid pill in the accent color, the others dim buttons; they head the tab frame
-    const tabStrip = (
-      <Box flexDirection="row" gap={2} paddingX={1}>
-        {tabs.map(t => open === t.id
-          ? <Text key={`tab-${t.id}`} backgroundColor={accent} color="black" bold>{` ${t.hotkey}: ${t.label} `}</Text>
-          : <Button key={`tab-${t.id}`} label={t.label} hotkey={t.hotkey} plain dimColor onPress={() => update($, tab, () => t.id)} />)}
-      </Box>
-    )
-
-    const hereTab = (
-      <Box flexDirection="column">
-        {(s.view?.art ?? '').split('\n').filter(l => l.length > 0).map(l => <Text color={accent} dimColor wrap="truncate">{l}</Text>)}
-        <Text color={accent} bold wrap="truncate">{s.view?.location_name ?? s.location}</Text>
-        <Text> </Text>
-        <Text bold>Go</Text>
-        {!s.map?.[s.location] && <Text dimColor>  exits appear after your next move</Text>}
-        {exits.map((x, i) => (
-          <Button key={`go-${x.dir}`} label={`${x.dir} → ${x.name === 'unexplored' ? '?' : x.name}`} hotkey={i < 9 ? String(i + 1) : undefined}
-            plain onPress={say(`go ${x.dir}`)} />
-        ))}
-        <Button key="look" label="look around" hotkey="l" plain onPress={say('look around')} />
-        {here.length > 0 && <Text> </Text>}
-        {here.length > 0 && <Text bold>People here</Text>}
-        {here.map(p => (
-          <Button key={`talk-${p.id}`} label={`talk to ${p.name}`} plain
-            onPress={() => void $.prompt.fill({ text: `I say to ${p.name}: "`, mode: 'replace' })} />
-        ))}
-        <Text> </Text>
-        <Box flexDirection="row">
-          <Text bold>Inventory</Text>
-          {s.view && <Text dimColor> {s.view.weight}/{s.view.carry_limit}</Text>}
-        </Box>
-        {items.length === 0 && <Text dimColor>  nothing</Text>}
-        {items.map(it => (
-          <Box flexDirection="row">
-            <Text wrap="truncate">  {it.equipped ? '▸' : '·'} {it.name}</Text>
-            {it.equipped && <Text dimColor> (equipped)</Text>}
-            {it.own && <Text dimColor> (made for you)</Text>}
-          </Box>
-        ))}
-      </Box>
-    )
-
-    const mapTab = (
+    const mapScreen = (
       <Box flexDirection="column">
         {grid.length === 0 && <Text dimColor>The map fills in as you explore.</Text>}
         {grid.length > 0 && (Client && !faulted.has(`${e.requestId} map`)
           ? <Client key="map" module="./tilemap.tsx" props={plain({ grid })} />
-          : grid.map(row => (
+          : grid.map(r => (
               <Box flexDirection="row">
-                {runsOf(row).map(c => <Text color={c.fg} backgroundColor={c.bg} bold={c.b} dimColor={c.d}>{c.ch}</Text>)}
+                {runsOf(r).map(c => <Text color={c.fg} backgroundColor={c.bg} bold={c.b} dimColor={c.d}>{c.ch}</Text>)}
               </Box>
             )))}
         {grid.length > 0 && <Text> </Text>}
@@ -1171,13 +1149,13 @@ export const register: Register = on => {
       </Box>
     )
 
-    const journalTab = (
+    const journalScreen = (
       <Box flexDirection="column">
         <Text bold>Quests</Text>
         {quests.length === 0 && <Text dimColor>  none yet</Text>}
         {quests.map(q => (
           <Box flexDirection="column">
-            <Text color={q.failed ? look.palette.bad : accent} bold>
+            <Text color={q.failed ? bad : accent} bold>
               {q.complete ? '★' : q.failed ? '✗' : '◆'} {q.name}{q.side ? ' (side)' : ''}{q.complete ? ' (complete)' : q.failed ? ' (failed)' : ''}
             </Text>
             {q.objectives.map(o => (
@@ -1207,27 +1185,28 @@ export const register: Register = on => {
       </Box>
     )
 
+    const screenLabel = screen === 'guide' ? 'GUIDE' : (look.tab_labels[screen] ?? screen).toUpperCase()
+    const deeper = [
+      <Button key="back" label="‹ back" hotkey={hereKey} plain onPress={() => void update($, tab, () => 'here')} />,
+      section('screen', screenLabel, [
+        screen === 'map' ? mapScreen : screen === 'journal' ? journalScreen : <Box key="guide" width={width}><Markdown text={guideText(s)} /></Box>,
+      ], false),
+    ]
+
+    // ---- MORE: pinned to the bottom of the pane
     return (
-      <Box flexDirection="column" paddingLeft={PAD} minHeight={e.props.scroll?.bodyRows ?? 0}>
-        <Text color={accent} bold wrap="truncate">{s.adventure}</Text>
-        {s.status !== 'playing' && <Text color={look.palette.bad} bold>{s.status.toUpperCase()}: type /newgame</Text>}
-        {(s.view?.time || s.view?.weather) && (
-          <Text dimColor wrap="truncate">{[s.view?.time, s.view?.weather].filter(Boolean).join(' · ')}</Text>
-        )}
-        <Text> </Text>
-        {vitals}
-        {objective && <Text color={accent} wrap="truncate">▸ {objective}</Text>}
-        {(s.view?.curses ?? []).map(c => <Text color={look.palette.bad} wrap="truncate">✶ {c.name}</Text>)}
-        {waiting && <Text dimColor italic wrap="truncate">◌ {waiting}…</Text>}
-        <Text> </Text>
-        <Box flexDirection="column" width={frameW} flexGrow={1} borderStyle="round" borderDimColor>
-          {tabStrip}
-          <Text dimColor>{'─'.repeat(frameW - 2)}</Text>
-          <Box flexDirection="column" paddingX={1} paddingTop={1}>
-            {open === 'here' ? hereTab : open === 'map' ? mapTab : journalTab}
+      <Box flexDirection="column" paddingX={MARGIN_PAD} minHeight={docked ? bodyRows : 0}>
+        {screen === 'here' ? margin : deeper}
+        <Box flexGrow={1} />
+        <Box key="more" flexDirection="column" marginTop={1}>
+          {row('more-rule', ruleCells(labels.more, width))}
+          <Box flexDirection="row" columnGap={4}>
+            {tabs.filter(t => t.id !== 'here').map(t => (
+              <Button key={`screen-${t.id}`} label={t.label.toLowerCase()} hotkey={t.hotkey} plain onPress={show(t.id)} />
+            ))}
+            <Button key="screen-guide" label="guide" hotkey={GUIDE_KEY} plain onPress={show('guide')} />
           </Box>
         </Box>
-        <Text dimColor wrap="truncate">1–9 then ⏎ go  ·  l look  ·  {tabs.map(t => t.hotkey).join(' ')} tabs</Text>
       </Box>
     )
   })
