@@ -6,14 +6,15 @@ As of 2026-10-22. The state of the kit build for whoever picks it up next, human
 - **Requirements:** `IMPLEMENTATION-PLAN.md` (JW's game-owner requirements, Stages 1–8).
 - **Technical plan:** `~/.claude/plans/please-read-implementation-plan-md-in-sunny-cake.md` (approved). The decisions below override it where they differ.
 - **Done:** Stages 1–5: kit split, second game and seeds; the meter and switches; look and feel; curses; the player leaves a mark (crafting, building, the library, promotion). Stage 7: people with plans, side scenes. Everything is committed on `main`; `sh tools/check.sh` passes (54 engine tests, 62 mod tests, both games validate).
-- **Now:** the user playtested Stages 5 and 7 and had no notes. **Stage 6 (puzzles) is next**, then Stage 8.
-- **Stage order (decided 2026-10-22):** Stage 7 was built before Stage 6; Stage 8 must come after Stage 6, because every generated world needs an easy lock.
+- **Now:** the user playtested Stages 5 and 7 and had no notes. **Stage 8 (new worlds) is next**, then Stage 6. Stage 8's design is proposed and waiting for the user's answers.
+- **Stage order (changed 2026-10-22):** Stage 7 was built before Stage 6, and now Stage 8 comes before Stage 6 too (the user's call). Worlds forged before Stage 6 have no lock or mechanism; that's harmless because puzzles are optional (Stage 6 D1). When Stage 6 lands, the worldsmith's guide and `validate --kit-complete` gain puzzles, and older forged worlds can have them added.
 
 ## Starting the next session
 1. The user starts dev sessions with `ooc:` (or says the whole session is development). Read `DEVELOPING.md`, then this file, then run `sh tools/check.sh` and report the state.
 2. **If the user brings new playtest feedback:** diagnose from the session transcript (`DEVELOPING.md`, *Debugging a real session*), reproduce in a scratch copy, propose the fix and wait for an OK, then fix with a test. One commit per agreed fix, with a live check if players see it. The playtest checklists below say what each stage was meant to do.
-3. **Next build: Stage 6 (puzzles).** Read the Stage 6 entry in `IMPLEMENTATION-PLAN.md`, the technical plan, and **Later stages** below, then the code it touches (`rules/rpg.py` flags, exits and conditions; `rules/content.py`; `validate_game`). Propose its design and open decisions **with context and downstream implications, assuming little knowledge of the project** (the user asked for this on Stage 7: say what exists today, the options, a recommendation, and what follows from each, including for Stage 8), and wait for answers before building.
-4. **Stage 6 must stay kit-generic** (invariant 7): blocks, commands and procedure name no game; each game's locks and mechanisms live in its own folder. Stage 8 will generate worlds that must each include an easy lock, plans and a side scene, so design puzzles a world-builder agent can write and `validate` can check.
+3. **Next build: Stage 8 (new worlds).** Its design was proposed on 2026-10-22; if the user's answers aren't recorded below yet, ask for them before building. Read the Stage 8 entry in `IMPLEMENTATION-PLAN.md`, the technical plan, and **Later stages** below, then the code it touches (`rules/content.py` `use_game`/`list_games`, `validate_game`, `cmd_game`, the `newgame`/`game` skills, the mod's clean-start handling).
+4. **Then Stage 6 (puzzles).** Propose its remaining decisions again briefly (see *Stage 6 decisions so far*), with context and downstream implications, assuming little knowledge of the project, and wait for answers.
+5. **Both stay kit-generic** (invariant 7): commands, agents and procedure name no game. Forged worlds must each include plans and a side scene, and an easy lock and mechanism once Stage 6 exists, so `validate --kit-complete` must be able to check all of it.
 
 ## Commits
 | Commit | What |
@@ -49,6 +50,10 @@ Handoff-only commits (`2ac55a1`, `b6b523d`, `a2280fe`, `ab4dea9`, `7057684`, `6a
 - **D7 lighthouse:** Ysolde walks to the quay and back, sleeps with the door barred (knocking wakes her); Grukk forages on the coast road and back (a boulder he rolls over the path keeps the hollow shut). Scene: Ysolde and Grukk after the friendship ending, in Harbor Square. Pell stays minor.
 - **D8 station:** Bucket is now `minor: no` (still the maker and builder); it rides the cargo hoist up to mop the Control Room and back. Halloran checks her tanks in the Lab Wing and back, and dozes at her console (talking wakes her). Scene: the mopping dispute in the Control Room, possible only when Bucket's plan has brought it up.
 - **As built, beyond the decisions:** someone the player is with doesn't act at all (not only "doesn't walk out"), so nobody dozes off mid-conversation; a step that would still take someone out of the player's room is undone.
+
+## Stage 6 decisions so far (2026-10-22; the rest wait until Stage 6 is next)
+- **D1 puzzles are optional, for now:** a lock's or mechanism's flag may never appear in a quest's objectives or completion (validate), so no puzzle can make a game unwinnable.
+- **D2 files:** `games/<id>/puzzles/locks/<id>.md` and `games/<id>/puzzles/mechanisms/<id>.md` (the user's hybrid of separate kinds and one `puzzles/` folder); `show locks <id>` / `show mechanisms <id>`. The rest of the proposal (block set, key line, tries and hints, free with no switch, the four puzzles, requiring a mechanism in forged worlds) is in the conversation of 2026-10-22 and should be proposed again, briefly, when Stage 6 is next.
 
 ## Decisions made with the user (keep to these)
 - **Old saves:** no migration before v7; those are refused with "start a new game". `MIGRATIONS` applies from v7 on (v7→v8 adds `run.commissions` and `run.ordering`). Later optional run fields (`brief`, `talks`, `befriended`) are read with `.get`/`setdefault`, so they needed no version bump.
