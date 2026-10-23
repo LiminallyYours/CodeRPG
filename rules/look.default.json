@@ -7,6 +7,14 @@
     "heal": "cyan",
     "accent_by_time": {}
   },
+  "speaker_colors": [
+    "#8fae4a",
+    "#7fa7c9",
+    "#c98a8a",
+    "#c9a35a",
+    "#6fb3a8",
+    "#a08fc9"
+  ],
   "stat_labels": {
     "might": "Might",
     "agility": "Agility",

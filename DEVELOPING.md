@@ -46,9 +46,10 @@ RPG_SEED=7 python3 rules/rpg.py attack grukk
 `tools/play.py` drives a real interactive Claude Code session in a pseudo-terminal and captures everything it draws:
 ```
 python3 tools/play.py /tmp/rpg-test '[[12, "I walk north into the tavern.\r"], [90, null]]' --trust \
-  --grep '── THE GULL ──' 'rpg\.py|Skill ?\(|Ran \d' 'Recording|narrating\.'
+  --grep 'The Gull · dusk' 'rpg\.py|Skill ?\(|Ran \d' 'Recording|narrating\.'
 ```
-- **What to check:** that wanted things appear (story card, banner, dice tray) and plumbing never does, in *any* frame. Every frame is in the capture, so brief flashes count too.
+- **What to check:** that wanted things appear (the arrival rule, a speaker's keyline, the change line, the dice tray) and plumbing never does, in *any* frame. Every frame is in the capture, so brief flashes count too.
+- **Grep patterns:** the capture keeps one space where the screen had several (the arrival rule's `  The Gull  ` reads ` The Gull `), and redraws can drop letters mid-word, so grep short, single-spaced pieces.
 - **`--trust`:** answers the trust prompt for a folder Claude Code hasn't seen. Accepting it records that folder as trusted in your Claude Code settings.
 - **Cost:** turns cost real tokens; `--model sonnet` (the default here) keeps it moderate.
 - **Setup:** play the scratch copy forward with `rpg.py` commands first (a hand-written proposal for `generate`, `talk`, `move`, `coins`), so the live session only plays the part being tested.
@@ -70,7 +71,9 @@ This is the subtlest part of `mod/hooks/register.tsx`. If narration goes missing
 - **At `turn.complete`** (for the GM only; subagent completions carry `agentId` and are ignored):
   - text after the narration start is narration, except blocks that look like GM notes (`isGmNote`);
   - everything else is an aside: hidden if it's a short note, dimmed otherwise;
-  - the first narration block gets the room banner or title card, and the last gets any ending card.
+  - the first narration block gets the arrival rule (with the time of day) or the title card, and the last gets the change line (`changesOf` the save at `turn.start` and now) and any ending card;
+  - each block gets its speakers' colors (`speakerCards`) and a `delay`, so its paragraphs appear after the blocks before it (and after a title card typing itself out).
+- **Speech:** a paragraph starting with a name tag (`Pell: "…"`) is that person's speech, tag removed (`speechTag`); an untagged one falls back to the old heuristic (`speakerOf`: a quotation and someone named outside it). A tag must name someone met or here (by name, or words all in their name), or be a short capitalized name followed by a quotation, so "Ysolde stands at the door: …" stays narration.
 - **A turn counts as play** if it used a game tool, or no tools at all (a pure-dialogue reply). A turn that used other tools is development, and its text is shown plainly.
 - **`stripPreamble`** removes a GM note from the top of a narration block. `isGmNote` must not catch real story; the tests list the false positives that have bitten before, and any new case belongs there.
 - **Story entries are keyed** by length plus an FNV-1a hash of the whole text (`storyKey`).
@@ -117,6 +120,8 @@ This is the subtlest part of `mod/hooks/register.tsx`. If narration goes missing
 
 ## Known limits
 
-- **Narration appears all at once** at the end of a turn, because text is held back so GM notes can't leak.
+- **Narration appears all at once** at the end of a turn, because text is held back so GM notes can't leak; it then shows a paragraph at a time (`page.tsx`, 150 ms each, dim then full: a terminal has no opacity, and `Markdown` draws only plain or dim). A key pressed meanwhile (`prompt.edit`) shows it whole.
+- **A render's `viewport.columns` is the transcript's column** (narrower beside a docked pane); `$.ui.panes()` says whether the pane is placed and shown. Render hooks may not write state.
+- **No mod can restyle the prompt's `❯`, or bind Esc.** The pane takes keys after ctrl+x tab or a click; the play hint says so.
 - **Story styling is per session.** A resumed session shows earlier narration plain.
 - **Room pictures and a pixel-art map** (`Image`/`Raster` elements) are designed for but not built; see the pane ideas in the conversation history.

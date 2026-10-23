@@ -1,13 +1,13 @@
 # Handoff: building the kit
 
-As of 2026-10-23 (end of the session that planned and built `NEXT-PLAN.md` parts 1 and 2). The state of the kit build for whoever picks it up next, human or Claude. Read `DEVELOPING.md` first (invariants, checks, testing, API gotchas). This file covers only where the build stands and what was decided along the way. Update it at the end of each stage.
+As of 2026-10-23 (end of the session that built `NEXT-PLAN.md` 3.1 and 3.2). The state of the kit build for whoever picks it up next, human or Claude. Read `DEVELOPING.md` first (invariants, checks, testing, API gotchas). This file covers only where the build stands and what was decided along the way. Update it at the end of each stage.
 
 ## Where things are
 - **Current work: `NEXT-PLAN.md`** (approved 2026-10-23): (1) the real-spend meter (R3), (2) one-step moves and looks, (3) the interface redesign (`UI-REDESIGN-SPEC.md`), in that order. It replaces the old "Stage 8 playtest, then Stage 6" sequence below.
 - **Requirements:** `IMPLEMENTATION-PLAN.md` (JW's game-owner requirements, Stages 1–8).
 - **Technical plan:** `~/.claude/plans/please-read-implementation-plan-md-in-sunny-cake.md` (approved). The decisions below override it where they differ.
-- **Done:** Stages 1–5: kit split, second game and seeds; the meter and switches; look and feel; curses; the player leaves a mark (crafting, building, the library, promotion). Stage 7: people with plans, side scenes (playtested, no notes). Stage 8: new worlds, built (8.1, 8.2, 8.3) and live-tested. `NEXT-PLAN.md` parts 1 and 2. Everything is committed on `main`; `sh tools/check.sh` passes (64 engine tests, 72 mod tests, both games validate).
-- **Now:** `NEXT-PLAN.md` parts 1 (the real-spend meter) and 2 (one-step moves) are built and live-checked (see *NEXT-PLAN part 1 notes* and *part 2 notes*). **The user is playtesting both** (see *NEXT-PLAN parts 1–2 playtest checklist*). Their first `/budget` found a bug (real use lost after `/newgame`), fixed in `90ccbba`; they need to restart Claude Code in the game folder to load the fix. Then part 3, the interface redesign. The Stage 8 playtest had no further notes; the forge's cost is decided: new worlds don't use the meter (see *Stage 8 cost, measured*).
+- **Done:** Stages 1–5: kit split, second game and seeds; the meter and switches; look and feel; curses; the player leaves a mark (crafting, building, the library, promotion). Stage 7: people with plans, side scenes (playtested, no notes). Stage 8: new worlds, built (8.1, 8.2, 8.3) and live-tested. `NEXT-PLAN.md` parts 1, 2 (playtested, no notes), 3.1 and 3.2. Everything is committed on `main`; `sh tools/check.sh` passes (64 engine tests, 82 mod tests, both games validate).
+- **Now:** `NEXT-PLAN.md` 3.1 (the page) and 3.2 (band, hint, footer) are built and live-checked (see *NEXT-PLAN 3.1–3.2 notes*). **The user is playtesting them** (*NEXT-PLAN 3.1–3.2 playtest checklist*); restart Claude Code in the game folder to load the mod. Next is 3.3, the margin. The Stage 8 playtest had no further notes; new worlds don't use the meter (see *Stage 8 cost, measured*).
 - **Stage 6 (puzzles) is no longer next (2026-10-23, JW):** it will be rethought from scratch later, and its earlier decisions (*Stage 6 decisions so far*, the code-blocks note under *Decisions made with the user*, *Later stages*) don't carry over. They're kept below only as a record.
 - **Stage order (changed 2026-10-22, superseded 2026-10-23):** Stage 7, then Stage 8, then Stage 6; now `NEXT-PLAN.md`, with puzzles to be redesigned later. Forged worlds have no puzzles, and `validate --kit-complete` asks for none.
 
@@ -15,9 +15,8 @@ As of 2026-10-23 (end of the session that planned and built `NEXT-PLAN.md` parts
 1. The user starts dev sessions with `ooc:` (or says the whole session is development). Read `DEVELOPING.md`, then this file, then run `sh tools/check.sh` and report the state.
 2. **If the user brings new playtest feedback:** diagnose from the session transcript (`DEVELOPING.md`, *Debugging a real session*), reproduce in a scratch copy, propose the fix and wait for an OK, then fix with a test. One commit per agreed fix, with a live check if players see it. The playtest checklists below say what each stage was meant to do.
 3. **Follow `NEXT-PLAN.md`** part by part: its decisions are agreed; anything it leaves open is proposed first, with context, options and downstream implications, assuming little knowledge of the project. It says where to stop for the user's playtests.
-   - **Next is part 3.1, the page** (`UI-REDESIGN-SPEC.md` section 4 and `UI-REDESIGN-MOCK.png`; the part 3 decisions in `NEXT-PLAN.md` are agreed). Read the spec, the mock and `mod/hooks/register.tsx`'s render hooks (`AssistantMessage`, `UserMessage`, story cards in `story.ts`/`reveal.tsx`) first.
-   - **Before 3.2,** check in the mod API (`mod/.claude-plugin/types/claude-code/index.d.ts`) that the prompt glyph and the mode footer can be restyled; if not, say so and skip that piece.
-   - **3.1 also edits `gm-turn` step 4** (a speech paragraph starts with `Name:`). Part 2 already changed steps 1, 2 and 4: edit the current text, don't restore old wording.
+   - **Next is 3.3, the margin** (`UI-REDESIGN-SPEC.md` section 6, the mock, and the 3.3 list in `NEXT-PLAN.md`, with its *Decided while building 3.1 and 3.2*). It replaces the pane's body in `register.tsx` (`component: 'Pane'`): VITALS frame, tab strip and Here tab go. The pane is requested at 58 columns there (`$.ui.open` `columns: 58`); the page's measure needs no change (a render's viewport is already the transcript's column). `?` in MORE shows `guideText` (the `/guide` text). The one-turn flash in YOU can use the `latest` atom's `hp` (set at each play turn's end).
+   - Then 3.4, pictures, and the second playtest.
    - **Measure** with the part 1 script (*NEXT-PLAN part 1 notes*) if a change could affect speed; `/budget`'s history table compares sessions.
 4. **Puzzles** are not planned: when the user brings them back, start from scratch (the old Stage 6 notes are a record, not decisions).
 5. **Everything stays kit-generic** (invariant 7): commands, agents and procedure name no game. Forged worlds must each include plans and a side scene, and `validate --kit-complete` must be able to check all of it.
@@ -50,8 +49,32 @@ As of 2026-10-23 (end of the session that planned and built `NEXT-PLAN.md` parts
 | `6fb8d50` | NEXT-PLAN part 1: the real-spend meter in `/budget` (`mod/hooks/spend.ts`) |
 | `074e5d3` | NEXT-PLAN part 2: one-step moves and looks (`ROOM TEXT:` in `look`/`move`; gm-turn moves first) |
 | `90ccbba` | Playtest bug: real use was lost after `/newgame` (`$.state` resets on `/clear`); `ensureSpend` restores it from the store |
+| (this commit) | NEXT-PLAN 3.1 and 3.2: the page (measure, arrival rule, keylines, change line, paragraph reveal), the band's two modes, the play hint, `/guide`, signal kinds, `speaker_colors`; skill reads are plumbing |
 
 Commits that change only this file (`HANDOFF.md: …`) are left out.
+
+## NEXT-PLAN 3.1–3.2 playtest checklist (what should happen)
+- **Restart Claude Code** in the game folder, wide (184×46 is the mock's size), so the pane docks.
+- **The page:** narration as plain text, about 72 columns wide, indented, no box; paragraphs appear one after another, each dim for a moment (any key shows the whole turn). No `~ ✦ ~` after a turn.
+- **Your line:** `› go west`, dim and italic; under a curse your words as they came out, with a dim red ✶.
+- **Arriving:** a thin rule with the place in the accent color and the time of day: `──── The Lighthouse · dusk ────`. No block letters, no wipe.
+- **Speech:** a character's paragraph beside a colored bar, under their name, the `Name:` tag gone. Generated people get their own colors from a set of six.
+- **Change line:** under a turn that changed something, one dim line: `✧ −2 ♥ · +3 coins · gained … · ✓ … · the world grows · …`. No toast for those. Toasts still come for the resource running low or out, a curse taking hold, and a new world ready; someone's plan close by is only a chime now.
+- **Band:** beside the pane, `♥ 10 │ ✧ <the latest change>`, health red or cyan for the turn it changed, and `◌ <what's happening>` while Claude works. In a narrow window (no pane): `◆ Place · ♥ · ◎ · resource · ⧗ · time · ▸ objective`.
+- **Hint:** under the prompt, `⏎ act · ooc: speak to the builder · ctrl+x tab to the margin · /guide help`; no "auto mode on" in play. While a turn runs, Claude Code's own (Esc interrupts). `/guide` shows how to play.
+- **Title and ending cards:** between thin rules, centered in the text column.
+- **Watch for:** a paragraph wrongly taken for speech, or speech drawn plain; a missing or wrong change-line entry; the keyline a row short or long; text wider than the column; any machinery on screen.
+
+## NEXT-PLAN 3.1–3.2 notes (as built, 2026-10-23)
+- **Engine:** `add_signal(state, text, kind)`, `kind` `plan` or `world` (install), in `view.signals` (old saves read as `plan`); `speaker_colors` in `rules/look.default.json`, checked by `validate`. No save version change.
+- **Mod, the page** (`story.ts`, `page.tsx`, `feedback.ts`, `register.tsx`): `measureOf` (72, or the column less 6); `arrivalRow`; `ruleRow` around title and ending cards; `speakerCards` (card, else `speaker_colors` in met order, skipping colors cards use); `speechTag`/`blocksOf` (tag, else `speakerOf`); `rowsOf` counts wrapped rows for the keyline; `page.tsx` reveals paragraphs (`STEP_MS` 150, dim then full), each block `delay`ed after the ones before it and after a title card; `prompt.edit` sets `revealSkip`; `changesOf` makes the change line, written on the last narration block at `turn.complete`; `feedback` keeps toasts only for the meter, a curse taking hold and `world` signals. Removed: `font.ts` (block letters), the wipe mode, `bannerRows`, `~ ✦ ~`, `»`. `isGmNote` never takes a tagged speech paragraph for a note (`looksTagged`).
+- **Mod, 3.2:** the band's two modes (`bandParts`, `bandHpColor`, the `latest` atom set at each play turn's end); `PLAY_HINT` and `WORKING_HINT` replace Claude Code's hint line in play (its line names the permission mode while working); `SessionMode` labels hidden in play; `/guide` (`guideText`).
+- **Learned:**
+  - **A render's `viewport.columns` is the transcript's column, not the terminal's** (beside a docked pane it's narrower). The old `columns >= 144` test never saw a wide terminal. Whether the pane is docked comes from `$.ui.panes()` (placed and shown). Claude Code docks it from 144 columns unasked, or from 110 once the player has opened it.
+  - **Render hooks may not write state** ("drawing is pure"); a value one draw needs from another must come from an event or an engine read.
+  - **The game master sometimes `Read`s `.claude/skills/gm-turn/SKILL.md`** instead of loading the skill. That Read wasn't plumbing, so Claude Code drew the whole call group ("Read 1 file, ran 2 shell commands", and the running `rpg.py` command). Earlier captures missed it because the grep wanted `Ran \d` with a capital. Reads of `.claude/skills|agents/` are plumbing now; grep `shell command` in live checks.
+  - The capture collapses runs of spaces, so grep single-spaced pieces.
+- **Live checks** (Sonnet, scratch copies, `newgame 7`): 184×46: look, take the hilt, south with generation, `/newgame 7`, west; 120×40: west, `/guide`; then both widths again after the fixes above. Seen: the arrival rule with the time, keylines with names (Ysolde), the change line (`✧ gained Boarding Cutlass`), the title card between rules, the hint line, `◌` while working, `/guide`; no `ROOM TEXT`, no `rpg.py` after the fix.
 
 ## NEXT-PLAN parts 1–2 playtest checklist (what should happen)
 - **Restart Claude Code** in the game folder first, so the fixed mod loads. Counting starts with that session.

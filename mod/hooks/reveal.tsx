@@ -1,12 +1,12 @@
 // A surface module (a `Client`): draws rows of styled text revealing themselves once, on the terminal's
-// own frame clock, then holds still. Three ways in: a wipe left to right (a room banner on arrival),
-// typing (the title card) and line by line (an ending card). The frame logic is pure and exported for tests.
+// own frame clock, then holds still. Two ways in: typing (the title card) and line by line (an ending
+// card). The frame logic is pure and exported for tests.
 
 import type { ClientModule } from 'claude-code'
 
 /** A run of styled text: text, color, background, bold, dim. Short keys keep the props small. */
 export type Seg = { t: string; c?: string; bg?: string; b?: boolean; d?: boolean }
-export type RevealMode = 'wipe' | 'type' | 'lines'
+export type RevealMode = 'type' | 'lines'
 export type RevealProps = { rows: Seg[][]; mode: RevealMode; ms: number; align?: 'center' | 'left' }
 type State = { t: number }
 
@@ -33,14 +33,6 @@ export function revealFrame(rows: Seg[][], mode: RevealMode, t: number, ms: numb
   const f = ms <= 0 ? 1 : Math.max(0, Math.min(1, t / ms))
   if (f >= 1) return rows
   if (mode === 'lines') return rows.slice(0, Math.ceil(f * rows.length))
-  if (mode === 'wipe') {
-    const width = Math.max(0, ...rows.map(rowLength))
-    const edge = Math.floor(f * width)
-    return rows.map(r => {
-      const shown = take(r, edge)
-      return rowLength(r) > edge ? [...shown, { t: '▌', c: shown[shown.length - 1]?.c, d: true }] : shown
-    })
-  }
   // typing: characters appear in reading order, row by row
   let left = Math.floor(f * rows.reduce((n, r) => n + rowLength(r), 0))
   return rows.map(r => {

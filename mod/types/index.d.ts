@@ -12,7 +12,11 @@ export type CoderpgSave = {
   flags: string[]
   npcs?: Record<string, { hp: number; max_hp?: number }>
   /** This playthrough: its id changes with every new game (save version 6+). */
-  run?: { id?: string; moves?: number }
+  run?: {
+    id?: string; moves?: number
+    /** What this run generated or the player had made, by id: `made_by` "world" or "player" (version 7+). */
+    rooms?: Record<string, CoderpgRunRecord>; characters?: Record<string, CoderpgRunRecord>; items?: Record<string, CoderpgRunRecord>
+  }
   /** Rooms visited, with the exits open when last there (save version 3+). */
   map?: Record<string, {
     name: string; exits: Record<string, string>; neighbors?: Record<string, string>
@@ -53,13 +57,18 @@ export type CoderpgSave = {
     chronicle?: string[]
     rumors?: string[]
     /** What the player noticed close by when someone acted off-screen, numbered in order (Stage 7). */
-    signals?: { n: number; text: string }[]
+    signals?: { n: number; text: string; kind?: 'plan' | 'world' }[]
   }
 }
+
+/** Something this run brought into being: its front matter. */
+export type CoderpgRunRecord = { meta?: { name?: string; made_by?: string } }
 
 /** A game's look: the kit's rules/look.default.json with the game's look.json laid over it. */
 export type CoderpgLook = {
   palette: { accent: string; good: string; bad: string; warn: string; heal: string; accent_by_time?: Record<string, string> }
+  /** The colors speakers without a card of their own take, in order of first meeting. */
+  speaker_colors?: string[]
   stat_labels: { might: string; agility: string; wits: string }
   stat_short: { might: string; agility: string; wits: string }
   currency: string
@@ -114,8 +123,10 @@ export type CoderpgQuest = {
 /** One assistant text block drawn as story, with any card to show above it. */
 export type CoderpgStory = {
   key: string
-  /** The room's name, when the player arrived there this turn. */
+  /** The room's name, when the player arrived there this turn: the arrival rule above the narration. */
   banner?: string
+  /** The time of day on arrival, beside the name. */
+  bannerTime?: string
   /** The adventure's title, on a new game's opening narration. */
   title?: string
   /** The run's date and seed, under the title. */
@@ -134,8 +145,14 @@ export type CoderpgStory = {
   shownAt?: number
   /** The accent color when it was told (it follows the time of day). */
   accent?: string
-  /** Who was there with a card style: their paragraphs are drawn in their colors. */
+  /** Everyone who might speak, with their color: their paragraphs are drawn beside a keyline in it. */
   cards?: { name: string; color?: string }[]
+  /** What the turn changed, under its last narration block. */
+  changes?: string[]
+  /** How long after the turn showed this block its paragraphs start to appear (ms): earlier blocks go first. */
+  delay?: number
+  /** How many paragraphs the block has, counted when it was written. */
+  paras?: number
 }
 
 export type CoderpgTab = 'here' | 'map' | 'journal'
@@ -204,6 +221,10 @@ declare module 'claude-code' {
       cursed: { key: string; shown: string }[]
       /** What this Claude Code session really used, in tokens, for the owner's part of /budget. */
       spend: Spend | null
+      /** A key pressed while a turn's narration was appearing: blocks shown at or before this time show whole. */
+      revealSkip: number
+      /** The last play turn's change line, for the band; `hp` only for the turn health changed. */
+      latest: { changes: string[]; hp?: 'hurt' | 'heal' } | null
     }
   }
 }

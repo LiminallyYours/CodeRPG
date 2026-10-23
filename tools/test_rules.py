@@ -432,12 +432,17 @@ class Engine(unittest.TestCase):
         look = json.loads((self.dir / g / "look.json").read_text())
         look["sounds"] = {"step": "kazoo"}
         look["palette"]["accent_by_time"]["teatime"] = "#123456"
+        look["speaker_colors"] = ["#8fae4a", "sage"]
         self.write(g + "/look.json", json.dumps(look))
         out = self.rpg("validate", "--game", "dark_lighthouse", ok=False)
         self.assertIn("terrain 'lava' isn't in the look's terrain", out)
         self.assertIn("characters/pell.md: card must be a color", out)
         self.assertIn("no kit sound 'kazoo'", out)
         self.assertIn("'teatime' is not one of world.md's times", out)
+        self.assertNotIn("speaker_colors", out, "a named color is a color")
+        look["speaker_colors"] = ["#8fae4a", "#12"]
+        self.write(g + "/look.json", json.dumps(look))
+        self.assertIn("look.json speaker_colors: must be a list of colors", self.rpg("validate", "--game", "dark_lighthouse", ok=False))
 
     def test_a_generated_room_takes_a_terrain(self):
         self.at_the_lighthouse()
@@ -903,7 +908,7 @@ class Engine(unittest.TestCase):
         self.assertNotIn("snoring", out, "the lighthouse is out of earshot")
         s = self.save()
         self.assertIn("grukk [agent]", self.rpg("look"))
-        self.assertEqual([x["text"][:16] for x in s["view"]["signals"]], ["Heavy bare feet "])
+        self.assertEqual([(x["text"][:16], x["kind"]) for x in s["view"]["signals"]], [("Heavy bare feet ", "plan")])
         self.assertIn("They say Ysolde finally slept, barred in her tower like a hermit.", s["run"]["rumors"])
         self.assertIn("lighthouse [BLOCKED: needs not ysolde_asleep]", self.rpg("move", "west").replace("The Lighthouse", "lighthouse"))
         self.assertNotIn("Plan:", self.rpg("show", "characters", "ysolde"))
@@ -1136,8 +1141,9 @@ near: stuck
         self.assertIn("NEW WORLD READY: %s" % d, self.rpg("look"))
         out = self.rpg("forge", "install", d)
         self.assertIn("INSTALLED: The Smugglers Cove (smugglers_cove)", out)
-        self.assertEqual("A new world has taken shape: The Smugglers Cove. /game smugglers_cove goes there.",
-                         self.save()["view"]["signals"][-1]["text"])
+        signal = self.save()["view"]["signals"][-1]
+        self.assertEqual("A new world has taken shape: The Smugglers Cove. /game smugglers_cove goes there.", signal["text"])
+        self.assertEqual("world", signal["kind"], "the interface toasts only this kind")
         self.assertFalse((self.dir / "state" / "forge" / d).exists())
         home = self.dir / "state" / "worlds" / "smugglers_cove"
         self.assertEqual("normal", json.loads((home / "settings.json").read_text())["preset"])

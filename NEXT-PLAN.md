@@ -92,6 +92,12 @@ Session totals alone serve neither job, because they depend on how long you play
 - **Toasts:** the plans signal toast goes (the chime stays); the new-world toast stays; the meter and curse toasts stay. Every other routine change moves to the change line.
 - **Split:** 4 parts, 2 playtests.
 
+**Decided while building 3.1 and 3.2 (JW, 2026-10-23):**
+- **Speaker colors:** a character's `card:` always wins (every authored character has one, minor ones too); anyone without one takes the next `speaker_colors` entry in the order met, minor or not. The spec's "minor characters dim" is dropped, so no `minor` field in the view. In practice the palette colors generated people.
+- **Signals carry a kind:** `rpg.py` labels each `plan` or `world` (optional view field, old saves read as `plan`). Only `world` (a new world ready) is a toast; both chime.
+- **Hint line:** names the real key, "ctrl+x tab to the margin" (Esc can't be bound by a mod), and help is a new instant command, **`/guide`**, instead of "? help" (typing ? opens Claude Code's shortcut list). The margin's `?` in 3.3 shows the same text.
+- **Prompt glyph:** skipped. The mod API has no way to restyle the prompt's `❯` (checked 2026-10-23).
+
 **My technical choices (say if you disagree):**
 - **The change line** is composed from the difference between the save's `view` at `turn.start` and at `turn.complete`. That's the record `rpg.py` wrote, so it's authoritative and needs no save change. It is not parsed from each tool call's text.
 - **Pictures:** `rpg.py` picks the picture and names its path in `view.picture`; the mod reads that one PNG, decodes it once into the mosaic and caches it. That extends invariant 4 by one read-only file, and `DEVELOPING.md` says so. `rpg.py` decoding it into the save instead is the fallback if the mod's runtime has no built-in deflate (checked first, in 3.4).

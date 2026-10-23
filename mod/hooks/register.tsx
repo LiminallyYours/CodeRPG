@@ -1,10 +1,11 @@
 // CodeRPG mod: makes Claude Code look and feel like the game.
-// - narration drawn as story cards, with room banners, a title card and ending cards
+// - narration drawn as a page: plain prose at a reading measure, appearing a paragraph at a time, speech
+//   beside a keyline in the speaker's color, a rule on arrival, a change line under each turn, title and ending cards
 // - the game's plumbing hidden, except dice rolls, which show as a dice tray
 // - Claude's chrome (spinner, turn timer, prompt rows) replaced with in-world touches
 // - a status band above the prompt and a tabbed character pane (Here / Map / Journal)
 //   with clickable exits and actions
-// - toasts, an HP flash and sound effects when things change
+// - an HP flash and sound effects when things change; toasts only for what needs attention now
 // - instant /inventory, /map, /sheet and /sound commands
 // - /budget, with what the session really used in tokens (the owner's check on the meter's prices)
 // Everything it shows comes from state/save.json and the rules script's output. It never writes game files.
@@ -15,12 +16,13 @@ import type { ClientProps, ElementConstructor, EngineInterface, Register } from 
 
 import type { CoderpgLook, CoderpgPhase, CoderpgSave, CoderpgStory } from '../types'
 import { cursedWords } from './curse'
-import { feedback } from './feedback'
+import { changesOf, feedback } from './feedback'
 import { accentOf, lookOf, money, phasePhrase, soundFor, tabsOf } from './look'
 import { exitsOf, keyText, mapText, usesUpDown } from './map'
 import { commandPhrase, idlePhrase, npcPhrase, phaseOf } from './phrases'
+import { drawBlocks, pageMs, STEP_MS } from './page'
 import type { Seg } from './reveal'
-import { bannerRows, endingRows, paragraphsOf, spaced, speakerOf, titleRows } from './story'
+import { arrivalRow, blocksOf, endingRows, INDENT, looksTagged, measureOf, paragraphsOf, ruleRow, spaced, speakerCards, titleRows } from './story'
 import { addUsage, endTurn, helperStep, isSpend, looseStep, measured, newSpend, roleOf, spawned, spendText, withRow, ZERO } from './spend'
 import type { Spend, SpendRow, Tokens } from './spend'
 import { combatOf, rpgCommand, rpgCommands, TRAY_COMMANDS, trayLines, traySound } from './tray'
@@ -34,7 +36,7 @@ const SAVE_PATH = 'state/save.json'
 const PANE = 'coderpg-sheet'
 const FLASH_MS = 1600
 const FRESH_MS = 1500 // a story card or tray this new still animates; older ones are drawn still
-const DOCKED_PANE = 46 // about how wide the docked pane is, when the transcript shares the screen with it
+const TITLE_MS = 900 // the title card types itself out over this long; the narration under it waits for it
 
 const save = atom({ plugin: 'coderpg', key: 'save' } as const, null)
 const story = atom({ plugin: 'coderpg', key: 'story' } as const, [])
@@ -46,6 +48,8 @@ const muted = atom({ plugin: 'coderpg', key: 'muted' } as const, false)
 const running = atom({ plugin: 'coderpg', key: 'running' } as const, false)
 const cursed = atom({ plugin: 'coderpg', key: 'cursed' } as const, [])
 const spend = atom({ plugin: 'coderpg', key: 'spend' } as const, null)
+const revealSkip = atom({ plugin: 'coderpg', key: 'revealSkip' } as const, 0)
+const latest = atom({ plugin: 'coderpg', key: 'latest' } as const, null)
 
 // ---------------------------------------------------------------- pure helpers
 
@@ -57,7 +61,8 @@ export function isPlumbing(tool: string, input: unknown): boolean {
     case 'Bash':
       return /rules\/rpg\.py|(^|[\s/])(games|state|rules)\//.test(s('command'))
     case 'Read':
-      return /\/(games|state|rules)\//.test(s('file_path'))
+      // the game's files, and its own procedure (a game master sometimes reads the skill file rather than loading it)
+      return /\/(games|state|rules)\/|(^|\/)\.claude\/(skills|agents)\//.test(s('file_path'))
     case 'Skill':
       return ['gm-turn', 'newgame', 'game', 'newworld'].includes(s('skill'))
     case 'Agent':
@@ -127,6 +132,7 @@ const GM_ANYWHERE = /(narrating|\bnarration\b|rpg\.py|world agent|subagent|world
 export function isGmNote(text: string): boolean {
   const t = text.trim()
   if (t.length > 200 || t.includes('\n\n') || /["“”]/.test(t)) return false
+  if (looksTagged(t) && !GM_ALWAYS.test(t)) return false // someone's speech, tagged with their name ("Pell: I'll fetch it.")
   return GM_ALWAYS.test(t) || GM_ANYWHERE.test(t) || GM_PROGRESS.test(t) || (GM_MAYBE.test(t) && GM_WORDS.test(t))
 }
 
@@ -231,6 +237,50 @@ const PRICE_NAMES: Record<string, string> = {
   scene: 'a little scene between two characters',
 }
 
+/** The hint line under the prompt in play. */
+export const PLAY_HINT = '⏎ act · ooc: speak to the builder · ctrl+x tab to the margin · /guide help'
+/** The hint line while a play turn runs. */
+export const WORKING_HINT = 'esc to interrupt'
+
+/** Health in the band: red or the heal color for the turn it changed, red while it's at a quarter or less. */
+export function bandHpColor(s: CoderpgSave, flashed: 'hurt' | 'heal' | undefined, look: CoderpgLook): string | undefined {
+  if (flashed === 'hurt') return look.palette.bad
+  if (flashed === 'heal') return look.palette.heal
+  return s.stats.hp * 4 <= s.stats.max_hp ? look.palette.bad : undefined
+}
+
+/** The band without the pane: place, health, money, the resource, curses, the clock, the time and the objective. */
+export function bandParts(s: CoderpgSave, accent: string): { text: string; color?: string; bold?: boolean }[] {
+  const look = lookOf(s)
+  const v = s.view
+  const clock = v?.clock
+  const objective = currentObjective(s)
+  return [
+    { text: `◆ ${v?.location_name ?? s.location}`, color: accent, bold: true },
+    { text: `♥ ${s.stats.hp}`, color: bandHpColor(s, undefined, look) },
+    { text: `◎ ${s.stats.coins}` },
+    ...(v?.meter ? [{ text: `${look.resource.icon} ${v.meter.left}`, color: meterColor(v.meter.state, look) }] : []),
+    ...(v?.curses ?? []).map(c => ({ text: `✶ ${c.name}`, color: look.palette.bad })),
+    ...(clock ? [{ text: `⧗ ${clock.left > 0 ? clock.left : '!'}`, color: clock.left <= 3 ? look.palette.bad : undefined }] : []),
+    ...(v?.time ? [{ text: v.time }] : []),
+    ...(objective ? [{ text: `▸ ${objective}`, color: accent }] : []),
+  ]
+}
+
+/** /guide: how to play, in the game's own names. */
+export function guideText(s: CoderpgSave | null): string {
+  const look = lookOf(s)
+  const keys = tabsOf(look).filter(t => t.id !== 'here').map(t => `**${t.hotkey}** ${t.label.toLowerCase()}`).join(', ')
+  return [
+    `**How to play${s ? ` ${s.adventure}` : ''}**`,
+    'Say what you do, in your own words, and press Enter: *I go north*, *I ask Pell about the lamp*, *I search the boat*.',
+    `**The margin** (the pane on the right, on a wide screen): click it, or press **ctrl+x** then **tab**, and its keys work: **1–9** a way out, **l** look around, ${keys}. **Esc** comes back to the prompt. Its buttons fill the prompt for you; Enter sends.`,
+    '**Instant, and free:** `/map` the map and the ways out, `/inventory` what you carry, `/sheet` opens the margin, `/budget` what is left to spend, `/sound` sound on or off, `/guide` this.',
+    '**Games:** `/newgame` starts over (`/newgame <seed>` replays a run), `/game` lists the games and `/game <id>` switches, `/newworld <a sentence>` asks for a new world to be made.',
+    '**Outside the game:** start a message with `ooc:` to talk to the builder rather than play.',
+  ].join('\n\n')
+}
+
 /** The meter's color: plain while there's plenty, then the warning and danger colors. */
 function meterColor(state: string | undefined, look: CoderpgLook): string | undefined {
   return state === 'spent' ? look.palette.bad : state === 'low' ? look.palette.warn : undefined
@@ -303,6 +353,8 @@ function inventoryText(s: CoderpgSave): string {
 let lastMtime = -1
 /** When the HP flash ends (clock ms), or 0. */
 let flashUntil = 0
+/** When the last turn's narration has finished appearing (clock ms): a key pressed before then shows it whole. */
+let revealUntil = 0
 
 async function sound($: EngineInterface, beat: string): Promise<void> {
   if (await read($, muted)) return
@@ -343,6 +395,15 @@ function drawRows($: EngineInterface, e: Parameters<EngineInterface['ui']['resol
       ))}
     </Box>
   )
+}
+
+/**
+ * Whether the character pane is drawn beside the transcript now. Claude Code docks it from 144 columns, or 110
+ * once the player has opened it; a render's viewport is the transcript's column, so it can't tell.
+ */
+async function paneShown($: EngineInterface): Promise<boolean> {
+  const panes = await $.ui.panes().catch(() => [])
+  return panes.some(p => p.id === PANE && p.isPlaced && p.isShown)
 }
 
 /** Re-read the save into $.state when the file changed, and announce what changed. */
@@ -414,6 +475,7 @@ export const register: Register = on => {
     await $.command.register({ name: 'sheet', description: 'CodeRPG: open the character pane', immediate: true })
     await $.command.register({ name: 'sound', description: 'CodeRPG: turn sound effects on or off', immediate: true })
     await $.command.register({ name: 'budget', description: 'CodeRPG: what is left to spend, what things cost, and what is switched on', immediate: true })
+    await $.command.register({ name: 'guide', description: 'CodeRPG: how to play, and the keys and commands (instant, no turn)', immediate: true })
 
     const stored = await $.store.get('muted').catch(() => undefined)
     if (stored === true) await update($, muted, () => true)
@@ -471,6 +533,16 @@ export const register: Register = on => {
       turnBegan = 0
       if (after) void spendKey($).then(async k => $.store.set(k, { ...(await spendStore($)), current: after })).catch(() => undefined)
     }
+    // what the turn changed: the change line under its narration, and the band's latest change
+    let changes: string[] = []
+    if (isGame && isGameTurn) {
+      // the band keeps the last turn's that changed anything; health takes its color only for the turn it changed
+      await refresh($)
+      changes = isNewGame ? [] : changesOf(turnStart, await read($, save))
+      const dhp = changes.find(c => c.endsWith(' ♥'))
+      const hp = dhp ? (dhp.startsWith('+') ? 'heal' as const : 'hurt' as const) : undefined
+      await update($, latest, was => (changes.length ? { changes, ...(hp ? { hp } : {}) } : isNewGame || !was ? null : { changes: was.changes }))
+    }
     if (isGame && !isGameTurn && turnKeys.length) {
       // the turn never touched the game: its text was held back for nothing, so draw it as Claude's own
       const mine = new Set(turnKeys)
@@ -489,24 +561,34 @@ export const register: Register = on => {
       const asides = new Set(turnKeys.filter(k => !narration.includes(k)))
       const first = narration[0]
       const banner = !isNewGame && now && was && now.location !== was.location ? now.view?.location_name ?? now.location : undefined
+      const bannerTime = banner ? now?.view?.time ?? undefined : undefined
       const title = isNewGame && now ? now.adventure : undefined
       const runLabel = isNewGame ? now?.view?.run_label ?? undefined : undefined
       const mine = new Set(turnKeys)
       const shownAt = await nowMs($)
       const accent = accentOf(now)
-      const present = [...(was?.view?.characters_here ?? []), ...(now?.view?.characters_here ?? [])]
-      // everyone in the scene, so a speaker without a card keeps their lines plain; stored only if anyone has one
-      const people = present.filter((c, i) => present.findIndex(x => x.id === c.id) === i).map(c => ({ name: c.name, ...(c.card ? { color: c.card } : {}) }))
-      const cards = people.some(c => c.color) ? people : []
+      // everyone who might speak, someone who left this turn too, with the color their lines are drawn in
+      const cards = speakerCards(now, lookOf(now), was?.view?.characters_here)
       const told = { pending: false, shownAt, accent, ...(cards.length ? { cards } : {}) }
+      // the narration's blocks appear one after another, under the title card once it has typed itself out
+      const delays = new Map<string, number>()
+      let at = title ? TITLE_MS : 0
+      for (const k of narration) {
+        delays.set(k, at)
+        at += (list.find(x => x.key === k)?.paras ?? 1) * STEP_MS
+      }
+      revealUntil = shownAt + at
+      const last = narration[narration.length - 1]
       await update($, story, list => list.map(s =>
         asides.has(s.key) ? { ...s, aside: true, pending: false }
-        : s.key === first ? { ...s, ...told, ...(banner ? { banner } : {}), ...(title ? { title } : {}), ...(runLabel ? { runLabel } : {}) }
-        : mine.has(s.key) ? { ...s, ...told }
+        : mine.has(s.key) ? {
+            ...s, ...told, delay: delays.get(s.key) ?? 0,
+            ...(s.key === first && banner ? { banner, ...(bannerTime ? { bannerTime } : {}) } : {}),
+            ...(s.key === first && title ? { title } : {}), ...(s.key === first && runLabel ? { runLabel } : {}),
+            ...(s.key === last && changes.length ? { changes } : {}),
+          }
         : s))
       if (title) void sound($, 'type')
-      else if (banner) void sound($, 'wipe')
-      const last = narration[narration.length - 1]
       const before = (id: string) => was?.view?.quests?.find(p => p.id === id)
       const main = (now?.view?.quests ?? []).filter(q => !q.side)
       const won = main.find(q => q.complete && !before(q.id)?.complete)
@@ -617,7 +699,7 @@ export const register: Register = on => {
     if (isGame && !isOoc && !e.agentId && e.door === 'response' && e.message.role === 'assistant') {
       const blocks = e.message.content
         .filter((b): b is { type: 'text'; text: string } => (b as { type?: string }).type === 'text' && (b as { text?: string }).text?.trim() !== '')
-        .map(b => ({ key: storyKey(b.text), pending: true, note: isGmNote(b.text) }))
+        .map(b => ({ key: storyKey(b.text), pending: true, note: isGmNote(b.text), paras: paragraphsOf(stripPreamble(b.text)).length }))
       if (blocks.length) {
         turnKeys.push(...blocks.map(b => b.key))
         await update($, story, list => [...list, ...blocks].slice(-2000))
@@ -646,56 +728,49 @@ export const register: Register = on => {
       // in case it was narration written out of order.
       if (isProgressNote(e.props.text)) return <Box display="none" />
       return (
-        <Box paddingLeft={2}>
+        <Box paddingLeft={INDENT}>
           <Markdown text={e.props.text} dimColor />
         </Box>
       )
     }
     const accent = entry.accent ?? accentOf(s)
-    // Fresh cards reveal themselves once (a surface module on the terminal's frame clock); older ones,
-    // and every card on a surface without modules, are drawn still.
+    const measure = measureOf(e.viewport?.columns ?? 80) // the transcript's column, beside any docked pane
+    const blocks = blocksOf(stripPreamble(e.props.text), entry.cards ?? [])
+    const delay = entry.delay ?? 0
+    // Fresh pages reveal themselves once (surface modules on the terminal's frame clock); older ones,
+    // and every page on a surface without modules, are drawn still.
     const now = await nowMs($)
-    const fresh = entry.shownAt !== undefined && now > 0 && now - entry.shownAt < FRESH_MS
+    const age = entry.shownAt !== undefined && now > 0 ? now - entry.shownAt : Infinity
+    const fresh = age < Math.max(FRESH_MS, pageMs(blocks.length, delay) + FRESH_MS)
+    const skip = entry.shownAt !== undefined && entry.shownAt <= (await read($, revealSkip))
     // the element must be written <Client module="..."> literally: the engine finds modules in the source
-    const reveal = (rows: Seg[][], mode: 'wipe' | 'type' | 'lines', ms: number, align: 'center' | 'left', k: string) =>
+    const reveal = (rows: Seg[][], mode: 'type' | 'lines', ms: number, k: string) =>
       Client && fresh && !faulted.has(`${e.requestId} ${k}`)
-        ? <Client key={k} module="./reveal.tsx" props={plain({ rows, mode, ms, align })} />
-        : drawRows($, e, rows, align)
-    const columns = e.viewport?.columns ?? 80
-    const room = Math.max(20, columns - (columns >= 144 ? DOCKED_PANE : 0) - 6)
+        ? <Client key={k} module="./reveal.tsx" props={plain({ rows, mode, ms, align: 'center' })} />
+        : drawRows($, e, rows, 'center')
+    const card = (rows: Seg[][], color: string | undefined, mode: 'type' | 'lines', ms: number, k: string) => (
+      <Box flexDirection="column" width={measure}>
+        {drawRows($, e, [ruleRow(measure, color)], 'left')}
+        <Box flexDirection="column" alignItems="center" width={measure} marginY={1}>{reveal(rows, mode, ms, k)}</Box>
+        {drawRows($, e, [ruleRow(measure, color)], 'left')}
+      </Box>
+    )
     const ending = entry.ending ? endingRows(entry.ending, entry.endingQuest, { accent, bad: look.palette.bad }) : undefined
-    const paragraphs = paragraphsOf(stripPreamble(e.props.text))
-    const speakers = paragraphs.map(par => speakerOf(par, entry.cards ?? []))
+    const prose = Client && fresh && !skip && !faulted.has(`${e.requestId} page`)
+      ? <Client key="page" module="./page.tsx" props={plain({ blocks, width: measure, delay })} />
+      : drawBlocks($.ui.resolve(e), blocks, measure)
     return (
-      <Box flexDirection="column" marginTop={e.props.isFirstOfReply ? 1 : 0}>
-        {entry.title && (
-          <Box flexDirection="column" alignItems="center" borderStyle="double" borderColor={accent} paddingX={2} marginBottom={1}>
-            {reveal(titleRows(entry.title, look.tagline, entry.runLabel, accent), 'type', 900, 'center', 'title')}
+      <Box flexDirection="column" paddingLeft={INDENT} marginTop={e.props.isFirstOfReply ? 1 : 0}>
+        {entry.title && <Box marginBottom={1}>{card(titleRows(entry.title, look.tagline, entry.runLabel, accent), accent, 'type', TITLE_MS, 'title')}</Box>}
+        {entry.banner && <Box marginBottom={1}>{drawRows($, e, [arrivalRow(entry.banner, entry.bannerTime, measure, accent)], 'left')}</Box>}
+        {prose}
+        {entry.changes?.length ? (
+          <Box flexDirection="row" marginTop={1} width={measure}>
+            <Text color={accent} dimColor>✧ </Text>
+            <Text dimColor>{entry.changes.join(' · ')}</Text>
           </Box>
-        )}
-        <Box flexDirection="column" borderStyle="round" borderColor={accent} paddingX={1}>
-          {entry.banner && <Box marginBottom={1}>{reveal(bannerRows(entry.banner, room, accent), 'wipe', 200, 'left', 'banner')}</Box>}
-          {speakers.some(Boolean)
-            ? paragraphs.map((par, i) => {
-                const who = speakers[i]
-                if (!who?.color) return <Box marginTop={i ? 1 : 0}><Markdown text={par} /></Box>
-                return (
-                  <Box flexDirection="row" marginTop={i ? 1 : 0}>
-                    <Text color={who.color}>▌</Text>
-                    <Box flexDirection="column" paddingLeft={1} flexGrow={1}>
-                      <Text color={who.color} bold>{who.name}</Text>
-                      <Markdown text={par} />
-                    </Box>
-                  </Box>
-                )
-              })
-            : <Markdown text={stripPreamble(e.props.text)} />}
-        </Box>
-        {ending && (
-          <Box flexDirection="column" alignItems="center" borderStyle="double" borderColor={ending.border} paddingX={2} marginTop={1}>
-            {reveal(ending.rows, 'lines', ending.rows.length * 260, 'center', 'ending')}
-          </Box>
-        )}
+        ) : null}
+        {ending && <Box marginTop={1}>{card(ending.rows, ending.border === 'gray' ? undefined : ending.border, 'lines', ending.rows.length * 260, 'ending')}</Box>}
       </Box>
     )
   })
@@ -748,10 +823,11 @@ export const register: Register = on => {
     return <Box display="none" />
   })
 
+  // the line that closes a turn ("Baked for 3s"): in play, nothing; the blank rows around the player's line part turns
   on('ui.render', { component: 'TurnDuration' }, async ($, e, next) => {
-    if (!isGame) return next(e)
-    const { Text } = $.ui.resolve(e)
-    return <Text dimColor>{'        ~ ✦ ~'}</Text>
+    if (!isGame || isOoc || e.props.isExpanded || e.props.waitingFor) return next(e)
+    const { Box } = $.ui.resolve(e)
+    return <Box display="none" />
   })
 
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
@@ -765,47 +841,63 @@ export const register: Register = on => {
     }
     const kind = e.props.origin.kind
     if (!isGame || e.props.isExpanded || (kind !== 'composer' && kind !== 'plugin') || /^\s*(ooc:|\/)/i.test(e.props.text)) return next(e)
+    // The player's own words are context, not the thing to look at: dim and italic, at the page's indent.
     const { Box, Text } = $.ui.resolve(e)
     const s = await read($, save)
-    const accent = accentOf(s)
     const shown = (await read($, cursed)).find(x => x.key === storyKey(e.props.text))?.shown
     return (
-      <Box flexDirection="row" marginTop={1}>
-        <Text color={accent} bold>» </Text>
-        <Text italic>{shown ?? e.props.text}</Text>
+      <Box flexDirection="row" marginTop={1} paddingLeft={INDENT}>
+        <Text dimColor>› </Text>
+        <Text dimColor italic>{shown ?? e.props.text}</Text>
         {shown !== undefined && <Text color={lookOf(s).palette.bad} dimColor> ✶</Text>}
       </Box>
     )
   })
 
+  // The band above the prompt. Beside the docked pane it carries only health and the latest change (or, while
+  // the game master works, what it's doing); without the pane, the essentials in one dim line.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (!isGame || e.props.hasSurvey) return next(e)
     const s = await read($, save)
     if (!s) return next(e)
     const { Box, Text } = $.ui.resolve(e)
     const look = lookOf(s)
-    const accent = accentOf(s)
-    const objective = currentObjective(s)
-    const clock = s.view?.clock ?? null
-    const sep = <Text dimColor>{'  │  '}</Text>
+    const last = await read($, latest)
+    if (await paneShown($)) {
+      const waiting = e.props.isWorking ? await read($, activity) : null
+      return (
+        <Box flexDirection="row" paddingLeft={INDENT}>
+          <Text color={bandHpColor(s, last?.hp, look)}>♥ {s.stats.hp}</Text>
+          <Text dimColor>{'  │  '}</Text>
+          {waiting
+            ? <Text dimColor italic wrap="truncate">◌ {waiting}</Text>
+            : last?.changes.length ? <Text dimColor wrap="truncate">✧ {last.changes.join(' · ')}</Text> : null}
+        </Box>
+      )
+    }
     return (
-      <Box flexDirection="row">
-        <Text color={accent} bold wrap="truncate">◆ {s.view?.location_name ?? s.location}</Text>
-        {sep}
-        <Text color={hpColor(s.stats.hp, s.stats.max_hp, look)}>♥ {s.stats.hp}/{s.stats.max_hp}</Text>
-        {sep}
-        <Text>{money(s.stats.coins, look)}</Text>
-        {s.view?.meter ? sep : null}
-        {s.view?.meter ? <Text color={meterColor(s.view.meter.state, look)}>{look.resource.icon} {s.view.meter.left}</Text> : null}
-        {(s.view?.curses ?? []).map(c => <Text color={look.palette.bad} wrap="truncate">{'  │  '}✶ {c.name}</Text>)}
-        {clock ? sep : null}
-        {clock ? <Text color={clock.left <= 3 ? look.palette.bad : undefined}>⧗ {clock.left > 0 ? clock.left : '!'}</Text> : null}
-        {s.view?.time ? sep : null}
-        {s.view?.time ? <Text dimColor>{s.view.time}</Text> : null}
-        {objective ? sep : null}
-        {objective ? <Text dimColor wrap="truncate">▸ {objective}</Text> : null}
+      <Box flexDirection="row" paddingLeft={INDENT}>
+        {bandParts(s, accentOf(s)).map((part, i, all) => (
+          // only the objective, last, gives way when the line is too long
+          <Box flexShrink={i === all.length - 1 ? 1 : 0}>
+            <Text color={part.color} bold={part.bold} dimColor={!part.color} wrap="truncate">{i ? ' · ' : ''}{part.text}</Text>
+          </Box>
+        ))}
       </Box>
     )
+  })
+
+  // The hint line under the prompt: in play, the game's own, and while a turn runs only that Esc interrupts it
+  // (Claude Code's line names its mode there); in ooc: turns and with no game, Claude Code's.
+  on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
+    if (!isGame || isOoc || !(await read($, save))) return next(e)
+    return next({ ...e, props: { ...e.props, hint: e.props.isWorking ? WORKING_HINT : PLAY_HINT } })
+  })
+
+  // The mode labels in the prompt footer ("auto mode on") are Claude Code's voice: hidden in play.
+  on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
+    if (!isGame || isOoc) return next(e)
+    return next({ ...e, props: { ...e.props, modes: [] } })
   })
 
   // ---- a fresh screen and a fresh conversation for a new game or another game
@@ -836,6 +928,16 @@ export const register: Register = on => {
     })
     return { drop: 'The page turns…' }
   }).catch(($, e, next) => next(e)) // on any failure the command runs as typed, without the clear
+
+  // ---- any key pressed while a turn's narration is appearing shows it whole (the key still goes to the prompt)
+  on('prompt.edit', async ($, e, next) => {
+    if (isGame && revealUntil) {
+      const now = await nowMs($)
+      if (now < revealUntil) await update($, revealSkip, () => now)
+      else revealUntil = 0
+    }
+    return next(e)
+  })
 
   // ---- a surface module that fails is drawn still from then on (the engine redraws the site at once)
   on('ui.fault', async ($, e, next) => {
@@ -881,6 +983,11 @@ export const register: Register = on => {
     const used = await read($, spend)
     const real = used ? '\n\n' + spendText({ ...used, points: pointsOf(s) }, (await spendStore($)).history ?? []) : ''
     return { text: (s ? budgetText(s) : 'No game yet. Type /newgame to start.') + real }
+  })
+
+  on('command.run', { command: 'guide' }, async $ => {
+    await refresh($)
+    return { text: guideText(await read($, save)) }
   })
 
   on('command.run', { command: 'sheet' }, async $ => {
@@ -1141,11 +1248,11 @@ function drawFx($: EngineInterface, e: Parameters<EngineInterface['ui']['resolve
     return <Client key="fx" module="./trayfx.tsx" props={plain(props)} />
   }
   return (
-    <Box flexDirection="column" paddingLeft={2}>
+    <Box flexDirection="column" paddingLeft={INDENT}>
       {lines.map(l => (
         <Box flexDirection="row">
           <Text color={accent}>{l.icon} </Text>
-          <Text dimColor={l.tone === 'neutral'}>{l.text}</Text>
+          <Text dimColor>{l.text}</Text>
           {l.result && <Text color={l.tone === 'good' ? look.palette.good : look.palette.bad} bold>{` ${l.result}`}</Text>}
         </Box>
       ))}

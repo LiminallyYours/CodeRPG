@@ -1,16 +1,17 @@
 import { expect, mock, test } from 'claude-code/testing'
+import type { TestBody } from 'claude-code/testing'
 
 import type { CoderpgSave } from '../types'
 import { exitsOf, keyText, mapText } from '../hooks/map'
-import { feedback, isReset } from '../hooks/feedback'
-import { blockLetters } from '../hooks/font'
+import { changesOf, feedback, isReset } from '../hooks/feedback'
 import { accentOf, DEFAULT_LOOK, lookOf, money, phasePhrase, soundFor, tabsOf } from '../hooks/look'
 import { commandPhrase, idlePhrase, npcPhrase, phaseOf } from '../hooks/phrases'
+import { pageFrame, pageMs, STEP_MS } from '../hooks/page'
 import { revealFrame } from '../hooks/reveal'
-import { endingRows, paragraphsOf, speakerOf } from '../hooks/story'
+import { arrivalRow, blocksOf, endingRows, measureOf, paragraphsOf, rowsOf, speakerCards, speakerOf, speechTag } from '../hooks/story'
 import { tileGrid, tilesAt } from '../hooks/tiles'
 import { FX_MS, hpAt, lineAt, numberAt, stripAt, TUMBLE_MS } from '../hooks/trayfx'
-import { budgetText, currentObjective, fitCells, startsAfresh, isGmNote, isPendingPlumbing, isPlumbing, onlyRecords, pipBar, smoothBar, spaced, storyKey, stripPreamble, trayFor } from '../hooks/register'
+import { bandHpColor, bandParts, budgetText, currentObjective, guideText, PLAY_HINT, WORKING_HINT, fitCells, startsAfresh, isGmNote, isPendingPlumbing, isPlumbing, onlyRecords, pipBar, smoothBar, spaced, storyKey, stripPreamble, trayFor } from '../hooks/register'
 import { combatOf, trayLines, traySound } from '../hooks/tray'
 import { applyCurse, cursedWords } from '../hooks/curse'
 import { addUsage, allTokens, byRole, count, endTurn, helperStep, HISTORY_SIZE, looseStep, measured, newSpend, perPoint, roleOf, rowOf, spawned, spendText, weighted, withRow, ZERO } from '../hooks/spend'
@@ -130,6 +131,8 @@ test('game plumbing is recognised and other tool calls are not', () => {
   expect(isPlumbing('Agent', { subagent_type: 'world', prompt: '', description: '' })).toBe(true)
   expect(isPlumbing('Write', { file_path: '/x/CodeRPG/proposals/extra-tamsin.json', content: '{}' })).toBe(true)
   expect(isPlumbing('Write', { file_path: '/x/CodeRPG/notes.md', content: '' })).toBe(false)
+  expect(isPlumbing('Read', { file_path: '/private/tmp/rpg-test/.claude/skills/gm-turn/SKILL.md' })).toBe(true) // the procedure, read by hand
+  expect(isPlumbing('Read', { file_path: '/game/.claude/settings.json' })).toBe(false)
 })
 
 test('unfinished calls stay hidden until they can be judged', () => {
@@ -211,19 +214,27 @@ test('a call not recorded as game plumbing (an ooc: turn) is drawn normally', as
   await ui.unmount()
 })
 
-test('narration from a game turn is drawn as story text', async ($, on) => {
+test('narration from a game turn is plain prose at the page indent, 72 columns at most, with no border', async ($, on) => {
   const text = 'The troll sniffs the cake, eyes wide.'
   on('state.get', { plugin: 'coderpg', key: 'story' }, () => ({ value: { value: [{ key: storyKey(text) }], version: 1 } }))
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({
       plugin: 'coderpg', surface, component: 'AssistantMessage', requestId: 'm1',
-      props: { text, isFirstOfReply: true },
+      props: { text, isFirstOfReply: true }, viewport: { columns: 184, rows: 46 },
     })
     const boxes = await ui.findAll({ type: 'Box' })
-    expect(boxes.some(b => b.props.borderStyle === 'round')).toBe(true)
-    expect(await ui.find({ type: 'Markdown' })).toBeDefined()
+    expect(boxes.some(b => b.props.borderStyle !== undefined)).toBe(false)
+    expect(boxes[0]?.props.paddingLeft).toBe(4)
+    expect(boxes.some(b => b.props.width === 72)).toBe(true)
+    expect((await ui.find({ type: 'Markdown' }))?.props.text).toBe(text)
     await ui.unmount()
   }
+})
+
+test('the measure is 72 columns, or the transcript\'s column less 6 where 72 won\'t fit', () => {
+  expect(measureOf(138)).toBe(72)
+  expect(measureOf(74)).toBe(68) // 120 columns with the pane docked beside
+  expect(measureOf(10)).toBe(20) // never narrower than this
 })
 
 test('the journal tab lists quest objectives and the people met, with their memories', async ($, on) => {
@@ -246,20 +257,24 @@ test('a new game opens with a title card, and a finished quest closes with an en
   expect(await ui.find({ text: '2026-10-21 · seed ember-4821' })).toBeDefined() // the run's date and seed
   expect(await ui.find({ text: /T H E   E N D/ })).toBeDefined()
   expect(await ui.find({ text: /Quest complete: Light the Lamp/ })).toBeDefined()
+  expect((await ui.findAll({ type: 'Box' })).some(b => b.props.borderStyle !== undefined)).toBe(false) // thin rules, no frame
+  expect((await ui.findAll({ type: 'Text', text: '─'.repeat(72) })).length).toBe(4) // above and below each card
   await ui.unmount()
 })
 
-test('arriving somewhere puts the room name on the narration card', async ($, on) => {
+test('arriving somewhere puts a rule with the place and the time of day above the narration', async ($, on) => {
   const text = 'Warmth and smoke roll over you.'
-  on('state.get', { plugin: 'coderpg', key: 'story' }, () => ({ value: { value: [{ key: storyKey(text), banner: 'The Gull' }], version: 1 } }))
-  const wide = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'AssistantMessage', requestId: 'm3',
-    props: { text, isFirstOfReply: true }, viewport: { columns: 100, rows: 40 } })
-  expect(await wide.find({ text: blockLetters('The Gull', 999)![0]! })).toBeDefined() // block letters when they fit
-  await wide.unmount()
-  const narrow = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'AssistantMessage', requestId: 'm3b',
-    props: { text, isFirstOfReply: true }, viewport: { columns: 30, rows: 40 } })
-  expect(await narrow.find({ text: /── THE GULL ──/ })).toBeDefined() // the plain banner when they don't
-  await narrow.unmount()
+  on('state.get', { plugin: 'coderpg', key: 'story' }, () => ({ value: { value: [{ key: storyKey(text), banner: 'The Gull', bannerTime: 'dusk' }], version: 1 } }))
+  const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'AssistantMessage', requestId: 'm3',
+    props: { text, isFirstOfReply: true }, viewport: { columns: 184, rows: 46 } })
+  const name = await ui.find({ type: 'Text', text: '  The Gull' })
+  expect(name?.props.bold).toBe(true)
+  expect((await ui.find({ type: 'Text', text: 'dusk' }))?.props.dimColor).toBe(true)
+  expect(await ui.find({ type: 'Client', key: 'banner' })).toBeUndefined() // no wipe, no block letters
+  await ui.unmount()
+  const row = arrivalRow('Gorse Thicket', 'dusk', 72, '#d7a640')
+  expect(row.map(x => x.t).join('')).toBe('─'.repeat(24) + '  Gorse Thicket · dusk  ' + '─'.repeat(24))
+  expect(arrivalRow('The Gull', undefined, 40, 'x').map(x => x.t).join('').length).toBe(40) // no time: name only
 })
 
 test('dice rolls from a play turn show as a dice tray instead of a hidden row', async ($, on) => {
@@ -294,15 +309,22 @@ test('the rules script output parses into tray lines and a sound', () => {
   expect(trayFor('Bash', { command: 'python3 rules/rpg.py look' }, { stdout: 'STATUS: playing' })).toEqual([])
 })
 
-test('changes between saves become one toast, sounds and an HP flash', () => {
+test('routine changes go in the change line, not a toast; sounds and the HP flash stay', () => {
   const next: CoderpgSave = {
     ...SAVE, stats: { ...SAVE.stats, hp: 2, coins: 6 }, inventory: [...SAVE.inventory, 'brass_lens'],
     view: { ...SAVE.view!, items: [...SAVE.view!.items, { id: 'brass_lens', name: 'Brass Lens', equipped: false }] },
   }
   const fb = feedback(SAVE, next)
-  expect(fb.toast).toBe('-2 HP  ·  +5 coins  ·  gained Brass Lens')
+  expect(fb.toast).toBeUndefined()
+  expect(changesOf(SAVE, next)).toEqual(['−2 ♥', '+5 coins', 'gained Brass Lens'])
   expect(fb.flash).toBe('hurt')
   expect(fb.sounds).toEqual(['coin'])
+  const healed: CoderpgSave = { ...SAVE, stats: { ...SAVE.stats, hp: 8, coins: 0 }, inventory: ['boarding_cutlass'] }
+  expect(changesOf(SAVE, healed)).toEqual(['+4 ♥', '−1 coin', 'lost Healing Tonic'])
+  expect(changesOf(STATION, { ...STATION, stats: { ...STATION.stats, coins: 4 } })).toEqual(['+3 credits']) // the game's currency
+  expect(changesOf(SAVE, SAVE)).toEqual([])
+  expect(changesOf(null, SAVE)).toEqual([])
+  expect(changesOf(SAVE, { ...SAVE, run: { id: 'b' } })).toEqual([]) // a new game: nothing changed, it began
   expect(feedback(null, SAVE).toast).toBeUndefined() // first load: quiet
   expect(feedback(SAVE, { ...SAVE, flags: [] }).toast).toBeUndefined() // a new game: quiet
   const won: CoderpgSave = { ...SAVE, view: { ...SAVE.view!, quests: [{ ...SAVE.view!.quests![0]!, complete: true }] } }
@@ -337,23 +359,42 @@ test('encounters, the clock and new generated things show in the tray', () => {
   expect(trayLines('  effect: HURT 1d2 → [2] = 2. Player HP 11/13')[0]!.text).toBe('Hurt for 2 · Player HP 11/13')
 })
 
-test('what the player notices of someone acting close by is a toast with a soft sound, once', () => {
-  const heard: CoderpgSave = { ...SAVE, view: { ...SAVE.view!, signals: [{ n: 1, text: 'Heavy bare feet thud along the coast road.' }] } }
-  const fb = feedback(SAVE, heard)
-  expect(fb.toast).toBe('Heavy bare feet thud along the coast road.')
-  expect(fb.sounds).toEqual(['signal'])
-  expect(feedback(heard, heard).toast).toBeUndefined() // already heard
-  const again: CoderpgSave = { ...SAVE, view: { ...SAVE.view!, signals: [...heard.view!.signals!, { n: 2, text: 'Heavy bare feet thud along the coast road.' }] } }
-  expect(feedback(heard, again).toast).toBe('Heavy bare feet thud along the coast road.') // the same thing heard again later
+test('the change line names what the world grew, objectives done and curses, once each', () => {
+  const grown: CoderpgSave = {
+    ...SAVE,
+    run: { rooms: { gorse_thicket: { meta: { name: 'Gorse Thicket' } } },
+      items: { driftwood_whistle: { meta: { name: 'Driftwood Whistle' } }, bone_ring: { meta: { name: 'Bone Ring', made_by: 'player' } } } },
+    view: { ...SAVE.view!, quests: [{ ...SAVE.view!.quests![0]!, objectives: [
+      { text: 'Find whoever took the lens.', done: true }, { text: 'Get past the troll on Greywater Bridge.', done: true }] }] },
+  }
+  expect(changesOf(SAVE, grown)).toEqual(['✓ Get past the troll on Greywater Bridge.', 'the world grows · Gorse Thicket · Driftwood Whistle'])
+  expect(changesOf(grown, grown)).toEqual([]) // already there
+  expect(changesOf(SAVE, CURSED)).toEqual(['✶ cursed: The Backwards Tongue'])
+  expect(changesOf(CURSED, SAVE)).toEqual(['✶ curse lifted: The Backwards Tongue'])
 })
 
-test('a failed quest and a new side quest are announced', () => {
+test('someone acting close by is only a soft sound (the story tells it); a new world ready is a toast too', () => {
+  const heard: CoderpgSave = { ...SAVE, view: { ...SAVE.view!, signals: [{ n: 1, text: 'Heavy bare feet thud along the coast road.', kind: 'plan' }] } }
+  const fb = feedback(SAVE, heard)
+  expect(fb.toast).toBeUndefined()
+  expect(fb.sounds).toEqual(['signal'])
+  expect(feedback(heard, heard).sounds).toEqual([]) // already heard
+  const again: CoderpgSave = { ...SAVE, view: { ...SAVE.view!, signals: [...heard.view!.signals!, { n: 2, text: 'Heavy bare feet thud along the coast road.' }] } }
+  expect(feedback(heard, again).sounds).toEqual(['signal']) // heard again later; an older save's signal has no kind: a plan's
+  const world: CoderpgSave = { ...SAVE, view: { ...SAVE.view!, signals: [{ n: 1, text: 'A new world has taken shape: The Salt Mines. /game salt_mines goes there.', kind: 'world' }] } }
+  expect(feedback(SAVE, world).toast).toBe('A new world has taken shape: The Salt Mines. /game salt_mines goes there.')
+  expect(feedback(SAVE, world).sounds).toEqual(['signal'])
+})
+
+test('a failed quest and a new side quest are in the change line', () => {
   const failed: CoderpgSave = { ...SAVE, view: { ...SAVE.view!, quests: [{ ...SAVE.view!.quests![0]!, failed: true }] } }
-  const fb = feedback(SAVE, failed)
-  expect(fb.toast).toBe('✗ quest failed: Light the Lamp')
-  expect(fb.sounds).toContain('defeat')
+  expect(changesOf(SAVE, failed)).toEqual(['✗ quest failed: Light the Lamp'])
+  expect(feedback(SAVE, failed).toast).toBeUndefined()
+  expect(feedback(SAVE, failed).sounds).toContain('defeat')
   const side: CoderpgSave = { ...SAVE, view: { ...SAVE.view!, quests: [...SAVE.view!.quests!, { id: 'lost_line', name: 'The Lost Line', complete: false, side: true, objectives: [] }] } }
-  expect(feedback(SAVE, side).toast).toBe('new side quest: The Lost Line')
+  expect(changesOf(SAVE, side)).toEqual(['new side quest: The Lost Line'])
+  const won: CoderpgSave = { ...SAVE, view: { ...SAVE.view!, quests: [{ ...SAVE.view!.quests![0]!, complete: true }] } }
+  expect(changesOf(SAVE, won)).toEqual(['★ quest complete: Light the Lamp'])
 })
 
 test('the pane shows the time, weather and clock; the journal shows the story so far and rumors', async ($, on) => {
@@ -458,6 +499,10 @@ test('ordinary story is never taken for a game-master note (QA finding 1)', () =
   for (const story of ['Checking the door, you find it locked.', 'Passing the nets, you smell tar.', 'Calling out, you hear only gulls.'])
     expect(isGmNote(story)).toBe(false)
   expect(isGmNote('Recording, she said, "is for clerks."')).toBe(false) // dialogue is always story
+  expect(isGmNote("Pell: I'll fetch it, love.")).toBe(false) // speech tagged with a name, even without quotation marks
+  expect(stripPreamble("Pell: I'll fetch it.\n\nShe bustles off.")).toBe("Pell: I'll fetch it.\n\nShe bustles off.")
+  expect(isGmNote('World turn: nothing moved.')).toBe(true) // the machinery, however it's dressed
+  expect(isGmNote("Note: I'll narrate after the brief.")).toBe(true)
 })
 
 test('story keys tell apart narrations that open the same way (QA finding 10)', () => {
@@ -615,35 +660,41 @@ test('the meter running low, running out and refilling each get one toast', () =
 
 // ---------------------------------------------------------------- Stage 3: look and feel
 
-test('place names become block letters, and anything the font lacks or that is too wide falls back', () => {
-  const rows = blockLetters('Gull', 40)!
-  expect(rows.length).toBe(3)
-  expect(rows[0]).toBe('▄▀▀ █ █ █   █')
-  expect(blockLetters("Troll's Hollow", 80)).toBeDefined()
-  expect(blockLetters('Café', 80)).toBeUndefined() // no glyph for é: the plain banner
-  expect(blockLetters('Harbor Square', 30)).toBeUndefined() // 51 cells wide
-})
-
-test('a reveal wipes, types, or draws its lines in, and holds still once done', () => {
+test('a reveal types, or draws its lines in, and holds still once done', () => {
   const rows = [[{ t: 'ABCDEFGHIJ', c: 'red' }], [{ t: 'xy' }]]
-  expect(revealFrame(rows, 'wipe', 0, 200).map(r => r.map(s => s.t).join(''))).toEqual(['▌', '▌'])
-  expect(revealFrame(rows, 'wipe', 100, 200)[0]!.map(s => s.t).join('')).toBe('ABCDE▌')
   expect(revealFrame(rows, 'type', 50, 100).map(r => r.map(s => s.t).join(''))).toEqual(['ABCDEF', ''])
   expect(revealFrame(rows, 'lines', 10, 100).length).toBe(1)
-  expect(revealFrame(rows, 'wipe', 500, 200)).toBe(rows)
+  expect(revealFrame(rows, 'lines', 500, 200)).toBe(rows)
 })
 
-test('a fresh story card wipes its banner in on the terminal clock; an old one is drawn still', async ($, on) => {
+test('paragraphs appear one after another, each dim for a moment, the first after any delay', () => {
+  expect(pageFrame(3, 0, 0)).toEqual(['fading', 'hidden', 'hidden'])
+  expect(pageFrame(3, STEP_MS + 10, 0)).toEqual(['shown', 'fading', 'hidden'])
+  expect(pageFrame(3, 3 * STEP_MS, 0)).toEqual(['shown', 'shown', 'shown'])
+  expect(pageFrame(2, 100, 900)).toEqual(['hidden', 'hidden']) // under a title card still typing
+  expect(pageMs(3, 900)).toBe(900 + 3 * STEP_MS)
+})
+
+test('a fresh page shows a paragraph at a time on the terminal clock; a key, or age, shows it whole', async ($, on) => {
   const clock = mock.clock(on, { now: 10_000 })
-  const text = 'Warmth and smoke roll over you.'
-  on('state.get', { plugin: 'coderpg', key: 'story' }, () => ({ value: { value: [{ key: storyKey(text), banner: 'The Gull', shownAt: 9_900 }], version: 1 } }))
+  const text = 'Warmth and smoke roll over you.\n\nThe fire spits.'
+  let skip = 0
+  on('state.get', { plugin: 'coderpg', key: 'story' }, () => ({ value: { value: [{ key: storyKey(text), shownAt: 10_000 }], version: 1 } }))
+  on('state.get', { plugin: 'coderpg', key: 'revealSkip' }, () => ({ value: { value: skip, version: 1 } }))
   const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'AssistantMessage', requestId: 'm8',
     props: { text, isFirstOfReply: true }, viewport: { columns: 100, rows: 40 } })
-  expect(await ui.find({ type: 'Client', key: 'banner' })).toBeDefined()
-  expect(await ui.find({ text: blockLetters('The Gull', 999)![0]!, in: 'banner' })).toBeUndefined() // still wiping
+  expect(await ui.find({ type: 'Client', key: 'page' })).toBeDefined()
+  expect((await ui.findAll({ type: 'Markdown', in: 'page' })).map(m => m.props.dimColor)).toEqual([true]) // the first, fading in
   await ui.advance(400)
-  expect(await ui.find({ text: blockLetters('The Gull', 999)![0]!, in: 'banner' })).toBeDefined()
+  expect((await ui.findAll({ type: 'Markdown', in: 'page' })).map(m => m.props.dimColor)).toEqual([false, false])
   await ui.unmount()
+  skip = 10_000 // a key was pressed while it appeared
+  const skipped = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'AssistantMessage', requestId: 'm8b',
+    props: { text, isFirstOfReply: true }, viewport: { columns: 100, rows: 40 } })
+  expect(await skipped.find({ type: 'Client' })).toBeUndefined()
+  expect((await skipped.findAll({ type: 'Markdown' })).length).toBe(2)
+  await skipped.unmount()
+  skip = 0
   await clock.advance(5_000)
   const old = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'AssistantMessage', requestId: 'm9',
     props: { text, isFirstOfReply: true }, viewport: { columns: 100, rows: 40 } })
@@ -651,16 +702,49 @@ test('a fresh story card wipes its banner in on the terminal clock; an old one i
   await old.unmount()
 })
 
-test("a character's lines are drawn in their own card color, under their name", async ($, on) => {
-  const text = 'The fog thickens over the quay.\n\n"Grukk not give glass!" Grukk booms, thumping his chest.\n\n"Mine!" the troll adds.'
-  const cards = [{ name: 'Grukk', color: '#8fae4a' }, { name: 'Ysolde', color: '#7fb0d0' }]
+test("a character's lines are drawn beside a keyline in their color, under their name, the tag taken off", async ($, on) => {
+  const tamsin = 'Tamsin: "Black-faced, she is," she calls, low, so as not to wake the flock\'s nerves. "Quick as a thought when she\'s frightened."'
+  const text = 'The fog thickens over the quay.\n\n' + tamsin + '\n\n"Grukk not give glass!" Grukk booms, thumping his chest.\n\n"Mine!" the troll adds.'
+  const cards = [{ name: 'Grukk', color: '#8fae4a' }, { name: 'Ysolde', color: '#7fb0d0' }, { name: 'Tamsin', color: '#c98a8a' }]
   on('state.get', { plugin: 'coderpg', key: 'story' }, () => ({ value: { value: [{ key: storyKey(text), cards }], version: 1 } }))
-  const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'AssistantMessage', requestId: 'm10', props: { text, isFirstOfReply: true } })
-  const label = await ui.find({ type: 'Text', text: 'Grukk' })
-  expect(label?.props.color).toBe('#8fae4a')
+  const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'AssistantMessage', requestId: 'm10',
+    props: { text, isFirstOfReply: true }, viewport: { columns: 184, rows: 46 } })
+  expect((await ui.find({ type: 'Text', text: 'Tamsin' }))?.props.color).toBe('#c98a8a')
+  expect(await ui.find({ type: 'Markdown', text: tamsin.slice('Tamsin: '.length) })).toBeDefined() // the tag is gone
+  const keyline = '▌\n'.repeat(rowsOf(tamsin.slice(8), 70)) + '▌' // one per row, and one for the name
+  expect((await ui.find({ type: 'Text', text: keyline }))?.props.color).toBe('#c98a8a')
+  expect((await ui.find({ type: 'Text', text: 'Grukk' }))?.props.color).toBe('#8fae4a') // untagged: the old heuristic
   expect(await ui.find({ type: 'Text', text: 'Ysolde' })).toBeUndefined()
   expect((await ui.findAll({ type: 'Text', text: 'Grukk' })).length).toBe(1) // "the troll adds": no one named outside the quote, so plain
   await ui.unmount()
+})
+
+test('a speech tag names someone by name or part of it; a sentence with a colon is no tag', () => {
+  const cards = [{ name: 'Dr. Ines Halloran', color: 'a' }, { name: 'the Shellback', color: 'b' }, { name: 'Ysolde', color: 'c' }]
+  expect(speechTag('Halloran: "Relief, at last."', cards)).toEqual({ text: '"Relief, at last."', who: cards[0] })
+  expect(speechTag('**Dr. Halloran:** "Relief."', cards)?.who).toBe(cards[0])
+  expect(speechTag('The Shellback: Click.', cards)?.who).toBe(cards[1])
+  expect(speechTag('Old Hob: "Who goes?"', cards)).toEqual({ text: '"Who goes?"', who: { name: 'Old Hob' } }) // someone unmet: a dim keyline
+  expect(speechTag('Old Hob: who goes there, you wonder.', cards)).toBeUndefined() // an unknown name needs a quotation after it
+  expect(speechTag('Ysolde stands at the door: "Out."', cards)).toBeUndefined() // a sentence, not a tag
+  expect(speechTag('You take in the scene: rain on the glass.', cards)).toBeUndefined()
+  expect(speechTag('Note: "Recording her reply."', cards)).toBeUndefined()
+  expect(blocksOf('Rain.\n\nYsolde: "Out."', cards)).toEqual([{ text: 'Rain.', who: undefined }, { text: '"Out."', who: cards[2] }])
+  expect(rowsOf('one two three four', 9)).toBe(3) // one two · three · four
+  expect(rowsOf('**one** two', 7)).toBe(1) // markers take no room
+})
+
+test('speakers take their card color, else the next speaker color in the order they were met', () => {
+  const people = (ids: string[]) => ids.map(id => ({ id, name: id, role: '', here: false, memory: [], ...(id === 'grukk' ? { card: '#8fae4a' } : {}) }))
+  const s: CoderpgSave = { ...SAVE, view: { ...SAVE.view!, people: people(['tamsin', 'grukk', 'hob']), characters_here: [{ id: 'wren', name: 'wren', role: '' }] } }
+  expect(speakerCards(s, DEFAULT_LOOK)).toEqual([
+    { name: 'tamsin', color: '#7fa7c9' }, // sage is Grukk's card, so the next one
+    { name: 'grukk', color: '#8fae4a' },
+    { name: 'hob', color: '#c98a8a' },
+    { name: 'wren', color: '#c9a35a' }, // here but not yet in the met list
+  ])
+  expect(speakerCards(s, DEFAULT_LOOK, [{ id: 'hob', name: 'hob', role: '' }]).length).toBe(4) // no one twice
+  expect(lookOf(SAVE).speaker_colors).toEqual(DEFAULT_LOOK.speaker_colors)
 })
 
 test('who speaks a paragraph: a quote and a name; titles and articles are skipped', () => {
@@ -812,12 +896,12 @@ test('an active curse is shown in the pane', async ($, on) => {
   await pane.unmount()
 })
 
-test('a curse taking hold or lifting gets a toast and its sound', () => {
+test('a curse taking hold gets a toast and its sound; one lifting only its sound', () => {
   const fb = feedback(SAVE, CURSED)
   expect(fb.toast).toBe('✶ cursed: The Backwards Tongue')
   expect(fb.sounds).toEqual(['curse'])
   const lifted = feedback(CURSED, SAVE)
-  expect(lifted.toast).toBe('✶ curse lifted: The Backwards Tongue')
+  expect(lifted.toast).toBeUndefined()
   expect(lifted.sounds).toEqual(['curse_lifted'])
 })
 
@@ -1048,4 +1132,177 @@ test("real use: a /clear (as /newgame runs) empties the mod's state, and the fig
   const r = (await $.command.run({ command: 'budget', args: '' } as never)) as { text?: string }
   expect(r.text).toContain('**Real use this session**')
   expect(r.text).toContain('(2 turns)')
+})
+
+// ---------------------------------------------------------------- NEXT-PLAN 3.1: the page
+
+test('a play turn: the arrival rule with the time, the change line under the last paragraph, and a key shows it whole', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const before: CoderpgSave = { ...SAVE, run: { id: 'r1' } }
+  const after: CoderpgSave = {
+    ...before, location: 'gorse_thicket', stats: { ...SAVE.stats, hp: 2 },
+    run: { id: 'r1', rooms: { gorse_thicket: { meta: { name: 'Gorse Thicket' } } } },
+    view: { ...SAVE.view!, location_name: 'Gorse Thicket', time: 'dusk', characters_here: [] },
+  }
+  let file = before, mtime = 1
+  on('fs.exists', () => ({ value: true }))
+  on('fs.stat', () => ({ value: { mtimeMs: mtime } }) as never)
+  on('fs.read', () => ({ value: JSON.stringify(file) }) as never)
+  on('store.get', () => ({ value: undefined }))
+  on('store.set', () => ({ value: undefined }))
+  on('session.root', () => ({ value: '/game' }))
+  on('session.start', () => ({ cwd: '/game' }) as never)
+  on('turn.start', (_, e) => ({ turnId: e.turnId }) as never)
+  on('turn.complete', () => ({ text: '' }) as never)
+  on('command.register', () => ({ value: {} }) as never)
+  on('ui.open', () => ({ value: {} }) as never)
+  on('ui.toast', () => ({ value: undefined }) as never)
+  on('tool.call', () => ({ result: { stdout: 'MOVED north.' } }) as never)
+  on('session.append', (_, e, next) => next(e))
+  on('prompt.edit', () => ({ text: 'x', cursor: 1 }) as never)
+  await $.session.start({ source: 'startup', cwd: '/game' } as never)
+  await $.turn.start({ turnId: 't1', text: 'I push north into the gorse.' } as never)
+  file = after; mtime = 2
+  await $.tool.call({ tool: 'Bash', command: 'python3 rules/rpg.py move north', tool_use_id: 'c1' } as never)
+  const first = 'The gap narrows and the gorse crowds in.\n\nA lamb trembles by a stone.'
+  const second = 'The only way out is back south.'
+  for (const [i, text] of [first, second].entries()) {
+    await $.session.append({ door: 'response', origin: { kind: 'model' }, uuid: `u${i}`, message: { role: 'assistant', content: [{ type: 'text', text }] } } as never)
+  }
+  await $.turn.complete({ turnId: 't1', answer: '' } as never)
+  await clock.settle()
+  const draw = (text: string, id: string) => $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'AssistantMessage', requestId: id,
+    props: { text, isFirstOfReply: true }, viewport: { columns: 184, rows: 46 } })
+  const a = await draw(first, 'p1')
+  expect(await a.find({ type: 'Text', text: '  Gorse Thicket' })).toBeDefined()
+  expect(await a.find({ type: 'Text', text: 'dusk' })).toBeDefined()
+  expect(await a.find({ text: /✧/ })).toBeUndefined() // not under the first block
+  expect((await a.find({ type: 'Client', key: 'page' }))?.props.props).toMatchObject({ delay: 0, width: 72 })
+  await a.unmount()
+  const b = await draw(second, 'p2')
+  expect((await b.find({ type: 'Client', key: 'page' }))?.props.props).toMatchObject({ delay: 2 * STEP_MS }) // after the first block's two paragraphs
+  expect(await b.find({ type: 'Text', text: '−2 ♥ · the world grows · Gorse Thicket' })).toBeDefined()
+  await b.unmount()
+  await ($.prompt as unknown as { edit: (e: unknown) => Promise<unknown> }).edit({ origin: { kind: 'composer' }, key: { key: 'x' }, text: '', cursor: 0, start: 0, end: 0, inputText: 'x', kind: 'composer' } as never)
+  const c = await draw(second, 'p3')
+  expect(await c.find({ type: 'Client', key: 'page' })).toBeUndefined() // the key showed it whole
+  await c.unmount()
+})
+
+test("the player's line is dim and italic after a quiet ›, and the turn's closing line is hidden in play", async ($, on) => {
+  on('fs.exists', () => ({ value: true }))
+  on('fs.stat', () => ({ value: undefined }) as never)
+  on('store.get', () => ({ value: undefined }))
+  on('store.set', () => ({ value: undefined }))
+  on('session.root', () => ({ value: '/game' }))
+  on('session.start', () => ({ cwd: '/game' }) as never)
+  on('command.register', () => ({ value: {} }) as never)
+  on('ui.open', () => ({ value: {} }) as never)
+  on('ui.render', { component: 'TurnDuration' }, () => ({ type: 'Text', props: {}, children: ['Baked for 3s'] }))
+  await $.session.start({ source: 'startup', cwd: '/game' } as never)
+  const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'UserMessage', requestId: 'u1',
+    props: { text: 'try north', origin: { kind: 'composer' }, isExpanded: false } })
+  expect((await ui.find({ type: 'Text', text: '› ' }))?.props.dimColor).toBe(true)
+  const words = await ui.find({ type: 'Text', text: 'try north' })
+  expect(words?.props).toMatchObject({ dimColor: true, italic: true })
+  expect((await ui.find({ type: 'Box' }))?.props.paddingLeft).toBe(4)
+  await ui.unmount()
+  const end = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'TurnDuration', requestId: 'd1',
+    props: { word: 'Baked', durationMs: 3000 } })
+  expect((await end.find({ type: 'Box' }))?.props.display).toBe('none')
+  expect(await end.find({ text: /✦/ })).toBeUndefined()
+  await end.unmount()
+})
+
+// ---------------------------------------------------------------- NEXT-PLAN 3.2: band, hint, footer
+
+/** What the engine answers for a session in a game folder (the mod is inert elsewhere) with a save; register before any $ call. */
+function gameFolder(on: Parameters<TestBody>[1], save: CoderpgSave) {
+  mock.clock(on, { now: 1_000 })
+  on('fs.exists', () => ({ value: true }))
+  on('fs.stat', () => ({ value: { mtimeMs: 1 } }) as never)
+  on('fs.read', () => ({ value: JSON.stringify(save) }) as never)
+  on('store.get', () => ({ value: undefined }))
+  on('store.set', () => ({ value: undefined }))
+  on('session.root', () => ({ value: '/game' }))
+  on('session.start', () => ({ cwd: '/game' }) as never)
+  on('command.register', () => ({ value: {} }) as never)
+  on('ui.open', () => ({ value: {} }) as never)
+}
+
+const startSession = ($: Parameters<TestBody>[0]) => $.session.start({ source: 'startup', cwd: '/game' } as never)
+
+const BAND_PROPS = { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 100, scroll: { offset: 0, bodyRows: 10 }, view: {} }
+
+test('beside the pane the band is health and the latest change, or what the game master is doing', async ($, on) => {
+  const save: CoderpgSave = { ...SAVE, stats: { ...SAVE.stats, hp: 10, max_hp: 12 } }
+  gameFolder(on, save)
+  on('state.get', { plugin: 'coderpg', key: 'latest' }, () => ({ value: { value: { changes: ['−2 ♥', 'the world grows · Gorse Thicket'], hp: 'hurt' }, version: 1 } }))
+  on('state.get', { plugin: 'coderpg', key: 'activity' }, () => ({ value: { value: 'Reading the room', version: 1 } }))
+  on('ui.panes', () => ({ value: [{ id: 'coderpg-sheet', title: 'Character', isShown: true, isFocused: false, isPlaced: true }] }) as never)
+  await startSession($)
+  const band = (isWorking: boolean, id: string) => $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'AbovePrompt', requestId: id,
+    props: { ...BAND_PROPS, isWorking }, viewport: { columns: 133, rows: 46 } }) // the column beside the pane
+  const ui = await band(false, 'b1')
+  expect((await ui.find({ type: 'Text', text: '♥ 10' }))?.props.color).toBe('red') // hurt this turn
+  expect(await ui.find({ type: 'Text', text: '✧ −2 ♥ · the world grows · Gorse Thicket' })).toBeDefined()
+  expect(await ui.find({ text: /Greywater|◎/ })).toBeUndefined() // the pane has the rest
+  await ui.unmount()
+  const busy = await band(true, 'b2')
+  expect((await busy.find({ type: 'Text', text: '◌ Reading the room' }))?.props.italic).toBe(true)
+  expect(await busy.find({ text: /✧/ })).toBeUndefined()
+  await busy.unmount()
+  const look = lookOf(save)
+  expect(bandHpColor(save, 'heal', look)).toBe('cyan')
+  expect(bandHpColor(save, undefined, look)).toBeUndefined() // quiet when nothing changed
+  expect(bandHpColor({ ...save, stats: { ...save.stats, hp: 3 } }, undefined, look)).toBe('red') // a quarter or less
+})
+
+test('without the pane the band carries place, health, money, resource, clock, time and objective', async ($, on) => {
+  const save: CoderpgSave = { ...SAVE, view: { ...SAVE.view!, time: 'dusk', clock: { name: 'The fleet comes home', left: 14, total: 20 },
+    meter: { left: 28, capacity: 30, state: 'ok' } } }
+  expect(bandParts(save, '#d7a640').map(p => p.text)).toEqual(['◆ Greywater Bridge', '♥ 4', '◎ 1', '✦ 28', '⧗ 14', 'dusk', '▸ Get past the troll on Greywater Bridge.'])
+  const parts = bandParts(save, '#d7a640')
+  expect(parts.filter(p => p.color === '#d7a640').map(p => p.text[0])).toEqual(['◆', '▸']) // the accent marks only place and objective
+  gameFolder(on, save)
+  on('ui.panes', () => ({ value: [{ id: 'coderpg-sheet', title: 'Character', isShown: false, isFocused: false, isPlaced: false }] }) as never)
+  await startSession($)
+  const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'AbovePrompt', requestId: 'b3',
+    props: BAND_PROPS, viewport: { columns: 120, rows: 40 } }) // opened unasked on a narrow screen: not placed
+  expect(await ui.find({ type: 'Text', text: ' · dusk' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('in play the hint line is the game\'s and the mode labels are hidden; ooc: turns keep the engine\'s', async ($, on) => {
+  gameFolder(on, SAVE)
+  let seen: unknown
+  on('ui.render', { component: 'PromptHint' }, (_, e) => { seen = e.props.hint; return { type: 'Text', props: {}, children: [String(e.props.hint)] } })
+  on('ui.render', { component: 'SessionMode' }, (_, e) => { seen = e.props.modes; return { type: 'Text', props: {}, children: [] } })
+  on('turn.start', (_, e) => ({ turnId: e.turnId }) as never)
+  await startSession($)
+  const hint = async (isWorking: boolean) => {
+    const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'PromptHint', requestId: `h${isWorking}`,
+      props: { isDraft: false, isWorking, hint: '? for shortcuts' } })
+    await ui.unmount()
+    return seen
+  }
+  expect(await hint(false)).toBe(PLAY_HINT)
+  expect(PLAY_HINT).toContain('ctrl+x tab to the margin')
+  expect(PLAY_HINT).toContain('/guide')
+  expect(await hint(true)).toBe(WORKING_HINT) // Esc still interrupts; Claude Code's mode isn't named
+  const mode = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'SessionMode', requestId: 'sm', props: { modes: ['auto mode on'] } })
+  expect(seen).toEqual([])
+  await mode.unmount()
+  await $.turn.start({ turnId: 't9', text: 'ooc: how do saves work?' } as never)
+  expect(await hint(false)).toBe('? for shortcuts')
+})
+
+test('/guide says how to play in the game\'s own words, instantly', async ($, on) => {
+  gameFolder(on, STATION)
+  await startSession($)
+  const r = (await $.command.run({ command: 'guide', args: '' } as never)) as { text?: string }
+  expect(r.text).toContain('How to play The Flooded Station')
+  expect(r.text).toContain('**p** plan, **n** notes') // the station's own tab keys
+  expect(r.text).toContain('ooc:')
+  expect(guideText(null)).toContain('**How to play**')
 })

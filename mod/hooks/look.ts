@@ -6,6 +6,7 @@ import type { CoderpgLook, CoderpgPhase, CoderpgSave, CoderpgTab } from '../type
 
 export const DEFAULT_LOOK: CoderpgLook = {
   palette: { accent: '#d7a640', good: 'green', bad: 'red', warn: 'yellow', heal: 'cyan' },
+  speaker_colors: ['#8fae4a', '#7fa7c9', '#c98a8a', '#c9a35a', '#6fb3a8', '#a08fc9'],
   stat_labels: { might: 'Might', agility: 'Agility', wits: 'Wits' },
   stat_short: { might: 'MIG', agility: 'AGI', wits: 'WIT' },
   currency: 'coins',
@@ -30,6 +31,7 @@ export function lookOf(s: CoderpgSave | null | undefined): CoderpgLook {
   return {
     ...d, ...l,
     palette: { ...d.palette, ...l.palette },
+    speaker_colors: l.speaker_colors?.length ? l.speaker_colors : d.speaker_colors,
     stat_labels: { ...d.stat_labels, ...l.stat_labels },
     stat_short: { ...d.stat_short, ...l.stat_short },
     tab_labels: { ...d.tab_labels, ...l.tab_labels },

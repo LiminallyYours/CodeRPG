@@ -5,6 +5,7 @@
 import type { ClientModule } from 'claude-code'
 
 import type { Seg } from './reveal'
+import { INDENT } from './story'
 
 /** One side of a fight: its name, health before and after this exchange, and the damage it took. */
 export type Side = { name: string; was: number; hp: number; max: number; dmg: number }
@@ -91,13 +92,13 @@ const TrayFx: ClientModule<TrayFxProps, State> = (props, surface) => {
   const t = surface.state?.t ?? 0
   const fight = props.you || props.foe
   return (
-    <Box flexDirection="column" paddingLeft={2}>
+    <Box flexDirection="column" paddingLeft={INDENT}>
       {props.lines.map((l, i) => {
         const shown = lineAt(l, t, i + 1)
         return (
           <Box flexDirection="row">
             <Text color={props.colors.accent}>{shown.icon} </Text>
-            <Text dimColor={shown.tone === 'neutral'}>{shown.text}</Text>
+            <Text dimColor>{shown.text}</Text>
             {shown.result && <Text color={shown.tone === 'good' ? props.colors.good : props.colors.bad} bold>{` ${shown.result}`}</Text>}
           </Box>
         )

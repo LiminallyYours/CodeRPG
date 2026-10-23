@@ -424,11 +424,12 @@ def open_steps(state):
     return out
 
 
-def add_signal(state, text):
-    """Something the player notices, for the interface's toast and chime (`view.signals`, the last 3)."""
+def add_signal(state, text, kind="plan"):
+    """Something the player notices, for the interface's chime (`view.signals`, the last 3). `kind` says what:
+    `plan` (someone close by acted on their plan; the story tells it) or `world` (a new world is ready; also a toast)."""
     run = state["run"]
     run["signal_n"] = run.get("signal_n", 0) + 1
-    run.setdefault("signals", []).append({"n": run["signal_n"], "text": text, "move": run["moves"]})
+    run.setdefault("signals", []).append({"n": run["signal_n"], "text": text, "move": run["moves"], "kind": kind})
     del run["signals"][:-3]
 
 
@@ -814,7 +815,7 @@ def refresh_view(state):
         "settings": settings_view(),
         "chronicle": run["chronicle"][-BALANCE["world"]["chronicle_lines"]:],
         "rumors": run["rumors"][-BALANCE["world"]["rumors_kept"]:],
-        "signals": [{"n": x["n"], "text": x["text"]} for x in run.get("signals", [])],  # what the player noticed close by
+        "signals": [{"n": x["n"], "text": x["text"], "kind": x.get("kind", "plan")} for x in run.get("signals", [])],  # what the player noticed close by
     }
 
 
@@ -2218,6 +2219,9 @@ def validate_game(kit=False):
             problems.append("rooms/%s.md: terrain %r isn't in the look's terrain (%s)" % (r, room["terrain"], ", ".join(terrains)))
         if room.get("color") is not None and not color.match(str(room["color"])):
             problems.append("rooms/%s.md: color must look like #4a6b8a" % r)
+    speakers = look.get("speaker_colors")
+    if not isinstance(speakers, list) or not speakers or not all(color.match(str(x)) for x in speakers):
+        problems.append("look.json speaker_colors: must be a list of colors like #8fae4a")
     for c in content.ids("characters"):
         card = content.load("characters", c).get("card")
         if card is not None and not color.match(str(card)):
@@ -3063,7 +3067,7 @@ def cmd_forge(args):
     shutil.rmtree(FORGE / d)
     try:  # the toast, in whatever game is being played
         state = load_state()
-        add_signal(state, "A new world has taken shape: %s. /game %s goes there." % (title, ident))
+        add_signal(state, "A new world has taken shape: %s. /game %s goes there." % (title, ident), "world")
         save_state(state)
     except Refused:
         pass
