@@ -7,7 +7,7 @@ A text RPG that runs inside Claude Code. Claude is the game master, and you type
 2. Type `/newgame`. Add a seed to replay a run exactly (`/newgame ember-4821`), or `daily` for today's world, the same for everyone; the title card shows the date and seed. Type `/game` to see the installed games, and `/game <id>` to switch; each game keeps its own save.
 3. Type actions in plain English, for example "look around", "go to the tavern", "ask Pell about the troll", "attack the troll".
 4. To talk to Claude as a developer instead of the GM, start your message with `ooc:`. Without it, a hook reminds the GM that the message is an in-game action.
-5. Instant commands (no Claude turn, no cost): `/inventory`, `/map`, `/sheet` (reopens the character pane), `/sound` (turns sound effects on or off) and `/budget` (what's left of the meter, what the extras cost, and what's switched on).
+5. Instant commands (no Claude turn, no cost): `/inventory`, `/map`, `/sheet` (reopens the character pane), `/sound` (turns sound effects on or off) and `/budget` (what's left of the meter, what the extras cost, what's switched on, and what the session really used in tokens).
 
 Two games ship on the kit:
 - **The Dark Lighthouse** (`dark_lighthouse`): a fishing village with a stolen lamp lens. Six rooms, three characters, six items and one quest with three branches.
@@ -96,6 +96,16 @@ One point is roughly one extra round of game-master work (about 10–15k tokens,
 | `rich` | 60 | on, 6 lines | every 4 moves, with plans | everything the game allows, 24 per run | 10 orders | 5 | 4, after 2 | 4, 10 replies |
 
 Change them with `python3 tools/settings.py preset thrifty` or `set npc_agents.characters.grukk false`; `/budget` shows what's in effect. The station overrides one switch: its world turns come every 4 moves.
+
+**What a session really used.** The prices above are estimates. Below them, `/budget` shows what this Claude Code session actually used, in tokens, as the mod counts it from every model request (the game master's and each helper's):
+- **per play turn:** seconds, requests and weighted tokens (input + 1.25 × cache writes + 0.1 × cache reads + 5 × output, the API's price ratios), the figures to compare before and after a speed change;
+- **by who:** the storyteller, the characters' agents, the world agent and the worldsmith;
+- **extras:** points spent, and what a point really cost: the turns that spent points less as many plain turns, per point, set against the 10–15k a point is priced as;
+- **plan usage:** how far the session moved the 5-hour and weekly windows, on a subscription;
+- **development turns** (`ooc:`), kept out of the play figures;
+- **the last 10 sessions**, kept in the mod's own storage, per project folder.
+
+It counts per Claude Code session, as the meter refills, and carries on across `/newgame`. No dollar figure: on a subscription it would only be an estimate. Without the mod there's nothing to count with.
 
 ## A different game every run
 The authored world is fixed, but each run varies within limits the content sets, and the world can grow during play. This replaced the original rule "never invent anything": nothing is invented freely, but the **world agent** may propose new things that the rules script checks and stores.

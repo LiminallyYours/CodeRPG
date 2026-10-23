@@ -143,6 +143,44 @@ export type CoderpgTab = 'here' | 'map' | 'journal'
 /** Which stage a turn is in, while the game master works. */
 export type CoderpgPhase = 'reading' | 'considering' | 'shaping' | 'stirring' | 'resolving'
 
+// ---- what a session really used (mod/hooks/spend.ts)
+
+/** The four counts the API reports for a request, and how many requests. */
+export type SpendTokens = { input: number; output: number; cacheRead: number; cacheWrite: number; requests: number }
+
+/** Who made a request: the game master (the main thread), or one of the helpers by its agent type. */
+export type SpendRole = 'gm' | 'npc' | 'world' | 'worldsmith' | 'other'
+
+/** A rate-limit window: how much of it this session used, and where it stood at the last reading. */
+export type SpendWindow = { used: number; last: number; resetsAt?: string }
+
+/** One Claude Code session (a process: /newgame's /clear carries on in it), as the mod counts it. */
+export type Spend = {
+  startedAt: number
+  /** Play turns: their number, wall-clock time and every request made in them except the worldsmith's. */
+  play: { turns: number; ms: number; tokens: SpendTokens }
+  /** The play turns that spent meter points, and how many: set against the others, what a point really costs. */
+  extra?: { turns: number; tokens: SpendTokens; points: number }
+  /** Development turns (ooc:, or ones that used tools other than the game's): the game master's requests. */
+  dev: { turns: number; tokens: SpendTokens }
+  /** The game master's requests in play turns, and outside any turn. */
+  gm: SpendTokens
+  /** Each helper's requests by agent id, and each id's role (known once its spawn returns). */
+  agents: Record<string, { role: SpendRole; tokens: SpendTokens }>
+  /** Helper runs by role. */
+  runs: Partial<Record<SpendRole, number>>
+  /** The plan's rate-limit windows (`five_hour`, `seven_day`), absent off a subscription. */
+  windows: Record<string, SpendWindow>
+  /** Meter points spent this session (the meter refills when Claude Code starts, as a session does). */
+  points: number
+}
+
+/** A finished session, as the history keeps it. */
+export type SpendRow = {
+  startedAt: number; turns: number; secondsPerTurn: number; requestsPerTurn: number; weightedPerTurn: number
+  points: number; perPoint?: number; roles: Record<SpendRole, number>; windows: Record<string, number>
+}
+
 declare module 'claude-code' {
   interface PluginState {
     coderpg: {
@@ -164,6 +202,8 @@ declare module 'claude-code' {
       muted: boolean
       /** The player's rows typed under a curse: how the words came out, by the row's story key. */
       cursed: { key: string; shown: string }[]
+      /** What this Claude Code session really used, in tokens, for the owner's part of /budget. */
+      spend: Spend | null
     }
   }
 }

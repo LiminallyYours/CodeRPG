@@ -14,7 +14,7 @@ Approved by JW 2026-10-23. This plan comes from `NEWSTAGEIDEAS.md`, with JW's an
 
 ---
 
-## 1. The real-spend meter (R3)
+## 1. The real-spend meter (R3): built 2026-10-23 (see `HANDOFF.md`, *NEXT-PLAN part 1 notes*)
 
 **Feasibility (checked, read-only):** the mod can read real usage.
 - `$.session.usage()` and the `session.measure` event (fired after each main turn) give the context window, the Max plan's rate-limit windows (`five_hour`, `seven_day`, `percentUsed`) and the `/cost` total.
@@ -41,7 +41,7 @@ Session totals alone serve neither job, because they depend on how long you play
   - The world agent.
   - The worldsmith (background, counted when its requests arrive).
   - Other.
-- **Calibration:** meter points spent this session, the world agent's runs and their average weighted tokens, and weighted tokens per point next to the average GM turn. Both shipped presets price by "one point ≈ one GM round", so this one line shows whether `balance.json` prices are off.
+- **Calibration:** meter points spent this session, the world agent's runs and their weighted tokens, and **what a point really cost**: the turns that spent points less as many plain turns, per point (added in the build: the world agent's own tokens turned out to be a small part of an extra, about 2.8k per point; most of it is the game master's extra work in that turn).
 - **Max-plan usage:** how far this session moved the 5-hour and weekly windows (start → now, in %). On Max this is the real limit, and it's absent off a subscription.
 - **Development turns (`ooc:`)** are counted separately, so dev sessions don't distort the play averages.
 - **History:** the last 10 sessions in `$.store` (date, play turns, the per-turn averages, helper totals, points, window %), shown as a compact table under the current session.

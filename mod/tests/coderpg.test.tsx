@@ -13,6 +13,8 @@ import { FX_MS, hpAt, lineAt, numberAt, stripAt, TUMBLE_MS } from '../hooks/tray
 import { budgetText, currentObjective, fitCells, startsAfresh, isGmNote, isPendingPlumbing, isPlumbing, onlyRecords, pipBar, smoothBar, spaced, storyKey, stripPreamble, trayFor } from '../hooks/register'
 import { combatOf, trayLines, traySound } from '../hooks/tray'
 import { applyCurse, cursedWords } from '../hooks/curse'
+import { addUsage, allTokens, byRole, count, endTurn, helperStep, HISTORY_SIZE, looseStep, measured, newSpend, perPoint, roleOf, rowOf, spawned, spendText, weighted, withRow, ZERO } from '../hooks/spend'
+import type { Spend, SpendRow } from '../hooks/spend'
 import { CURSE_VECTORS } from './curse_vectors'
 
 const MAP: NonNullable<CoderpgSave['map']> = {
@@ -857,4 +859,146 @@ test('the journal marks someone the player kept coming back to, who now speaks f
   expect((await ui.findAll({ type: 'Text', text: '  knows you well' })).length).toBe(1)
   expect(await ui.find({ text: ', a fisherman' })).toBeDefined()
   await ui.unmount()
+})
+
+// ---- what a session really used (/budget, the owner's part)
+
+const U = (input: number, output: number, read: number, write: number) =>
+  ({ input_tokens: input, output_tokens: output, cache_read_input_tokens: read, cache_creation_input_tokens: write })
+
+test('real use: tokens are weighted by price ratios and counted by who made them', () => {
+  const t = addUsage(addUsage(ZERO, U(100, 10, 1000, 40)), U(0, 0, 0, 0))
+  expect(t).toEqual({ input: 100, output: 10, cacheRead: 1000, cacheWrite: 40, requests: 2 })
+  expect(weighted(t)).toBe(100 + 50 + 100 + 50)
+  expect(roleOf('npc')).toBe('npc')
+  expect(roleOf('worldsmith')).toBe('worldsmith')
+  expect(roleOf('Explore')).toBe('other')
+  let s = newSpend(0)
+  // a helper's first request can come in before its spawn returns: it's kept, and gets its role later
+  s = helperStep(s, 'a1', U(0, 100, 0, 0))
+  s = spawned(s, 'a1', 'world')
+  s = spawned(s, 'a2', 'npc')
+  s = helperStep(s, 'a2', U(1000, 0, 0, 0))
+  s = looseStep(s, U(10, 0, 0, 0))
+  expect(byRole(s)).toEqual({ gm: 10, npc: 1000, world: 500, worldsmith: 0, other: 0 })
+  expect(s.runs).toEqual({ world: 1, npc: 1 })
+  expect(allTokens(s).requests).toBe(3)
+})
+
+test('real use: play turns make the per-turn figures, development turns are kept apart', () => {
+  const main = addUsage(ZERO, U(1000, 0, 0, 0))
+  const all = addUsage(main, U(500, 0, 0, 0))
+  let s = endTurn(newSpend(0), { play: true, ms: 30_000, main, all })
+  s = endTurn(s, { play: true, ms: 10_000, main, all })
+  s = endTurn(s, { play: false, ms: 99_000, main: addUsage(ZERO, U(7000, 0, 0, 0)), all: ZERO })
+  const row = rowOf(s)
+  expect(row.turns).toBe(2)
+  expect(row.secondsPerTurn).toBe(20)
+  expect(row.requestsPerTurn).toBe(2)
+  expect(row.weightedPerTurn).toBe(1500)
+  expect(s.dev).toEqual({ turns: 1, tokens: { ...ZERO, input: 7000, requests: 1 } })
+  expect(byRole(s).gm).toBe(2000) // the game master's play requests; development ones are on their own line
+})
+
+test('real use: what a point really cost is the turns with extras less plain turns, per point', () => {
+  const plain = addUsage(ZERO, U(30_000, 0, 0, 0))
+  const extra = addUsage(addUsage(ZERO, U(50_000, 0, 0, 0)), U(10_000, 0, 0, 0))
+  let s = endTurn(newSpend(0), { play: true, ms: 1, main: plain, all: plain, points: 0 })
+  expect(perPoint(s)).toBeUndefined() // no turn with extras yet
+  s = endTurn(s, { play: true, ms: 1, main: extra, all: extra, points: 2 })
+  expect(perPoint(s)).toBe(15_000) // (60k - 30k) / 2
+  s = endTurn(s, { play: true, ms: 1, main: plain, all: plain })
+  expect(s.extra).toEqual({ turns: 1, tokens: { ...ZERO, input: 60_000, requests: 2 }, points: 2 })
+  expect(perPoint(s)).toBe(15_000) // a third turn as plain as the first changes nothing
+  expect(spendText(s, [])).toContain('**A point really cost** about 15k weighted tokens (priced as 10–15k weighted tokens): 1 turn with extras against 2 without.')
+  expect(rowOf(s).perPoint).toBe(15_000)
+})
+
+test('real use: the plan windows count what this session moved them, across a reset', () => {
+  let s = measured(newSpend(0), [{ kind: 'five_hour', percentUsed: 40, resetsAt: 'A' }])
+  s = measured(s, [{ kind: 'five_hour', percentUsed: 43.5, resetsAt: 'A' }, { kind: 'seven_day', percentUsed: 12 }])
+  expect(s.windows.five_hour!.used).toBe(3.5)
+  expect(s.windows.seven_day!.used).toBe(0)
+  s = measured(s, [{ kind: 'five_hour', percentUsed: 2, resetsAt: 'B' }, { kind: 'seven_day', percentUsed: 12.4 }])
+  expect(s.windows.five_hour!.used).toBe(5.5)
+  expect(s.windows.seven_day!.used).toBe(0.4)
+})
+
+test('real use: the history keeps the last sessions with turns, newest last', () => {
+  const played = endTurn(newSpend(5), { play: true, ms: 1000, main: ZERO, all: ZERO })
+  let h: SpendRow[] = []
+  h = withRow(h, newSpend(1)) // nothing happened: not kept
+  h = withRow(h, undefined)
+  h = withRow(h, { nonsense: true } as unknown as Spend)
+  expect(h).toEqual([])
+  for (let i = 0; i < 12; i++) h = withRow(h, { ...played, startedAt: i })
+  expect(h.length).toBe(HISTORY_SIZE)
+  expect(h[0]!.startedAt).toBe(2)
+  expect(h[HISTORY_SIZE - 1]!.startedAt).toBe(11)
+})
+
+test('real use: /budget says it in tokens, with the plan windows and the history only when there are any', () => {
+  let s = newSpend(0)
+  expect(spendText(s, [])).toContain('**Per play turn:** no play turns yet.')
+  s = spawned(s, 'w', 'world')
+  s = helperStep(s, 'w', U(0, 4000, 0, 0))
+  const main = addUsage(ZERO, U(2000, 1000, 200_000, 8000))
+  s = endTurn(s, { play: true, ms: 41_000, main, all: main })
+  s = { ...s, points: 2 }
+  const text = spendText(s, [])
+  expect(text).toContain('**Real use this session**')
+  expect(text).toContain('**Per play turn:** 41 s, 1 requests, 37k weighted tokens (1 turns).')
+  expect(text).toContain('storyteller 37k · characters 0 · world agent 20k · worldsmith 0 · other agents 0')
+  expect(text).toContain('**Extras:** 2 points spent; the world agent ran 1 time, 20k weighted tokens.')
+  expect(text).toContain('**A point really cost:** not known yet; it needs play turns both with and without extras (a point is priced as 10–15k weighted tokens).')
+  expect(text).not.toContain('Plan usage')
+  expect(text).not.toContain('Earlier sessions')
+  expect(text).not.toContain('Development turns')
+  expect(text).not.toMatch(/\$|dollar|USD/i)
+  const later = measured(measured(s, [{ kind: 'five_hour', percentUsed: 10 }]), [{ kind: 'five_hour', percentUsed: 12 }])
+  const withHistory = spendText(endTurn(later, { play: false, ms: 0, main, all: ZERO }), [rowOf(s)])
+  expect(withHistory).toContain('**Plan usage this session:** 5-hour window +2%.')
+  expect(withHistory).toContain('**Development turns:** 1, 37k weighted tokens (not in the play figures).')
+  expect(withHistory).toContain('| Earlier sessions | Play turns |')
+  expect(withHistory).toMatch(/\| 1 \| 41 \| 1 \| 37k \| 2 \| – \| – \|/)
+  expect(count(812)).toBe('812')
+  expect(count(1234)).toBe('1.2k')
+  expect(count(4_100_000)).toBe('4.1M')
+})
+
+test('real use: the hooks count a play turn, a helper by its type, and keep the session in the store', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000 })
+  const kept: Record<string, unknown> = { 'spend:/game': { current: endTurn(newSpend(0), { play: true, ms: 5_000, main: ZERO, all: ZERO }) } }
+  on('store.get', (_, e) => ({ value: kept[e.key] }))
+  on('store.set', (_, e) => { kept[e.key] = JSON.parse(JSON.stringify(e.value)); return { value: undefined } })
+  on('fs.exists', () => ({ value: true }))
+  on('session.root', () => ({ value: '/game' }))
+  on('session.start', () => ({ cwd: '/game' }) as never)
+  on('turn.start', (_, e) => ({ turnId: e.turnId }) as never)
+  on('turn.complete', () => ({ text: '' }) as never)
+  on('command.register', () => ({ value: {} }) as never)
+  on('ui.open', () => ({ value: {} }) as never)
+  on('fs.stat', () => ({ value: undefined }) as never)
+  on('turn.step', async function* () { return { turnId: 't1', index: 0, answer: '', toolUses: [], stopReason: 'end_turn', usage: { ...U(100, 10, 0, 0), model: 'm' } } } as never)
+  on('agent.spawn', () => ({ model: 'm', agentId: 'a1' }) as never)
+  await $.session.start({ source: 'startup', cwd: '/game' } as never)
+  await clock.settle() // the store is written in the background
+  const stored = kept['spend:/game'] as { current: Spend; history: SpendRow[] }
+  expect(stored.history.length).toBe(1) // the last session moved into the history
+  expect(stored.current.play.turns).toBe(0)
+  await $.turn.start({ turnId: 't1', text: 'I walk north.' } as never)
+  const step = async (agentId?: string) => {
+    for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'm', messageCount: 1, ...(agentId ? { agentId } : {}) } as never)) { /* chunks */ }
+  }
+  await step()
+  await $.agent.spawn({ subagentType: 'npc', prompt: 'p', description: 'd' } as never)
+  await step('a1')
+  await clock.advance(12_000)
+  await $.turn.complete({ turnId: 't1', answer: '' } as never)
+  await clock.settle()
+  const now = kept['spend:/game'] as { current: Spend }
+  expect(now.current.play.turns).toBe(1)
+  expect(now.current.play.ms).toBe(12_000)
+  expect(now.current.play.tokens.requests).toBe(2)
+  expect(byRole(now.current)).toEqual({ gm: 150, npc: 150, world: 0, worldsmith: 0, other: 0 })
 })

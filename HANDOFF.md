@@ -7,7 +7,7 @@ As of 2026-10-23. The state of the kit build for whoever picks it up next, human
 - **Requirements:** `IMPLEMENTATION-PLAN.md` (JW's game-owner requirements, Stages 1–8).
 - **Technical plan:** `~/.claude/plans/please-read-implementation-plan-md-in-sunny-cake.md` (approved). The decisions below override it where they differ.
 - **Done:** Stages 1–5: kit split, second game and seeds; the meter and switches; look and feel; curses; the player leaves a mark (crafting, building, the library, promotion). Stage 7: people with plans, side scenes (playtested, no notes). Stage 8: new worlds, built (8.1, 8.2, 8.3) and live-tested. Everything is committed on `main`; `sh tools/check.sh` passes (63 engine tests, 63 mod tests, both games validate).
-- **Now:** `NEXT-PLAN.md`, part 1 (the real-spend meter). The Stage 8 playtest had no further notes; the forge's cost is decided: new worlds don't use the meter (see *Stage 8 cost, measured*).
+- **Now:** `NEXT-PLAN.md` part 1 (the real-spend meter) is built and live-checked (see *NEXT-PLAN part 1 notes*); next is part 2, one-step moves. The Stage 8 playtest had no further notes; the forge's cost is decided: new worlds don't use the meter (see *Stage 8 cost, measured*).
 - **Stage 6 (puzzles) is no longer next (2026-10-23, JW):** it will be rethought from scratch later, and its earlier decisions (*Stage 6 decisions so far*, the code-blocks note under *Decisions made with the user*, *Later stages*) don't carry over. They're kept below only as a record.
 - **Stage order (changed 2026-10-22, superseded 2026-10-23):** Stage 7, then Stage 8, then Stage 6; now `NEXT-PLAN.md`, with puzzles to be redesigned later. Forged worlds have no puzzles, and `validate --kit-complete` asks for none.
 
@@ -44,6 +44,31 @@ As of 2026-10-23. The state of the kit build for whoever picks it up next, human
 | `b840d0d` | 8.3 `tools/worlds.py list\|keep\|forget` |
 
 Commits that change only this file (`HANDOFF.md: …`) are left out.
+
+## NEXT-PLAN part 1 notes (as built, 2026-10-23)
+- **The mod counts** (`mod/hooks/spend.ts`, pure; wired in `register.tsx`):
+  - every request's `usage` from `turn.step`;
+  - helpers by type, from `agent.spawn`;
+  - play turns from `turn.start`/`turn.complete` (time, every request in the turn except the worldsmith's, and the meter points it spent);
+  - development turns separately;
+  - the plan windows from `session.measure`.
+- **Kept** in `$.store` under `spend:<project root>` (`{ current, history }`, last 10). `session.start` moves the last session into the history; each turn's end writes `current`. No game files, no `rpg.py` change.
+- **`/budget`'s "Real use this session":**
+  - per play turn (s, requests, weighted tokens);
+  - by who;
+  - raw counts;
+  - extras;
+  - **what a point really cost** (turns with extras less as many plain turns, per point; needs both kinds);
+  - plan usage;
+  - development turns;
+  - the history table.
+- **Weighting** = input + 1.25 × cache writes + 0.1 × cache reads + 5 × output (an assumption).
+- **Baseline for part 2** (2026-10-23, Sonnet GM, scratch copy, `rpg.py newgame 7`, lighthouse). Script: `[[15, "I look around the square.\r"], [70, "I go west up the path to the lighthouse.\r"], [80, "I ask the keeper why the lamp is dark.\r"], [120, "I go back east to the square.\r"], [80, "I head south down the quay steps to the boats.\r"], [200, "/budget\r"], [15, null]]`.
+  - **Result:** 5 play turns, **19.9 s, 4 requests, 39k weighted tokens per turn**; storyteller 183k, characters 4.8k (1 run), world agent 5.6k (1 run); 2 points.
+  - **From the transcript, per turn** (GM only): look 53k/3 requests (the first turn also loads the skill), move west 29k/4 (`look`; `move`; `show rooms`), Ysolde 34k/4, move east 16k/2 (the GM chained `look && move`), south with generation 51k/5.
+  - **A point therefore cost about 11.5k**, inside the 10–15k the prices assume. One sample: measure again over longer play.
+  - The plan windows didn't move a whole point in this run.
+- **Checked live:** subagent steps arrive with `agentId`, and their spawns name the type; the store is written each turn; `/budget` draws; no plumbing in any frame (the capture's one `rpg.py` is Claude Code's trust prompt for the scratch folder).
 
 ## Stage 7 decisions (agreed 2026-10-22)
 - **D1 plans as flags:** a plan step sets or clears one of the character's own flags (`<id>_<word>`); rooms place characters and bar ways with conditions on those flags, as they already did for story flags. Written as `## Plan: <step> (if <cond>)` sections in the character file (`does:`, `sets:`/`clears:`, `near:`, `rumor:`). Never a main-story flag; every set flag can be cleared; no combination puts a character in two rooms (validate).

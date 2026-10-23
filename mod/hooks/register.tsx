@@ -6,6 +6,7 @@
 //   with clickable exits and actions
 // - toasts, an HP flash and sound effects when things change
 // - instant /inventory, /map, /sheet and /sound commands
+// - /budget, with what the session really used in tokens (the owner's check on the meter's prices)
 // Everything it shows comes from state/save.json and the rules script's output. It never writes game files.
 // Nothing here knows a particular game: colors, labels, tabs and phrases come from the game's look in the save.
 
@@ -20,6 +21,8 @@ import { exitsOf, keyText, mapText, usesUpDown } from './map'
 import { commandPhrase, idlePhrase, npcPhrase, phaseOf } from './phrases'
 import type { Seg } from './reveal'
 import { bannerRows, endingRows, paragraphsOf, spaced, speakerOf, titleRows } from './story'
+import { addUsage, endTurn, helperStep, looseStep, measured, newSpend, roleOf, spawned, spendText, withRow, ZERO } from './spend'
+import type { Spend, SpendRow, Tokens } from './spend'
 import { combatOf, rpgCommand, rpgCommands, TRAY_COMMANDS, trayLines, traySound } from './tray'
 import type { CombatSide, TrayLine } from './tray'
 import { stripAt, FX_MS } from './trayfx'
@@ -42,6 +45,7 @@ const tab = atom({ plugin: 'coderpg', key: 'tab' } as const, 'here')
 const muted = atom({ plugin: 'coderpg', key: 'muted' } as const, false)
 const running = atom({ plugin: 'coderpg', key: 'running' } as const, false)
 const cursed = atom({ plugin: 'coderpg', key: 'cursed' } as const, [])
+const spend = atom({ plugin: 'coderpg', key: 'spend' } as const, null)
 
 // ---------------------------------------------------------------- pure helpers
 
@@ -255,6 +259,24 @@ export function budgetText(s: CoderpgSave): string {
   ].join('\n\n')
 }
 
+/** Meter points spent this session: the meter refills when Claude Code starts, so it's what's gone from it. */
+function pointsOf(s: CoderpgSave | null): number {
+  const m = s?.view?.meter
+  return m ? Math.max(0, m.capacity - m.left) : 0
+}
+
+/** The spend records of this project folder (the plugin's store is shared by every folder, scratch copies too). */
+async function spendKey($: EngineInterface): Promise<string> {
+  return `spend:${await $.session.root().catch(() => '')}`
+}
+
+type SpendStore = { current?: Spend; history?: SpendRow[] }
+
+async function spendStore($: EngineInterface): Promise<SpendStore> {
+  const v = await $.store.get(await spendKey($)).catch(() => undefined)
+  return v && typeof v === 'object' ? (v as SpendStore) : {}
+}
+
 function inventoryText(s: CoderpgSave): string {
   const lines = itemsOf(s).map(it => `- ${it.name}${it.equipped ? ' *(equipped)*' : ''}${it.own ? ' *(made for you)*' : ''}`)
   const weight = s.view ? ` (weight ${s.view.weight}/${s.view.carry_limit})` : ''
@@ -364,6 +386,11 @@ export const register: Register = on => {
   let turnActive = false // a game-master turn is running; a prompt typed meanwhile doesn't reset it
   let phase: CoderpgPhase | undefined // the stage the turn is in, for the waiting line and its chime
   let lastBrief = '' // the last world-brief's request: a world agent then shapes something, or stirs the world
+  // What the running main turn has used: the game master's requests, and every request in it but the worldsmith's.
+  let turnBegan = 0
+  let turnPoints = 0 // meter points spent before the turn
+  let turnMain: Tokens = ZERO
+  let turnAll: Tokens = ZERO
 
   on('session.start', async ($, e, next) => {
     const result = await next(e)
@@ -378,6 +405,11 @@ export const register: Register = on => {
 
     const stored = await $.store.get('muted').catch(() => undefined)
     if (stored === true) await update($, muted, () => true)
+    // A new Claude Code session: the last one's figures go into the history, and counting starts again.
+    const was = await spendStore($)
+    const fresh = newSpend(await nowMs($))
+    await update($, spend, () => fresh)
+    void $.store.set(await spendKey($), { current: fresh, history: withRow(Array.isArray(was.history) ? was.history : [], was.current) }).catch(() => undefined)
     await refresh($)
     $.clock.every(1000, () => void tick($))
     void $.ui.open({ id: PANE, title: 'Character' })
@@ -391,6 +423,10 @@ export const register: Register = on => {
   on('turn.start', async ($, e, next) => {
     if (turnActive) return next(e)
     turnActive = true
+    turnBegan = await nowMs($)
+    turnPoints = pointsOf(await read($, save))
+    turnMain = ZERO
+    turnAll = ZERO
     isOoc = /^\s*ooc:/i.test(e.text)
     isGameTurn = false
     isNewGame = false
@@ -414,6 +450,13 @@ export const register: Register = on => {
     turnActive = false
     // A non-ooc turn is play if it touched the game, or if it used no tools at all (a pure-dialogue reply).
     if (isGame && !isOoc && !usedOtherTools) isGameTurn = true
+    if (isGame) {
+      const ms = turnBegan ? Math.max(0, (await nowMs($)) - turnBegan) : 0
+      const points = pointsOf(await read($, save))
+      const after = await update($, spend, s => s && { ...endTurn(s, { play: isGameTurn, ms, main: turnMain, all: turnAll, points: points - turnPoints }), points })
+      turnBegan = 0
+      if (after) void spendKey($).then(async k => $.store.set(k, { ...(await spendStore($)), current: after })).catch(() => undefined)
+    }
     if (isGame && !isGameTurn && turnKeys.length) {
       // the turn never touched the game: its text was held back for nothing, so draw it as Claude's own
       const mine = new Set(turnKeys)
@@ -516,6 +559,35 @@ export const register: Register = on => {
       }
     }
     return ran
+  })
+
+  // ---- what the session really uses
+
+  on('agent.spawn', async ($, e, next) => {
+    const r = await next(e)
+    const id = r.agentId
+    if (isGame && id) await update($, spend, s => s && spawned(s, id, roleOf(e.subagentType)))
+    return r
+  })
+
+  on('turn.step', async function* ($, e, next) {
+    const r = yield* next(e)
+    const u = r.usage
+    if (isGame && u) {
+      const id = e.agentId
+      const s = await update($, spend, s => s && (id ? helperStep(s, id, u) : turnActive ? s : looseStep(s, u)))
+      if (turnActive && (!id || s?.agents[id]?.role !== 'worldsmith')) {
+        turnAll = addUsage(turnAll, u)
+        if (!id) turnMain = addUsage(turnMain, u)
+      }
+    }
+    return r
+  })
+
+  on('session.measure', async ($, e, next) => {
+    const r = await next(e)
+    if (isGame && e.rateLimits.length) await update($, spend, s => s && measured(s, e.rateLimits))
+    return r
   })
 
   on('session.append', async ($, e, next) => {
@@ -784,7 +856,9 @@ export const register: Register = on => {
   on('command.run', { command: 'budget' }, async $ => {
     await refresh($)
     const s = await read($, save)
-    return { text: s ? budgetText(s) : 'No game yet. Type /newgame to start.' }
+    const used = await read($, spend)
+    const real = used ? '\n\n' + spendText({ ...used, points: pointsOf(s) }, (await spendStore($)).history ?? []) : ''
+    return { text: (s ? budgetText(s) : 'No game yet. Type /newgame to start.') + real }
   })
 
   on('command.run', { command: 'sheet' }, async $ => {
