@@ -361,8 +361,7 @@ class Engine(unittest.TestCase):
         v = self.save()["view"]
         self.assertEqual(set(v["meter"]), {"left", "capacity", "state"})
         self.assertEqual(v["settings"]["preset"], "normal")
-        self.assertEqual(v["settings"]["prices"], {"generate": 2, "world_turn": 2, "craft": 2, "build": 3, "reuse": 1, "promote": 2, "scene": 2,
-                                                  "new_world": 15, "new_world_resume": 5})
+        self.assertEqual(v["settings"]["prices"], {"generate": 2, "world_turn": 2, "craft": 2, "build": 3, "reuse": 1, "promote": 2, "scene": 2})
         self.set_meter(9)
         self.rpg("world-brief", "turn")
         self.assertEqual(self.save()["view"]["meter"]["state"], "low")  # 7 of 30
@@ -1089,13 +1088,13 @@ near: stuck
                       .replace("title: The Flooded Station", "title: %s" % title))
         (self.dir / "state" / "forge" / d / "READY").write_text(title + "\n")
 
-    def test_a_new_world_is_quoted_charged_and_installed_as_a_forged_game(self):
+    def test_a_new_world_is_quoted_and_installed_as_a_forged_game(self):
         self.rpg("meter", "refill")
-        self.assertIn("FORGE: a new world costs 15 of the meter's 30 left", self.rpg("forge", "quote"))
+        self.assertIn("FORGE: a new world can be made. It doesn't use the meter.", self.rpg("forge", "quote"))
         d, out = self.forge_draft()
         self.assertIn('The player asked for: "a smugglers cove"', out)
         self.assertIn("validate --dir state/forge/%s/world --kit-complete" % d, out)
-        self.assertEqual(15, self.meter_file())
+        self.assertEqual(30, self.meter_file())  # new worlds don't use the meter
         self.assertIn("only one at a time", self.rpg("forge", "start", ok=False))
         self.rpg("newgame")
         self.assertNotIn("NEW WORLD READY", self.rpg("look"))
@@ -1125,18 +1124,18 @@ near: stuck
         self.finish_draft(d2)
         self.assertIn("(smugglers_cove_2)", self.rpg("forge", "install", d2))
 
-    def test_new_worlds_follow_the_owners_switch_and_the_meter(self):
+    def test_new_worlds_follow_the_owners_switch_but_not_the_meter(self):
         self.settings_tool("preset", "thrifty")
         self.assertIn("FORGE OFF", self.rpg("forge", "quote"))
         self.assertIn("switched off", self.rpg("forge", "start", "x", ok=False))
-        self.settings_tool("preset", "normal")
-        self.set_meter(14)
-        self.assertIn("FORGE CAN'T PAY: a new world it costs 15 and the meter has 14", self.rpg("forge", "quote"))
-        self.assertIn("costs 15 and the meter has 14", self.rpg("forge", "start", "x", ok=False))
         self.assertFalse((self.dir / "state" / "forge").exists() and any((self.dir / "state" / "forge").iterdir()))
+        self.settings_tool("preset", "normal")
         self.assertIn("NEW WORLDS: on", self.rpg("settings"))
-        self.set_meter(30)
         self.assertIn("one sentence", self.rpg("forge", "start", "x" * 301, ok=False))
+        self.set_meter(0)  # a spent meter doesn't stop a new world
+        self.assertIn("FORGE: a new world can be made", self.rpg("forge", "quote"))
+        self.assertIn("FORGE STARTED", self.rpg("forge", "start", "x"))
+        self.assertEqual(0, self.meter_file())
 
     def test_a_stopped_or_failed_forge_waits_and_can_be_finished_later(self):
         self.rpg("meter", "refill")
@@ -1145,12 +1144,9 @@ near: stuck
         self.assertIn("stopped before the world was finished", self.rpg("forge", "install", d, ok=False))
         self.assertIn("UNFINISHED: %s" % d, self.rpg("forge", "quote"))
         self.set_meter(4)
-        self.assertIn("can't now", self.rpg("forge", "quote"))
-        self.assertIn("costs 5 and the meter has 4", self.rpg("forge", "resume", d, ok=False))
-        self.set_meter(10)
         out = self.rpg("forge", "resume", d)
         self.assertIn("An earlier attempt left files", out)
-        self.assertEqual(5, self.meter_file())
+        self.assertEqual(4, self.meter_file())  # finishing one doesn't use the meter either
         # it says it's ready but doesn't pass: not installed, unfinished again
         self.finish_draft(d)
         (self.dir / "state/forge" / d / "world/scenes/shiniest_thing.md").unlink()

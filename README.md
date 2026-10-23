@@ -84,6 +84,7 @@ Playing the game as written is free. The meter is a budget for the **extras** th
 | bringing something back from an earlier game, instead of inventing it | 1 (the brief costs 2; 1 comes back) | |
 | a person you keep coming back to getting their own agent (once; their replies are free) | 2 | they stay voiced by the storyteller |
 | a side scene between two characters | 2 | it isn't offered |
+| a whole new world (`/newworld`) | not on the meter: one costs more than a whole meter, so only the owner's `new_worlds` switch (off in `thrifty`) and the player's confirmation stand in its way | `/newworld` says new worlds are off |
 | every game-master turn, every rules command, the authored characters' agents | free | |
 
 One point is roughly one extra round of game-master work (about 10–15k tokens, weighted as the API prices them). Measured on Sonnet, an ordinary turn costs about 30k and an agent's reply about 5k; the turn is the cost of playing at all, so it's never charged. Prices are charged by the rules script where the extra happens (`world-brief`), after every check that could refuse. The owner's switches live in each game's `settings.json`, a preset from `rules/presets.json` with overrides:

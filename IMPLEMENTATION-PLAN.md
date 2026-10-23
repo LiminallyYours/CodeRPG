@@ -142,6 +142,7 @@ Both puzzles have Claude write and run a small piece of code during play. That c
 - **Why last:** a generated world has to include the content conventions every earlier stage defines.
 - **Depends on:** 1.1 and the content conventions from Stages 3–7.
 - **Cost:** very high, once per world. Switchable.
+- **Changed 2026-10-23 · JW:** new worlds don't drain the resource. One forge measured at about 70 points, more than a whole normal meter. The switch and the confirmation stay; later, only admin mode offers new worlds (R1).
 
 ## On/off switches
 
@@ -166,6 +167,7 @@ Two more suggestions:
 Added 2026-10-23 · JW. Not part of Stages 1–8 and not yet designed: each needs its decisions proposed (with options and implications) before anything is built. Pick them up after Stage 6.
 
 **R1 Admin mode.** Run the game as its owner, from inside it: do in play what is otherwise done before launching, such as switching preset (how expensive the game is), changing single switches, refilling the meter, or turning the meter off.
+- **Also:** new worlds (`/newworld`) become available only in admin mode. Until then they're on in the normal and rich presets and don't use the meter.
 - **Notes:** this replaces the parked "owner-run mode" idea in `HANDOFF.md`. Today only `tools/settings.py` changes settings, and it's kept out of the GM's allowlist on purpose, so a player (or the GM) can't make the game cheaper or richer mid-play. Admin mode needs an owner-only way in that keeps that protection.
 - **To decide:** how admin mode is entered (a `newgame` flag, a slash command, a launch option); which settings it offers; whether changes last for this run only or are saved; how it fits with "visible machinery is always a bug" and with *M4 · Show the machinery* under Not doing (admin mode is an owner's view, not the player's).
 

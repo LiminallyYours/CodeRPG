@@ -596,9 +596,9 @@ test('/budget tells the player what is left, what things cost and what is on, in
   expect(budgetText(lively)).toContain('**The world moving on by itself:** on, every 5 moves, with people following their own plans.')
   expect(budgetText(lively)).toContain('a little scene between two characters 2')
   expect(budgetText(lively)).toContain('**Little scenes between two characters:** on, up to 2 per game, 6 replies each.')
-  const forging = { ...lively, view: { ...lively.view!, settings: { ...lively.view!.settings!, prices: { ...lively.view!.settings!.prices, new_world: 15 }, new_worlds: { on: true } } } }
-  expect(budgetText(forging)).toContain('a whole new world 15')
-  expect(budgetText(forging)).toContain('**New worlds made to order** (`/newworld`): on.')
+  const forging = { ...lively, view: { ...lively.view!, settings: { ...lively.view!.settings!, new_worlds: { on: true } } } }
+  expect(budgetText(forging)).toContain("**New worlds made to order** (`/newworld`): on; they don't use the power.")
+  expect(budgetText(forging)).not.toContain('a whole new world')
   expect(budgetText(metered(0, 'spent'))).toContain('0/30 (spent)')
   expect(budgetText(SAVE)).toContain('Nothing to show yet')
 })

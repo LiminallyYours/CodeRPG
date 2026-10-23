@@ -2914,11 +2914,10 @@ def draft_status(d):
     return "unfinished" if info.get("status") == "stopped" or info.get("session") != meter_session() else "forging"
 
 
-def why_no_forge(kind):
+def why_no_forge():
+    """New worlds don't use the meter (the owner's call, 2026-10-23); only the owner's switch stops one."""
     if not SETTINGS["new_worlds"]["on"]:
         return "the owner has new worlds switched off"
-    if not can_pay(kind):
-        return "it costs %d and the meter has %d" % (price(kind), meter()["left"])
     return None
 
 
@@ -2961,21 +2960,16 @@ def cmd_forge(args):
     """forge quote | start [sentence] | resume <draft> | status | install <draft> | discard <draft>."""
     action, rest = args[0], args[1:]
     if action == "quote":
-        why = why_no_forge("new_world")
-        m = meter()
-        if not SETTINGS["new_worlds"]["on"]:
+        why = why_no_forge()
+        if why:
             print("FORGE OFF: %s. Nothing starts." % why)
-        elif why:
-            print("FORGE CAN'T PAY: a new world %s. Nothing starts." % why)
         else:
-            print("FORGE: a new world costs %d of the meter's %d left (%s %d/%d)." % (
-                price("new_world"), m["left"], resource()["name"], m["left"], m["capacity"]))
+            print("FORGE: a new world can be made. It doesn't use the meter.")
         for d in drafts():
             status = draft_status(d)
             if status == "unfinished":
-                print("UNFINISHED: %s, %s: finishing it costs %d%s." % (
-                    d, '"%s"' % draft_info(d)["sentence"] if draft_info(d).get("sentence") else "a surprise world",
-                    price("new_world_resume"), "" if not why_no_forge("new_world_resume") else " (can't now: %s)" % why_no_forge("new_world_resume")))
+                print("UNFINISHED: %s, %s: it can be finished." % (
+                    d, '"%s"' % draft_info(d)["sentence"] if draft_info(d).get("sentence") else "a surprise world"))
             elif status == "forging":
                 print("FORGING: %s is still being made; only one at a time." % d)
             else:
@@ -2988,7 +2982,7 @@ def cmd_forge(args):
             print("NO DRAFTS")
         return
     if action == "start":
-        why = why_no_forge("new_world")
+        why = why_no_forge()
         if why:
             raise Refused("no new world: %s" % why)
         if any(draft_status(d) == "forging" for d in drafts()):
@@ -2998,7 +2992,6 @@ def cmd_forge(args):
             raise Refused("describe the world in one sentence, at most %d characters" % SENTENCE_CHARS)
         d = "draft_%s" % uuid.uuid4().hex[:6]
         (FORGE / d / "world").mkdir(parents=True)
-        charge("new_world")
         write_json(FORGE / d / "forge.json", {"sentence": sentence, "started": datetime.datetime.now().isoformat(timespec="seconds"),
                                               "session": meter_session(), "status": "forging", "resumes": 0})
         resave_view()
@@ -3019,12 +3012,11 @@ def cmd_forge(args):
     if action == "resume":
         if draft_status(d) != "unfinished":
             raise Refused("%s is %s, not unfinished" % (d, draft_status(d)))
-        why = why_no_forge("new_world_resume")
+        why = why_no_forge()
         if why:
             raise Refused("can't finish it: %s" % why)
         if any(draft_status(x) == "forging" for x in drafts()):
             raise Refused("a world is already being forged; only one at a time")
-        charge("new_world_resume")
         info.update(session=meter_session(), status="forging", resumes=int(info.get("resumes", 0)) + 1)
         write_json(FORGE / d / "forge.json", info)
         resave_view()
