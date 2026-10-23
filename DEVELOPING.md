@@ -123,6 +123,7 @@ This is the subtlest part of `mod/hooks/register.tsx`. If narration goes missing
 
 - **Narration appears all at once** at the end of a turn, because text is held back so GM notes can't leak; it then shows a paragraph at a time (`page.tsx`, 150 ms each, dim then full: a terminal has no opacity, and `Markdown` draws only plain or dim). A key pressed meanwhile (`prompt.edit`) shows it whole.
 - **A render's `viewport.columns` is the transcript's column** (narrower beside a docked pane); `$.ui.panes()` says whether the pane is placed and shown. Render hooks may not write state.
+- **A slash command's echo (`❯ /map`) is Claude Code's own row:** the `UserMessage` hook sees only the brief row drawn while the command runs, then the engine redraws the echo without asking. So command answers stay at the left edge under their echo (moving only the answer splits them). `CommandOutput`'s `text` arrives with the plugin's name in front (`coderpg: …`).
 - **No mod can restyle the prompt's `❯`, bind Esc, or hide the permission-mode label** in front of the hint line (no render component carries it; drawing `PromptHint` whole doesn't remove it, and drops Claude Code's pills). The pane takes keys after ctrl+x tab or a click; the play hint says so.
 - **Story styling is per session.** A resumed session shows earlier narration plain.
 - **Room pictures and a pixel-art map** (`Image`/`Raster` elements) are designed for but not built; see the pane ideas in the conversation history.

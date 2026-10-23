@@ -67,6 +67,12 @@ Commits that change only this file (`HANDOFF.md: …`) are left out.
 - **Short screen:** in a short window the carried list ends `+N more · /inventory`, then the art goes.
 - **Watch for:** a row cut short with `…` that shouldn't be, the margin scrolling when it should fit, colors that don't fade after a turn, a key that does nothing.
 
+## Alignment note (JW, 2026-10-23, after 3.4)
+- **JW's screenshot:** a very wide window with no pane docked; the page, the player's line and the band centered about 90 columns in, while Claude Code's rows (startup banner, `❯ /map` echoes and command answers, the prompt and hint) sit at the left edge.
+- **Fixed:** the page is centered in at most the first 120 columns (`CENTER_SPAN` in `story.ts`): beside a docked pane nothing changes (that column is narrower), on a 250-column screen it starts 24 in instead of about 90. `/sheet`'s "Character pane opened" line is hidden, and it reports the reason when the pane can't be placed (it used to claim success regardless).
+- **Tried and dropped:** moving command echoes and answers into the page's column. Probed live: the settled echo is drawn by the engine with no hook call, so only the answers could move, which would split them from their echo.
+- **The missing pane in the screenshot** didn't reproduce: with JW's own save at 250×64 the pane docks and shows the full picture. Most likely that session predated the mod changes; a restart should show it. If not, `/sheet` now says why.
+
 ## NEXT-PLAN 3.4 notes (as built, 2026-10-23)
 - **No deflate in the mod's runtime** (probed: no `DecompressionStream`, `Blob` or `Response`; `Uint8Array.fromBase64` exists), so the plan's fallback: `rules/png.py` (stdlib) decodes, `rpg.py` `picture_view` puts the 44x28 mosaic in `view.picture` (`source`, `stamp` = size:mtime, `width`, `height`, `rgb` base64), carried over while the file is unchanged. About 5 KB in the save; a move still takes about 0.04 s. The chain (`picture_path`): `art/<room>.png`, the game's `art/terrain/<terrain>[-n].png`, the kit's `rules/art/terrain/`, the variant by `crc32(room id)`; else none.
 - **`validate`:** `art/*.png` must name a room; `art/terrain/*` must be `<terrain>[-n].png` for a look terrain; every picture a readable PNG, 4:3 or wider, ≤ 256 px wide, ≤ 64 KB, not interlaced (`png.problem`). The kit's own terrain pictures are checked once per run. `--kit-complete` accepts `art/*.png` and `art/terrain/*.png`, and the character cap skips them.

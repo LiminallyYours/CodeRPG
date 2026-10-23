@@ -43,15 +43,20 @@ export function speakerOf(paragraph: string, cards: Card[]): Card | undefined {
 /** The page's least indent from the left edge, and its widest measure. */
 export const INDENT = 4
 export const MEASURE = 72
+/**
+ * The widest span the page is centered in, from the left edge: beside a docked pane the whole column, but on a
+ * very wide screen the page stays near the prompt, which sits at the far left and no mod can move.
+ */
+export const CENTER_SPAN = 120
 
 /** How wide the narration runs in a column `columns` wide: 72, or the column less 6 where 72 won't fit. */
 export function measureOf(columns: number): number {
   return Math.max(20, Math.min(MEASURE, columns - 6))
 }
 
-/** How far in the page starts: the measure centered in the column, never less than the indent. */
+/** How far in the page starts: the measure centered in the column (or its first CENTER_SPAN), never less than the indent. */
 export function indentOf(columns: number): number {
-  return Math.max(INDENT, Math.floor((columns - measureOf(columns)) / 2))
+  return Math.max(INDENT, Math.floor((Math.min(columns, CENTER_SPAN) - measureOf(columns)) / 2))
 }
 
 /** The arrival rule: a dim line, the place in bold accent, a dim `·` and the time of day, centered in the measure. */

@@ -215,6 +215,9 @@ const PRICE_NAMES: Record<string, string> = {
   scene: 'a little scene between two characters',
 }
 
+/** What /sheet answers when the margin opened (Claude Code puts the plugin's name in front). */
+const SHEET_OPENED = 'Character pane opened.'
+
 /** The margin's key for the guide (a Button's hotkey must be a digit or a lowercase letter, so not `?`). */
 export const GUIDE_KEY = 'g'
 
@@ -971,8 +974,16 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'sheet' }, async $ => {
-    await $.ui.open({ id: PANE, title: 'Character', focus: true, columns: MARGIN_COLUMNS })
-    return { text: 'Character pane opened.' }
+    const opened = await $.ui.open({ id: PANE, title: 'Character', focus: true, columns: MARGIN_COLUMNS })
+    return { text: opened.isPlaced ? SHEET_OPENED : `The margin couldn't be shown: ${opened.reason}` }
+  })
+
+  // The pane opening is answer enough for /sheet, so its line goes (a reason it couldn't open stays). The other
+  // commands' answers stay where Claude Code draws them: under their echo ("❯ /map"), which no hook can move.
+  on('ui.render', { component: 'CommandOutput' }, async ($, e, next) => {
+    if (e.props.command !== 'sheet' || e.props.isErrored || !e.props.text.endsWith(SHEET_OPENED)) return next(e)
+    const { Box } = $.ui.resolve(e)
+    return <Box display="none" />
   })
 
   on('command.run', { command: 'sound' }, async $ => {
