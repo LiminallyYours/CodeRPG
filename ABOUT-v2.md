@@ -1,4 +1,4 @@
-# I used Claude Code's new mod support to turn it into a text adventure
+# Using Claude Code's new mod support to turn it into a text adventure
 
 Claude Code now supports **mods**: plugins that can redraw its interface, hide or reshape tool calls, add side panes and slash commands, and play sounds. I used them to reskin Claude Code as an RPG text-adventure framework, then built a game on top where Claude is the game master and the world reacts to what you do.
 
