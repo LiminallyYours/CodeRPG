@@ -96,7 +96,8 @@ Session totals alone serve neither job, because they depend on how long you play
 - **Speaker colors:** a character's `card:` always wins (every authored character has one, minor ones too); anyone without one takes the next `speaker_colors` entry in the order met, minor or not. The spec's "minor characters dim" is dropped, so no `minor` field in the view. In practice the palette colors generated people.
 - **Signals carry a kind:** `rpg.py` labels each `plan` or `world` (optional view field, old saves read as `plan`). Only `world` (a new world ready) is a toast; both chime.
 - **Hint line:** names the real key, "ctrl+x tab to the margin" (Esc can't be bound by a mod), and help is a new instant command, **`/guide`**, instead of "? help" (typing ? opens Claude Code's shortcut list). The margin's `?` in 3.3 shows the same text.
-- **Prompt glyph:** skipped. The mod API has no way to restyle the prompt's `❯` (checked 2026-10-23).
+- **Prompt glyph:** skipped. The mod API has no way to restyle the prompt's `❯` (checked 2026-10-23). Nor can it hide Claude Code's permission-mode label ("⏵⏵ auto mode on") in front of the hint line; the mode labels on the right are hidden.
+- **The page is centered** in the transcript's column (JW's first playtest note, 2026-10-23), reversing the spec's "left-aligned" choice: prose, rules, the player's line, dice lines, cards and the band move together; the prompt stays at the far left (the engine's).
 
 **My technical choices (say if you disagree):**
 - **The change line** is composed from the difference between the save's `view` at `turn.start` and at `turn.complete`. That's the record `rpg.py` wrote, so it's authoritative and needs no save change. It is not parsed from each tool call's text.

@@ -12,7 +12,7 @@ export type Side = { name: string; was: number; hp: number; max: number; dmg: nu
 /** One tray line: its icon, text, the result word if any, and the colors to draw them in. */
 export type FxLine = { icon: string; text: string; result?: string; tone: 'good' | 'bad' | 'neutral' }
 export type FxColors = { accent: string; good: string; bad: string; heal: string }
-export type TrayFxProps = { lines: FxLine[]; you?: Side; foe?: Side; colors: FxColors; barWidth?: number }
+export type TrayFxProps = { lines: FxLine[]; you?: Side; foe?: Side; colors: FxColors; barWidth?: number; indent?: number }
 type State = { t: number }
 
 export const TUMBLE_MS = 320 // the dice tumble
@@ -92,7 +92,7 @@ const TrayFx: ClientModule<TrayFxProps, State> = (props, surface) => {
   const t = surface.state?.t ?? 0
   const fight = props.you || props.foe
   return (
-    <Box flexDirection="column" paddingLeft={INDENT}>
+    <Box flexDirection="column" paddingLeft={props.indent ?? INDENT}>
       {props.lines.map((l, i) => {
         const shown = lineAt(l, t, i + 1)
         return (

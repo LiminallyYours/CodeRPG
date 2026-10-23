@@ -22,7 +22,7 @@ import { exitsOf, keyText, mapText, usesUpDown } from './map'
 import { commandPhrase, idlePhrase, npcPhrase, phaseOf } from './phrases'
 import { drawBlocks, pageMs, STEP_MS } from './page'
 import type { Seg } from './reveal'
-import { arrivalRow, blocksOf, endingRows, INDENT, looksTagged, measureOf, paragraphsOf, ruleRow, spaced, speakerCards, titleRows } from './story'
+import { arrivalRow, blocksOf, endingRows, indentOf, looksTagged, measureOf, paragraphsOf, ruleRow, spaced, speakerCards, titleRows } from './story'
 import { addUsage, endTurn, helperStep, isSpend, looseStep, measured, newSpend, roleOf, spawned, spendText, withRow, ZERO } from './spend'
 import type { Spend, SpendRow, Tokens } from './spend'
 import { combatOf, rpgCommand, rpgCommands, TRAY_COMMANDS, trayLines, traySound } from './tray'
@@ -728,7 +728,7 @@ export const register: Register = on => {
       // in case it was narration written out of order.
       if (isProgressNote(e.props.text)) return <Box display="none" />
       return (
-        <Box paddingLeft={INDENT}>
+        <Box paddingLeft={indentOf(e.viewport?.columns ?? 80)}>
           <Markdown text={e.props.text} dimColor />
         </Box>
       )
@@ -760,7 +760,7 @@ export const register: Register = on => {
       ? <Client key="page" module="./page.tsx" props={plain({ blocks, width: measure, delay })} />
       : drawBlocks($.ui.resolve(e), blocks, measure)
     return (
-      <Box flexDirection="column" paddingLeft={INDENT} marginTop={e.props.isFirstOfReply ? 1 : 0}>
+      <Box flexDirection="column" paddingLeft={indentOf(e.viewport?.columns ?? 80)} marginTop={e.props.isFirstOfReply ? 1 : 0}>
         {entry.title && <Box marginBottom={1}>{card(titleRows(entry.title, look.tagline, entry.runLabel, accent), accent, 'type', TITLE_MS, 'title')}</Box>}
         {entry.banner && <Box marginBottom={1}>{drawRows($, e, [arrivalRow(entry.banner, entry.bannerTime, measure, accent)], 'left')}</Box>}
         {prose}
@@ -784,7 +784,7 @@ export const register: Register = on => {
     if (!isLivePlumbing && !(await read($, hidden)).includes(e.props.tool_use_id)) return next(e)
     const s = await read($, save)
     const look = lookOf(s)
-    return drawFx($, e, e.requestId, trayFor(e.props.tool, e.props.input, e.props.output, look), [e.props.tool_use_id], look, accentOf(s), await nowMs($))
+    return drawFx($, e, e.requestId, trayFor(e.props.tool, e.props.input, e.props.output, look), [e.props.tool_use_id], look, accentOf(s), await nowMs($), e.viewport?.columns ?? 80)
   })
 
   on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
@@ -802,7 +802,7 @@ export const register: Register = on => {
     const s = await read($, save)
     const look = lookOf(s)
     const callIds = e.props.calls.map(c => c.tool_use_id).filter((x): x is string => x !== undefined)
-    return drawFx($, e, e.requestId, e.props.calls.flatMap(c => trayFor(c.tool, c.input, c.output, look)), callIds, look, accentOf(s), await nowMs($))
+    return drawFx($, e, e.requestId, e.props.calls.flatMap(c => trayFor(c.tool, c.input, c.output, look)), callIds, look, accentOf(s), await nowMs($), e.viewport?.columns ?? 80)
   })
 
   // ---- Claude's chrome, in-world
@@ -846,7 +846,7 @@ export const register: Register = on => {
     const s = await read($, save)
     const shown = (await read($, cursed)).find(x => x.key === storyKey(e.props.text))?.shown
     return (
-      <Box flexDirection="row" marginTop={1} paddingLeft={INDENT}>
+      <Box flexDirection="row" marginTop={1} paddingLeft={indentOf(e.viewport?.columns ?? 80)}>
         <Text dimColor>› </Text>
         <Text dimColor italic>{shown ?? e.props.text}</Text>
         {shown !== undefined && <Text color={lookOf(s).palette.bad} dimColor> ✶</Text>}
@@ -863,10 +863,11 @@ export const register: Register = on => {
     const { Box, Text } = $.ui.resolve(e)
     const look = lookOf(s)
     const last = await read($, latest)
+    const indent = indentOf(e.viewport?.columns ?? 80) // over the page's column
     if (await paneShown($)) {
       const waiting = e.props.isWorking ? await read($, activity) : null
       return (
-        <Box flexDirection="row" paddingLeft={INDENT}>
+        <Box flexDirection="row" paddingLeft={indent}>
           <Text color={bandHpColor(s, last?.hp, look)}>♥ {s.stats.hp}</Text>
           <Text dimColor>{'  │  '}</Text>
           {waiting
@@ -876,7 +877,7 @@ export const register: Register = on => {
       )
     }
     return (
-      <Box flexDirection="row" paddingLeft={INDENT}>
+      <Box flexDirection="row" paddingLeft={indent}>
         {bandParts(s, accentOf(s)).map((part, i, all) => (
           // only the objective, last, gives way when the line is too long
           <Box flexShrink={i === all.length - 1 ? 1 : 0}>
@@ -887,8 +888,9 @@ export const register: Register = on => {
     )
   })
 
-  // The hint line under the prompt: in play, the game's own, and while a turn runs only that Esc interrupts it
-  // (Claude Code's line names its mode there); in ooc: turns and with no game, Claude Code's.
+  // The hint line under the prompt: in play, the game's own, and while a turn runs only that Esc interrupts it;
+  // in ooc: turns and with no game, Claude Code's.
+  // Claude Code draws its permission-mode label ("auto mode on") in front of this line, outside any hook's reach.
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
     if (!isGame || isOoc || !(await read($, save))) return next(e)
     return next({ ...e, props: { ...e.props, hint: e.props.isWorking ? WORKING_HINT : PLAY_HINT } })
@@ -1236,19 +1238,20 @@ export const register: Register = on => {
  * runs trayfx.tsx once (the dice tumble; a fight drains both bars); an older one is drawn still, a fight
  * with its strip as it ended.
  */
-function drawFx($: EngineInterface, e: Parameters<EngineInterface['ui']['resolve']>[0], requestId: string, lines: TrayLine[], ids: string[], look: CoderpgLook, accent: string, now: number) {
+function drawFx($: EngineInterface, e: Parameters<EngineInterface['ui']['resolve']>[0], requestId: string, lines: TrayLine[], ids: string[], look: CoderpgLook, accent: string, now: number, columns: number) {
   const { Box, Text } = $.ui.resolve(e)
   const Client = clientOf($.ui.resolve(e))
   if (lines.length === 0) return <Box display="none" />
   const fight = ids.map(id => combats.get(id)).find(Boolean)
   const colors = { accent, good: look.palette.good, bad: look.palette.bad, heal: look.palette.heal }
-  const props = { lines, you: fight?.you, foe: fight?.foe, colors }
+  const indent = indentOf(columns) // aligned with the page
+  const props = { lines, you: fight?.you, foe: fight?.foe, colors, indent }
   const born = Math.max(...ids.map(id => trayAt.get(id) ?? 0))
   if (Client && born > 0 && now - born < FRESH_MS && !faulted.has(`${requestId} fx`)) {
     return <Client key="fx" module="./trayfx.tsx" props={plain(props)} />
   }
   return (
-    <Box flexDirection="column" paddingLeft={INDENT}>
+    <Box flexDirection="column" paddingLeft={indent}>
       {lines.map(l => (
         <Box flexDirection="row">
           <Text color={accent}>{l.icon} </Text>

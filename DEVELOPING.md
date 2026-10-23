@@ -49,6 +49,7 @@ python3 tools/play.py /tmp/rpg-test '[[12, "I walk north into the tavern.\r"], [
   --grep 'The Gull · dusk' 'rpg\.py|Skill ?\(|Ran \d' 'Recording|narrating\.'
 ```
 - **What to check:** that wanted things appear (the arrival rule, a speaker's keyline, the change line, the dice tray) and plumbing never does, in *any* frame. Every frame is in the capture, so brief flashes count too.
+- **A capture is the stream of what was written, not whole frames:** something drawn once and never changed (Claude Code's "auto mode on" label) appears only once, at startup, even though it stays on screen. "Absent from every frame" holds only for things that are redrawn; check static rows on a real screen.
 - **Grep patterns:** the capture keeps one space where the screen had several (the arrival rule's `  The Gull  ` reads ` The Gull `), and redraws can drop letters mid-word, so grep short, single-spaced pieces.
 - **`--trust`:** answers the trust prompt for a folder Claude Code hasn't seen. Accepting it records that folder as trusted in your Claude Code settings.
 - **Cost:** turns cost real tokens; `--model sonnet` (the default here) keeps it moderate.
@@ -122,6 +123,6 @@ This is the subtlest part of `mod/hooks/register.tsx`. If narration goes missing
 
 - **Narration appears all at once** at the end of a turn, because text is held back so GM notes can't leak; it then shows a paragraph at a time (`page.tsx`, 150 ms each, dim then full: a terminal has no opacity, and `Markdown` draws only plain or dim). A key pressed meanwhile (`prompt.edit`) shows it whole.
 - **A render's `viewport.columns` is the transcript's column** (narrower beside a docked pane); `$.ui.panes()` says whether the pane is placed and shown. Render hooks may not write state.
-- **No mod can restyle the prompt's `❯`, or bind Esc.** The pane takes keys after ctrl+x tab or a click; the play hint says so.
+- **No mod can restyle the prompt's `❯`, bind Esc, or hide the permission-mode label** in front of the hint line (no render component carries it; drawing `PromptHint` whole doesn't remove it, and drops Claude Code's pills). The pane takes keys after ctrl+x tab or a click; the play hint says so.
 - **Story styling is per session.** A resumed session shows earlier narration plain.
 - **Room pictures and a pixel-art map** (`Image`/`Raster` elements) are designed for but not built; see the pane ideas in the conversation history.

@@ -8,7 +8,7 @@ import { accentOf, DEFAULT_LOOK, lookOf, money, phasePhrase, soundFor, tabsOf } 
 import { commandPhrase, idlePhrase, npcPhrase, phaseOf } from '../hooks/phrases'
 import { pageFrame, pageMs, STEP_MS } from '../hooks/page'
 import { revealFrame } from '../hooks/reveal'
-import { arrivalRow, blocksOf, endingRows, measureOf, paragraphsOf, rowsOf, speakerCards, speakerOf, speechTag } from '../hooks/story'
+import { arrivalRow, blocksOf, endingRows, indentOf, measureOf, paragraphsOf, rowsOf, speakerCards, speakerOf, speechTag } from '../hooks/story'
 import { tileGrid, tilesAt } from '../hooks/tiles'
 import { FX_MS, hpAt, lineAt, numberAt, stripAt, TUMBLE_MS } from '../hooks/trayfx'
 import { bandHpColor, bandParts, budgetText, currentObjective, guideText, PLAY_HINT, WORKING_HINT, fitCells, startsAfresh, isGmNote, isPendingPlumbing, isPlumbing, onlyRecords, pipBar, smoothBar, spaced, storyKey, stripPreamble, trayFor } from '../hooks/register'
@@ -224,7 +224,7 @@ test('narration from a game turn is plain prose at the page indent, 72 columns a
     })
     const boxes = await ui.findAll({ type: 'Box' })
     expect(boxes.some(b => b.props.borderStyle !== undefined)).toBe(false)
-    expect(boxes[0]?.props.paddingLeft).toBe(4)
+    expect(boxes[0]?.props.paddingLeft).toBe(56) // centered in a 184-column transcript
     expect(boxes.some(b => b.props.width === 72)).toBe(true)
     expect((await ui.find({ type: 'Markdown' }))?.props.text).toBe(text)
     await ui.unmount()
@@ -235,6 +235,12 @@ test('the measure is 72 columns, or the transcript\'s column less 6 where 72 won
   expect(measureOf(138)).toBe(72)
   expect(measureOf(74)).toBe(68) // 120 columns with the pane docked beside
   expect(measureOf(10)).toBe(20) // never narrower than this
+})
+
+test('the page is centered in its column, never closer than 4 to the edge', () => {
+  expect(indentOf(115)).toBe(21) // a docked pane leaves 115 columns: 21 either side of 72
+  expect(indentOf(80)).toBe(4)
+  expect(indentOf(60)).toBe(4) // 54 columns of text, 4 in
 })
 
 test('the journal tab lists quest objectives and the people met, with their memories', async ($, on) => {
@@ -1276,15 +1282,17 @@ test('without the pane the band carries place, health, money, resource, clock, t
 test('in play the hint line is the game\'s and the mode labels are hidden; ooc: turns keep the engine\'s', async ($, on) => {
   gameFolder(on, SAVE)
   let seen: unknown
-  on('ui.render', { component: 'PromptHint' }, (_, e) => { seen = e.props.hint; return { type: 'Text', props: {}, children: [String(e.props.hint)] } })
+  on('ui.render', { component: 'PromptHint' }, (_, e) => ({ type: 'Text', props: {}, children: [String(e.props.hint)] }))
   on('ui.render', { component: 'SessionMode' }, (_, e) => { seen = e.props.modes; return { type: 'Text', props: {}, children: [] } })
   on('turn.start', (_, e) => ({ turnId: e.turnId }) as never)
   await startSession($)
+  let n = 0
   const hint = async (isWorking: boolean) => {
-    const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'PromptHint', requestId: `h${isWorking}`,
+    const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'PromptHint', requestId: `h${n++}`,
       props: { isDraft: false, isWorking, hint: '? for shortcuts' } })
+    const text = (await ui.findAll({ type: 'Text' })).map(t => t.children.join('')).join('')
     await ui.unmount()
-    return seen
+    return text
   }
   expect(await hint(false)).toBe(PLAY_HINT)
   expect(PLAY_HINT).toContain('ctrl+x tab to the margin')
@@ -1294,7 +1302,7 @@ test('in play the hint line is the game\'s and the mode labels are hidden; ooc: 
   expect(seen).toEqual([])
   await mode.unmount()
   await $.turn.start({ turnId: 't9', text: 'ooc: how do saves work?' } as never)
-  expect(await hint(false)).toBe('? for shortcuts')
+  expect(await hint(false)).toBe('? for shortcuts') // Claude Code's own line
 })
 
 test('/guide says how to play in the game\'s own words, instantly', async ($, on) => {
