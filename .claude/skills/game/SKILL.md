@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 The player typed `/game $ARGUMENTS`.
 
-1. **No argument:** run `python3 rules/rpg.py game list` and show the games as a short list: the title, and whether there's a game in progress. Mark the one being played, and say which were made for the player (`a world forged in play`). Tell the player they can switch with `/game <id>`. Then stop.
+1. **No argument:** run `python3 rules/rpg.py game list` and show the games as a short list: the title, its id in backticks (what `/game <id>` takes), and whether there's a game in progress. Mark the one being played, and say which were made for the player (`a world forged in play`). Tell the player they can switch with `/game <id>`. Then stop.
 2. **An argument:** run `python3 rules/rpg.py game switch <id>`, taking the id from the list if the player gave a title.
    - `REFUSED:` tell the player which games there are.
    - `No game yet`: welcome them to the new game's title in one line, and suggest `/newgame` to begin.
