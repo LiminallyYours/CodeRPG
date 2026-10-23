@@ -1,13 +1,13 @@
 # Handoff: building the kit
 
-As of 2026-10-23. The state of the kit build for whoever picks it up next, human or Claude. Read `DEVELOPING.md` first (invariants, checks, testing, API gotchas). This file covers only where the build stands and what was decided along the way. Update it at the end of each stage.
+As of 2026-10-23 (end of the session that planned and built `NEXT-PLAN.md` parts 1 and 2). The state of the kit build for whoever picks it up next, human or Claude. Read `DEVELOPING.md` first (invariants, checks, testing, API gotchas). This file covers only where the build stands and what was decided along the way. Update it at the end of each stage.
 
 ## Where things are
 - **Current work: `NEXT-PLAN.md`** (approved 2026-10-23): (1) the real-spend meter (R3), (2) one-step moves and looks, (3) the interface redesign (`UI-REDESIGN-SPEC.md`), in that order. It replaces the old "Stage 8 playtest, then Stage 6" sequence below.
 - **Requirements:** `IMPLEMENTATION-PLAN.md` (JW's game-owner requirements, Stages 1–8).
 - **Technical plan:** `~/.claude/plans/please-read-implementation-plan-md-in-sunny-cake.md` (approved). The decisions below override it where they differ.
-- **Done:** Stages 1–5: kit split, second game and seeds; the meter and switches; look and feel; curses; the player leaves a mark (crafting, building, the library, promotion). Stage 7: people with plans, side scenes (playtested, no notes). Stage 8: new worlds, built (8.1, 8.2, 8.3) and live-tested. Everything is committed on `main`; `sh tools/check.sh` passes (63 engine tests, 63 mod tests, both games validate).
-- **Now:** `NEXT-PLAN.md` parts 1 (the real-spend meter) and 2 (one-step moves) are built and live-checked (see *NEXT-PLAN part 1 notes* and *part 2 notes*). **Waiting for the user's playtest** of both; then part 3, the interface redesign. The Stage 8 playtest had no further notes; the forge's cost is decided: new worlds don't use the meter (see *Stage 8 cost, measured*).
+- **Done:** Stages 1–5: kit split, second game and seeds; the meter and switches; look and feel; curses; the player leaves a mark (crafting, building, the library, promotion). Stage 7: people with plans, side scenes (playtested, no notes). Stage 8: new worlds, built (8.1, 8.2, 8.3) and live-tested. `NEXT-PLAN.md` parts 1 and 2. Everything is committed on `main`; `sh tools/check.sh` passes (64 engine tests, 72 mod tests, both games validate).
+- **Now:** `NEXT-PLAN.md` parts 1 (the real-spend meter) and 2 (one-step moves) are built and live-checked (see *NEXT-PLAN part 1 notes* and *part 2 notes*). **The user is playtesting both** (see *NEXT-PLAN parts 1–2 playtest checklist*). Their first `/budget` found a bug (real use lost after `/newgame`), fixed in `90ccbba`; they need to restart Claude Code in the game folder to load the fix. Then part 3, the interface redesign. The Stage 8 playtest had no further notes; the forge's cost is decided: new worlds don't use the meter (see *Stage 8 cost, measured*).
 - **Stage 6 (puzzles) is no longer next (2026-10-23, JW):** it will be rethought from scratch later, and its earlier decisions (*Stage 6 decisions so far*, the code-blocks note under *Decisions made with the user*, *Later stages*) don't carry over. They're kept below only as a record.
 - **Stage order (changed 2026-10-22, superseded 2026-10-23):** Stage 7, then Stage 8, then Stage 6; now `NEXT-PLAN.md`, with puzzles to be redesigned later. Forged worlds have no puzzles, and `validate --kit-complete` asks for none.
 
@@ -15,6 +15,10 @@ As of 2026-10-23. The state of the kit build for whoever picks it up next, human
 1. The user starts dev sessions with `ooc:` (or says the whole session is development). Read `DEVELOPING.md`, then this file, then run `sh tools/check.sh` and report the state.
 2. **If the user brings new playtest feedback:** diagnose from the session transcript (`DEVELOPING.md`, *Debugging a real session*), reproduce in a scratch copy, propose the fix and wait for an OK, then fix with a test. One commit per agreed fix, with a live check if players see it. The playtest checklists below say what each stage was meant to do.
 3. **Follow `NEXT-PLAN.md`** part by part: its decisions are agreed; anything it leaves open is proposed first, with context, options and downstream implications, assuming little knowledge of the project. It says where to stop for the user's playtests.
+   - **Next is part 3.1, the page** (`UI-REDESIGN-SPEC.md` section 4 and `UI-REDESIGN-MOCK.png`; the part 3 decisions in `NEXT-PLAN.md` are agreed). Read the spec, the mock and `mod/hooks/register.tsx`'s render hooks (`AssistantMessage`, `UserMessage`, story cards in `story.ts`/`reveal.tsx`) first.
+   - **Before 3.2,** check in the mod API (`mod/.claude-plugin/types/claude-code/index.d.ts`) that the prompt glyph and the mode footer can be restyled; if not, say so and skip that piece.
+   - **3.1 also edits `gm-turn` step 4** (a speech paragraph starts with `Name:`). Part 2 already changed steps 1, 2 and 4: edit the current text, don't restore old wording.
+   - **Measure** with the part 1 script (*NEXT-PLAN part 1 notes*) if a change could affect speed; `/budget`'s history table compares sessions.
 4. **Puzzles** are not planned: when the user brings them back, start from scratch (the old Stage 6 notes are a record, not decisions).
 5. **Everything stays kit-generic** (invariant 7): commands, agents and procedure name no game. Forged worlds must each include plans and a side scene, and `validate --kit-complete` must be able to check all of it.
 
@@ -48,6 +52,25 @@ As of 2026-10-23. The state of the kit build for whoever picks it up next, human
 | `90ccbba` | Playtest bug: real use was lost after `/newgame` (`$.state` resets on `/clear`); `ensureSpend` restores it from the store |
 
 Commits that change only this file (`HANDOFF.md: …`) are left out.
+
+## NEXT-PLAN parts 1–2 playtest checklist (what should happen)
+- **Restart Claude Code** in the game folder first, so the fixed mod loads. Counting starts with that session.
+- **`/budget`:** after the switches, a section "Real use this session":
+  - per play turn: seconds, requests, weighted tokens;
+  - by who: storyteller, characters, world agent, worldsmith, other agents;
+  - raw counts;
+  - extras: points, and the world agent's tokens;
+  - what a point really cost: known once the session has turns both with and without extras;
+  - plan usage: the 5-hour and weekly windows;
+  - development turns, if any;
+  - from the second session on, a table of earlier sessions.
+  It should survive `/newgame` and `/game` (the bug fixed in `90ccbba`).
+- **Moves:** the same story as before, a little quicker. A plain "go west" is one command. Room descriptions are still right, including what changes with flags (the lighthouse lit, Ysolde asleep and so on).
+- **Watch for:**
+  - a room described wrongly or from an earlier state;
+  - the GM moving the player when their words were vague;
+  - any `ROOM TEXT` or rules text on screen;
+  - a dice-tray line that's really room prose.
 
 ## NEXT-PLAN part 2 notes (as built, 2026-10-23)
 - **Engine:** `look` (so `move` and `newgame` too) ends with `ROOM TEXT:` and the room's body through `applicable` (`room_text`), authored or generated; no front matter. `LOCATION:` keeps `[generated]` but no longer says to `show` the room.
@@ -193,7 +216,7 @@ Commits that change only this file (`HANDOFF.md: …`) are left out.
 - **Map squares:** `rpg.layout()` mirrors the mod's `layout()`/`STEP` (up and down are drawn as north and south). Change one, change the other.
 - **Story filter:** the mod holds back a turn's text and shows only the narration; `isGmNote` (`mod/hooks/register.tsx`: `GM_ALWAYS`, `GM_ANYWHERE`, `GM_PROGRESS`, `GM_MAYBE`+`GM_WORDS`) strips a GM note from the narration's first paragraph. Add each newly seen leak to the tests in `mod/tests/coderpg.test.tsx`, together with story lines that must survive.
 - **Animations** are surface modules (`mod/hooks/reveal.tsx`, `trayfx.tsx`, `tilemap.tsx`) drawn as a literal `<Client module="./x.tsx">`. Their frame logic is pure and exported; they play once while fresh (`FRESH_MS`), otherwise drawn still.
-- **Tests:** `tools/test_rules.py` (63 engine tests, CLI-driven in a temp copy, both games) and `mod/tests/` (63). Both run from `tools/check.sh`.
+- **Tests:** `tools/test_rules.py` (64 engine tests, CLI-driven in a temp copy, both games) and `mod/tests/` (72). Both run from `tools/check.sh`.
 
 ## Stage 5 playtest checklist (what should happen)
 - **Crafting** (lighthouse: Morwen on Harbor Square; station: Bucket on the Common Deck). Describe an item; the maker shapes it or turns it down in character and names the price (trinket 2, light weapon 3, tonic 3, weapon 5; Morwen also takes a smoked fish, Bucket a sardine tin). On paying, the item is handed over; the pane shows "(made for you)" and the tray "✧ <item>, made for you by <maker>".

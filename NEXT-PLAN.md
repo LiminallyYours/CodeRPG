@@ -81,7 +81,7 @@ Session totals alone serve neither job, because they depend on how long you play
 - **Measure:** the same scripted scratch play as part 1's baseline, compared on seconds, requests and tokens per play turn. The result goes in `HANDOFF.md`.
 - **Live check:** no plumbing visible, and room descriptions are still right after a move.
 
-## 3. The interface redesign (`UI-REDESIGN-SPEC.md`, `UI-REDESIGN-MOCK.png`)
+## 3. The interface redesign (`UI-REDESIGN-SPEC.md`, `UI-REDESIGN-MOCK.png`): next, after the user's playtest of parts 1–2
 
 **Decided:**
 - **Mosaic only:** JW plays in Terminal.app, which shows no real images. Real images can come later if the terminal changes; the PNGs work unchanged.
