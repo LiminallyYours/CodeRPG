@@ -1,13 +1,13 @@
 # Handoff: building the kit
 
-As of 2026-10-23 (end of the session that built `NEXT-PLAN.md` 3.3, the margin, and 3.4, the pictures). The state of the kit build for whoever picks it up next, human or Claude. Read `DEVELOPING.md` first (invariants, checks, testing, API gotchas). This file covers only where the build stands and what was decided along the way. Update it at the end of each stage.
+As of 2026-10-23 (end of the session that built `NEXT-PLAN.md` 3.3, the margin, 3.4, the pictures, and an alignment fix from JW's screenshot). The state of the kit build for whoever picks it up next, human or Claude. Read `DEVELOPING.md` first (invariants, checks, testing, API gotchas). This file covers only where the build stands and what was decided along the way. Update it at the end of each stage.
 
 ## Where things are
 - **Current work: `NEXT-PLAN.md`** (approved 2026-10-23): (1) the real-spend meter (R3), (2) one-step moves and looks, (3) the interface redesign (`UI-REDESIGN-SPEC.md`), in that order. It replaces the old "Stage 8 playtest, then Stage 6" sequence below.
 - **Requirements:** `IMPLEMENTATION-PLAN.md` (JW's game-owner requirements, Stages 1–8).
 - **Technical plan:** `~/.claude/plans/please-read-implementation-plan-md-in-sunny-cake.md` (approved). The decisions below override it where they differ.
-- **Done:** Stages 1–5: kit split, second game and seeds; the meter and switches; look and feel; curses; the player leaves a mark (crafting, building, the library, promotion). Stage 7: people with plans, side scenes (playtested, no notes). Stage 8: new worlds, built (8.1, 8.2, 8.3) and live-tested. `NEXT-PLAN.md` parts 1, 2 (playtested, no notes), 3.1 and 3.2 (playtested: one note, fixed), 3.3 and 3.4 (built and live-checked, waiting for JW's second playtest). Everything is committed on `main`; `sh tools/check.sh` passes (67 engine tests, 99 mod tests, both games validate).
-- **Now:** `NEXT-PLAN.md` 3.3 (the margin) and 3.4 (the pictures) are built and live-checked (see *NEXT-PLAN 3.3 notes* and *3.4 notes*); open points were decided with JW first (`NEXT-PLAN.md`, *Decided before building 3.3* and *Found and decided while building 3.4*). **Next is JW's second playtest**, covering 3.3 and 3.4 together (checklist below). JW hasn't yet seen the centered page, the margin or the pictures on a real screen. After it, `NEXT-PLAN.md` is done; ask JW what comes next (R1/R2, puzzles from scratch). The Stage 8 playtest had no further notes; new worlds don't use the meter (see *Stage 8 cost, measured*).
+- **Done:** Stages 1–5: kit split, second game and seeds; the meter and switches; look and feel; curses; the player leaves a mark (crafting, building, the library, promotion). Stage 7: people with plans, side scenes (playtested, no notes). Stage 8: new worlds, built (8.1, 8.2, 8.3) and live-tested. `NEXT-PLAN.md` parts 1, 2 (playtested, no notes), 3.1 and 3.2 (playtested: one note, fixed), 3.3 and 3.4 (built and live-checked, waiting for JW's second playtest), and the alignment fix (`357d710`). Everything is committed on `main`; `sh tools/check.sh` passes (67 engine tests, 100 mod tests, both games validate).
+- **Now:** `NEXT-PLAN.md` 3.3 (the margin) and 3.4 (the pictures) are built and live-checked (see *NEXT-PLAN 3.3 notes* and *3.4 notes*); open points were decided with JW first (`NEXT-PLAN.md`, *Decided before building 3.3* and *Found and decided while building 3.4*). **Next is JW's second playtest**, covering 3.3, 3.4 and the alignment fix together (*Playtest 2 script* below; JW was given it at the end of the session). JW hasn't yet seen the margin or the pictures on a real screen: their one screenshot showed no pane docked (not reproduced; see *Alignment note*). After it, `NEXT-PLAN.md` is done; ask JW what comes next (R1/R2, puzzles from scratch). The Stage 8 playtest had no further notes; new worlds don't use the meter (see *Stage 8 cost, measured*).
 - **Stage 6 (puzzles) is no longer next (2026-10-23, JW):** it will be rethought from scratch later, and its earlier decisions (*Stage 6 decisions so far*, the code-blocks note under *Decisions made with the user*, *Later stages*) don't carry over. They're kept below only as a record.
 - **Stage order (changed 2026-10-22, superseded 2026-10-23):** Stage 7, then Stage 8, then Stage 6; now `NEXT-PLAN.md`, with puzzles to be redesigned later. Forged worlds have no puzzles, and `validate --kit-complete` asks for none.
 
@@ -15,7 +15,8 @@ As of 2026-10-23 (end of the session that built `NEXT-PLAN.md` 3.3, the margin, 
 1. The user starts dev sessions with `ooc:` (or says the whole session is development). Read `DEVELOPING.md`, then this file, then run `sh tools/check.sh` and report the state.
 2. **If the user brings new playtest feedback:** diagnose from the session transcript (`DEVELOPING.md`, *Debugging a real session*), reproduce in a scratch copy, propose the fix and wait for an OK, then fix with a test. One commit per agreed fix, with a live check if players see it. The playtest checklists below say what each stage was meant to do.
 3. **Follow `NEXT-PLAN.md`** part by part: its decisions are agreed; anything it leaves open is proposed first, with context, options and downstream implications, assuming little knowledge of the project. It says where to stop for the user's playtests.
-   - **3.4 is built**; the second playtest (3.3 and 3.4 together) is next. Spec section 12 is the bar: check it against what JW sees.
+   - **All of `NEXT-PLAN.md` is built**; the second playtest is next. Spec section 12 is the bar: check it against what JW sees. Likely feedback areas: how the pictures read in Terminal.app (redraw in `tools/pictures.py`, then `python3 tools/pictures.py --preview <sheet.png>` and look at the sheet), whether the pane docks for JW (if not, ask what `/sheet` says now), whether the page/left-edge split still bothers them.
+   - **After the playtest**, `NEXT-PLAN.md` is finished: ask JW what's next (the owner's reminders R1/R2 in `IMPLEMENTATION-PLAN.md`, puzzles from scratch, or something new). Don't start anything unasked.
    - **Measure** with the part 1 script (*NEXT-PLAN part 1 notes*) if a change could affect speed; `/budget`'s history table compares sessions.
 4. **Puzzles** are not planned: when the user brings them back, start from scratch (the old Stage 6 notes are a record, not decisions).
 5. **Everything stays kit-generic** (invariant 7): commands, agents and procedure name no game. Forged worlds must each include plans and a side scene, and `validate --kit-complete` must be able to check all of it.
@@ -52,8 +53,19 @@ As of 2026-10-23 (end of the session that built `NEXT-PLAN.md` 3.3, the margin, 
 | `27581ff` | Playtest 1: the page centered beside the pane; the permission-mode label can't be hidden (docs) |
 | `18f378a` | NEXT-PLAN 3.3: the margin (six sections, `margin.ts`, screens behind m/j/g, one-turn marks, `look.sections`, tab-key checks) |
 | `129f6c8` | NEXT-PLAN 3.4: room pictures (`rules/png.py`, `view.picture`, the chain, `tools/pictures.py`, 30 pictures, half-block Raster, crop steps, picture checks) |
+| `357d710` | The page centered in at most the first 120 columns (`CENTER_SPAN`); `/sheet` hides its success line and reports why the pane can't be placed |
 
 Commits that change only this file (`HANDOFF.md: …`) are left out.
+
+## Playtest 2 script (given to JW, 2026-10-23)
+Restart Claude Code wide and full-screen (`/sheet` if the margin doesn't dock; it now says why if it can't). JW's save is in the Gull.
+1. **First look:** six sections; the Gull's picture; `Dusk. …` sentence; health, oil, coins with grey bars; the clock's dots; `1: south → Harbor Square`, `l: look around`, talk rows for Pell and Tamsin in their colors; CARRYING with `6/12`; the page near the prompt, not floating mid-screen.
+2. **Keys** (ctrl+x tab or a click): `m` map and back (`m` or `h`), `j` journal, `g` guide, `1` fills "go south".
+3. **One-turn colors:** buy from Pell (coins amber, `✧ −1 coin`), take an item (its row cyan), then an ordinary turn (back to grey); hurt and heal if it comes up.
+4. **Pictures:** south to Harbor Square (may be the 10-row crop), east to the Coast Road; the quay steps south grow a new place (stock water picture, oil flashes amber), the same picture on return.
+5. **Window:** shorter (list trims, then the picture shrinks 14→10→7→gone); narrower than ~144 (band's long form, `/sheet` inline).
+6. **Optional:** `/game flooded_station` (labels LOCATION…KIT, keys `p` `n` `g`, `d` back; station pictures).
+Asked to report: pictures that read badly or clash, rows cut with `…`, colors that don't fade, dead keys, whether the left/column split still bothers them, any machinery on screen. A screenshot plus what they did just before.
 
 ## NEXT-PLAN 3.4 playtest checklist (what should happen; played with 3.3)
 - **Pictures:** WHERE shows the room as small pixel art (44 cells wide, each cell two pixels). Every authored room of both games has its own; a generated room gets a picture for its terrain (always the same one for that room). In a busy room on a 46-row screen the picture shows its middle 10 rows (or 7) rather than vanishing; in a quiet room, all 14.
