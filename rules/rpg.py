@@ -424,6 +424,14 @@ def open_steps(state):
     return out
 
 
+def add_signal(state, text):
+    """Something the player notices, for the interface's toast and chime (`view.signals`, the last 3)."""
+    run = state["run"]
+    run["signal_n"] = run.get("signal_n", 0) + 1
+    run.setdefault("signals", []).append({"n": run["signal_n"], "text": text, "move": run["moves"]})
+    del run["signals"][:-3]
+
+
 def apply_plan(state, who, step):
     """Carry out one plan step. Returns the lines for the game master, or None when it would take someone
     out of the player's sight (then it's undone: whoever the player is with stays)."""
@@ -446,9 +454,7 @@ def apply_plan(state, who, step):
     near = any(r and (r == me or me in neighbours(r)) for r in (before, after))
     out = []
     if near:
-        run["signal_n"] = run.get("signal_n", 0) + 1
-        run.setdefault("signals", []).append({"n": run["signal_n"], "text": step["near"], "move": run["moves"]})
-        del run["signals"][:-3]
+        add_signal(state, step["near"])
         out.append("SIGNAL (the player notices this close by: one sentence of what they see or hear, woven into "
                    "the narration; don't explain it): %s" % step["near"])
     elif step.get("rumor"):
@@ -2726,8 +2732,10 @@ def cmd_validate(args):
     if "--dir" in args:
         want = args[args.index("--dir") + 1:][:1]
         folder = (ROOT / want[0]).resolve() if want else None
-        if not folder or not (folder / "world.md").is_file():
-            raise Refused("validate --dir <folder>, a folder with a world.md in it")
+        if not folder or not folder.is_dir():
+            raise Refused("validate --dir <folder>: no such folder")
+        if not (folder / "world.md").is_file():
+            raise Refused("%s has no world.md yet: write world.md first" % want[0])
         targets = [(want[0].rstrip("/"), folder)]
     elif "--game" in args:
         want = args[args.index("--game") + 1:][:1]
@@ -3053,6 +3061,12 @@ def cmd_forge(args):
         write_json(home / "settings.json", {"preset": "normal", "overrides": {}})
     write_json(home / "forged.json", {"title": title, "sentence": info.get("sentence"), "forged": datetime.date.today().isoformat()})
     shutil.rmtree(FORGE / d)
+    try:  # the toast, in whatever game is being played
+        state = load_state()
+        add_signal(state, "A new world has taken shape: %s. /game %s goes there." % (title, ident))
+        save_state(state)
+    except Refused:
+        pass
     print("INSTALLED: %s (%s). Tell the player in one line, in the story, that somewhere a new world has taken shape: "
           "%s, and that /game %s goes there." % (title, ident, title, ident))
 

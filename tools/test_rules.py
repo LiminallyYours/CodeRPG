@@ -1103,6 +1103,8 @@ near: stuck
         self.assertIn("NEW WORLD READY: %s" % d, self.rpg("look"))
         out = self.rpg("forge", "install", d)
         self.assertIn("INSTALLED: The Smugglers Cove (smugglers_cove)", out)
+        self.assertEqual("A new world has taken shape: The Smugglers Cove. /game smugglers_cove goes there.",
+                         self.save()["view"]["signals"][-1]["text"])
         self.assertFalse((self.dir / "state" / "forge" / d).exists())
         home = self.dir / "state" / "worlds" / "smugglers_cove"
         self.assertEqual("normal", json.loads((home / "settings.json").read_text())["preset"])
@@ -1166,6 +1168,33 @@ near: stuck
         self.rpg("meter", "refill")  # what opening Claude Code again does
         self.assertIn("unfinished", self.rpg("forge", "status"))
         self.assertIn("FORGE STARTED", self.rpg("forge", "start", "another"))  # the old one no longer blocks a new one
+
+    def test_the_worldsmiths_guard_keeps_it_to_its_draft(self):
+        def ask(tool, agent="worldsmith", **args):
+            event = {"tool_name": tool, "tool_input": args, "cwd": str(self.dir)}
+            if agent:
+                event["agent_type"] = agent
+            out = self.run_py(".claude/hooks/forge_guard.py", stdin=json.dumps(event)).stdout.strip()
+            return json.loads(out)["hookSpecificOutput"]["permissionDecision"] if out else None
+        self.assertEqual("deny", ask("Write", file_path="state/forge/draft_aaaaaa/world/world.md"))  # nothing forging
+        self.rpg("meter", "refill")
+        d, _ = self.forge_draft()
+        self.assertEqual("allow", ask("Write", file_path="state/forge/%s/world/rooms/cove.md" % d))
+        self.assertEqual("allow", ask("Edit", file_path=str(self.dir / "state/forge" / d / "world/world.md")))
+        self.assertEqual("allow", ask("Write", file_path="state/forge/%s/READY" % d))
+        for path in ("rules/rpg.py", "state/save.json", "state/forge/%s/forge.json" % d, "state/forge/%s/world/../../../x" % d):
+            self.assertEqual("deny", ask("Write", file_path=path), path)
+        self.assertEqual("allow", ask("Bash", command="python3 rules/rpg.py validate --dir state/forge/%s/world --kit-complete" % d))
+        self.assertEqual("allow", ask("Bash", command="rm state/forge/%s/world/rooms/cove.md" % d))
+        for cmd in ("python3 rules/rpg.py flag set x", "rm -rf state/forge/%s/world" % d, "ls",
+                    "python3 rules/rpg.py validate --dir state/forge/%s/world --kit-complete; rm state/save.json" % d,
+                    "rm state/forge/%s/world/../forge.json" % d):
+            self.assertEqual("deny", ask("Bash", command=cmd), cmd)
+        self.assertIsNone(ask("Read", file_path="games/dark_lighthouse/world.md"))
+        self.assertIsNone(ask("Write", agent="npc", file_path="rules/x.md"))  # not its business
+        (self.dir / "state/forge" / d / "READY").write_text("done")
+        self.assertEqual("deny", ask("Write", file_path="state/forge/%s/world/world.md" % d))  # finished: hands off
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

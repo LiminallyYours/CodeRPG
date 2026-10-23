@@ -8,7 +8,8 @@
       "Read(games/**)",
       "Read(rules/**)",
       "Read(state/**)",
-      "Edit(proposals/**)"
+      "Edit(proposals/**)",
+      "Edit(state/forge/**)"
     ]
   },
   "hooks": {

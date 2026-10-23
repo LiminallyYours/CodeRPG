@@ -119,6 +119,8 @@ test('game plumbing is recognised and other tool calls are not', () => {
   expect(isPlumbing('Read', { file_path: '/x/CodeRPG/games/dark_lighthouse/characters/grukk.md' })).toBe(true)
   expect(isPlumbing('Skill', { skill: 'game' })).toBe(true)
   expect(isPlumbing('Skill', { skill: 'gm-turn' })).toBe(true)
+  expect(isPlumbing('Skill', { skill: 'newworld' })).toBe(true)
+  expect(isPlumbing('Agent', { subagent_type: 'worldsmith', prompt: '# Forge a new world' })).toBe(true)
   expect(isPlumbing('Agent', { subagent_type: 'npc', prompt: '', description: '' })).toBe(true)
   expect(isPlumbing('Bash', { command: 'ls -la' })).toBe(false)
   expect(isPlumbing('Edit', { file_path: '/x/CodeRPG/games/dark_lighthouse/rooms/lighthouse.md' })).toBe(false)
@@ -175,6 +177,25 @@ test('rule-script calls from game turns are hidden from the transcript', async (
     expect(box?.props.display).toBe('none')
     await ui.unmount()
   }
+})
+
+test('the notice that a background game agent finished is hidden like its call', async ($, on) => {
+  on('state.get', { plugin: 'coderpg', key: 'hidden' }, () => ({ value: { value: ['forge1'], version: 1 } }))
+  on('ui.render', { component: 'UserMessage' }, () => ({ type: 'Text', props: {}, children: ['engine row'] }))
+  const notice = (toolUseId: string, isExpanded = false) => $.ui.mount({
+    plugin: 'coderpg', surface: 'terminal', component: 'UserMessage', requestId: `n-${toolUseId}-${isExpanded}`,
+    props: { text: 'Agent "A new world takes shape" finished', origin: { kind: 'task-notification' }, isExpanded,
+             task: { id: 'a1', status: 'completed', toolUseId, durationMs: 504000 } },
+  })
+  let ui = await notice('forge1')
+  expect((await ui.find({ type: 'Box' }))?.props.display).toBe('none')
+  await ui.unmount()
+  ui = await notice('forge1', true)  // ctrl+o shows everything
+  expect(await ui.find({ text: 'engine row' })).toBeDefined()
+  await ui.unmount()
+  ui = await notice('other')  // someone else's background task
+  expect(await ui.find({ text: 'engine row' })).toBeDefined()
+  await ui.unmount()
 })
 
 test('a call not recorded as game plumbing (an ooc: turn) is drawn normally', async ($, on) => {

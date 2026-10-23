@@ -55,9 +55,9 @@ export function isPlumbing(tool: string, input: unknown): boolean {
     case 'Read':
       return /\/(games|state|rules)\//.test(s('file_path'))
     case 'Skill':
-      return ['gm-turn', 'newgame', 'game'].includes(s('skill'))
+      return ['gm-turn', 'newgame', 'game', 'newworld'].includes(s('skill'))
     case 'Agent':
-      return ['npc', 'world'].includes(s('subagent_type'))
+      return ['npc', 'world', 'worldsmith'].includes(s('subagent_type'))
     case 'Write':
     case 'Edit':
       return /(^|\/)proposals\//.test(s('file_path'))
@@ -471,7 +471,8 @@ export const register: Register = on => {
   on('tool.call', async ($, e, next) => {
     // Plumbing is hidden only in play: an ooc: turn shows every call.
     const isPlay = isGame && !isOoc && !e.agentId && isPlumbing(e.tool, e)
-    if (!e.agentId && !isPlumbing(e.tool, e)) usedOtherTools = true
+    // the yes/no question /newworld asks is part of play, not development
+    if (!e.agentId && !isPlumbing(e.tool, e) && e.tool !== 'AskUserQuestion') usedOtherTools = true
     if (isPlay) {
       isGameTurn = true
       const sub = e.tool === 'Bash' ? rpgCommand(String((e as { command?: unknown }).command)) : undefined
@@ -487,7 +488,8 @@ export const register: Register = on => {
       const look = lookOf(await read($, save))
       const name = /^(.+?) considers your words$/.exec(npcPhrase(String((e as { prompt?: unknown }).prompt ?? '')))?.[1]
       // the phase says which stage the turn is in, in the game's voice; a command's own phrase is more particular
-      const phrase = (now === 'resolving' && sub ? commandPhrase(sub, seed++, look) : undefined)
+      const phrase = (agentType === 'worldsmith' ? 'A new world takes shape' : undefined)
+        ?? (now === 'resolving' && sub ? commandPhrase(sub, seed++, look) : undefined)
         ?? (now ? phasePhrase(look, now, seed++, now === 'considering' ? name : undefined) : undefined)
         ?? (e.tool === 'Agent' ? (agentType === 'world' ? 'The world takes shape' : npcPhrase(String((e as { prompt?: unknown }).prompt ?? '')))
           : sub ? commandPhrase(sub, seed++, look) : undefined)
@@ -661,8 +663,11 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
-    // A game agent's reply row ("Message from @world"): plumbing, so hidden in play.
-    if (isGame && !isOoc && !e.props.isExpanded && /^(world|npc)\b/.test(e.props.from?.name ?? '')) {
+    // A game agent's reply row ("Message from @world"), and the notice that a background game agent finished
+    // (the worldsmith: its call was recorded as plumbing): hidden in play.
+    const fromGameAgent = isGame && !isOoc && /^(world|worldsmith|npc)\b/.test(e.props.from?.name ?? '')
+    const endOfHidden = e.props.task?.toolUseId !== undefined && (await read($, hidden)).includes(e.props.task.toolUseId)
+    if (!e.props.isExpanded && (fromGameAgent || endOfHidden)) {
       const { Box } = $.ui.resolve(e)
       return <Box display="none" />
     }

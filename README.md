@@ -19,8 +19,11 @@ CLAUDE.md                     GM role + standing orders (procedure only, no worl
 .claude/skills/gm-turn/       the turn-by-turn procedure
 .claude/skills/newgame/       /newgame
 .claude/skills/game/          /game: list the installed games or switch between them
+.claude/skills/newworld/      /newworld <a sentence>: a whole new world, forged in the background while you play
 .claude/agents/npc.md         the NPC subagent: no tools, sees only the brief it's given
 .claude/agents/world.md       the world subagent: proposes new people/places/items/side quests as JSON
+.claude/agents/worldsmith.md  the worldsmith (Opus): writes a whole new world into its draft folder, in the background
+.claude/hooks/forge_guard.py  the worldsmith's guard: it may write only in its draft and run only the world check
 .claude/hooks/turn_reminder.py  reminds the GM of the turn procedure on every in-game message
 .claude/hooks/session_start.py  refills the meter each time Claude Code is opened here
 .claude/settings.json         lets the GM run rules/rpg.py without permission prompts;
@@ -33,6 +36,7 @@ games/<id>/                   ONE GAME: everything particular to it lives here
   settings.json               the owner's cost switches: a preset plus overrides
 rules/                        THE KIT: knows nothing about any particular game
   RULES.md                    the mechanics in plain language
+  WORLD-GUIDE.md              how to write a whole world: every format, and what a complete world needs
   balance.json                every tunable number (the defaults)
   look.default.json           the default look, which each game's look.json changes
   presets.json                the owner's presets: thrifty, normal, rich
@@ -176,6 +180,7 @@ Extra prose shown only when that flag is set.
 - **Makers** are characters with `makes:` (the item tiers they make to order) and optionally `accepts:` (items they take instead of money). A `## What <she|he|it|they> make(s)` section describes their trade; the world agent reads it when shaping an order. The Lighthouse has Morwen the net-mender on the square; on the station, Bucket makes things from scrap.
 - **`look.json`** may set `palette` (`accent`, `good`, `bad`, `warn`, `heal`, and `accent_by_time`, a color per time of day from world.md's `times`), `terrain` (each kind's tile `bg`, `fg`, and `moves` for water), `sounds` (which kit sound each beat plays, or `null`: step, dice, hit, miss, coin, heal, fanfare, defeat, wipe, type, meter_low, and `phase_<reading|considering|shaping|stirring|resolving>`), `stat_labels` and `stat_short` (names for might, agility and wits), `currency`, `tagline` (under the title card), `tabs` with `tab_labels` and `tab_keys`, and `phrases` (`idle`, `by_command`, and `phases`, what the waiting line says in each stage of a turn; `{name}` is who's thinking). Anything left out comes from `rules/look.default.json`. `validate` flags unknown keys.
 - **`balance.json`** in a game folder overrides any number in `rules/balance.json`, key by key; `validate` flags unknown keys.
+- **Writing a whole world:** `rules/WORLD-GUIDE.md` is the full reference, for human authors and for the worldsmith that forges worlds on request.
 - **Checking a game:** `rpg.py validate` checks the kit's games (`--game <id>` any installed one, `--dir <folder>` a draft). Besides references and formats it checks soundness: every flag a condition uses can be set by something (a `flag set` in some file, an encounter's flag effect, a variant, the clock, a plan step, or defeating someone with hp), and every rules command written in content in backticks (`` `lose honey_cake` ``) is a real one naming real things. `--kit-complete` adds what every kit feature needs, which forged worlds must pass and the kit's games do: a full world file, a `look.json` with a palette and a resource, 5–8 rooms all reachable from the start, an encounter table, 3–4 characters (two with agents, one with plans, a maker, a build spot), exactly one quest with two ways through, its endings and *After the ending*, a curse and a side scene.
 - **`world.md`** may give `rolls:`, `variants:`, `clock:` (name, moves, flag, and optionally `also_if` / `also_flag`), `weather:`, `times:`, `generation:` (each kind `yes` or `no`; `rooms` may also be `anywhere`), and body sections `## Tone` and `## Public knowledge` for the world agent.
 

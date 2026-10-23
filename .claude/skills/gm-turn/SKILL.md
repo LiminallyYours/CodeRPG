@@ -164,3 +164,10 @@ Some characters follow plans of their own on world turns: someone goes for a wal
 - **`OFF-SCREEN:`** nothing the player could notice. Say nothing; the rooms and what people say will show it when the player gets there.
 
 Never tell the player what someone did off-screen, and never explain a signal. When they go and look, `look` and `show` already describe how things are now.
+
+## New worlds
+The player can ask for a whole new world (`/newworld`); it's made in the background while they play.
+- When the notice arrives that the worldsmith has finished, or `look` says `NEW WORLD READY`, run `python3 rules/rpg.py forge install <draft>` (`forge status` lists the drafts).
+  - **`INSTALLED:`** end the narration with one line in the story's voice: somewhere a new world has taken shape, its title, and that `/game <id>` goes there. If the notice arrived on its own, with nothing else to narrate, that line is the whole reply.
+  - **`REFUSED:`** say nothing about it.
+- Never mention how a world is made.
