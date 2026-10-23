@@ -50,6 +50,7 @@ As of 2026-10-23 (end of the session that built `NEXT-PLAN.md` 3.1 and 3.2). The
 | `074e5d3` | NEXT-PLAN part 2: one-step moves and looks (`ROOM TEXT:` in `look`/`move`; gm-turn moves first) |
 | `90ccbba` | Playtest bug: real use was lost after `/newgame` (`$.state` resets on `/clear`); `ensureSpend` restores it from the store |
 | `5715017` | NEXT-PLAN 3.1 and 3.2: the page (measure, arrival rule, keylines, change line, paragraph reveal), the band's two modes, the play hint, `/guide`, signal kinds, `speaker_colors`; skill reads are plumbing |
+| `27581ff` | Playtest 1: the page centered beside the pane; the permission-mode label can't be hidden (docs) |
 
 Commits that change only this file (`HANDOFF.md: …`) are left out.
 
