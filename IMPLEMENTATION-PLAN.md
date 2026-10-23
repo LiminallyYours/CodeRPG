@@ -161,6 +161,22 @@ Two more suggestions:
 - **Presets.** Three named presets (Thrifty, Normal, Rich) set every switch and limit at once. The game owner picks one, then adjusts single settings if wanted.
 - **The resource is the automatic switch.** When the Stage 2 resource runs out, every feature above drops to its "when off" column until the next session. The player never needs to think about settings to keep a session cheap.
 
+## Owner's reminders (to plan later with Claude)
+
+Added 2026-10-23 · JW. Not part of Stages 1–8 and not yet designed: each needs its decisions proposed (with options and implications) before anything is built. Pick them up after Stage 6.
+
+**R1 Admin mode.** Run the game as its owner, from inside it: do in play what is otherwise done before launching, such as switching preset (how expensive the game is), changing single switches, refilling the meter, or turning the meter off.
+- **Notes:** this replaces the parked "owner-run mode" idea in `HANDOFF.md`. Today only `tools/settings.py` changes settings, and it's kept out of the GM's allowlist on purpose, so a player (or the GM) can't make the game cheaper or richer mid-play. Admin mode needs an owner-only way in that keeps that protection.
+- **To decide:** how admin mode is entered (a `newgame` flag, a slash command, a launch option); which settings it offers; whether changes last for this run only or are saved; how it fits with "visible machinery is always a bug" and with *M4 · Show the machinery* under Not doing (admin mode is an owner's view, not the player's).
+
+**R2 Turning off the lamp-oil countdown.** "Lamp oil" is the Dark Lighthouse's name for the meter (the Flooded Station calls it Power). Turning it off means extras are no longer limited by the meter in that session or game.
+- **Notes:** today the meter has a capacity but no off switch. Off would also stop the meter being the automatic cheap fallback (see On/off switches), so a session could spend without limit.
+- **To decide:** whether off means "unlimited" or "not shown"; whether it lives in admin mode (R1) or is a preset setting; per game or for all. (If "countdown" meant the story clock instead, The fleet comes home, that is a different switch: it changes the story, since one ending depends on the clock running out.)
+
+**R3 A real-spend meter.** Show what the session has actually spent in tokens (or its dollar equivalent), updated regularly, for example once per world turn, alongside the meter's estimated points.
+- **Notes:** the meter's prices are estimates (Stage 8's forge was priced at 15 points and measured at about 70). A real figure would show when prices are off and could be used to recalibrate them. On the Max plan a dollar figure is an API-equivalent estimate, not a bill.
+- **To decide:** whether the mod can read the session's real usage (and whether that includes background agents such as the worldsmith); tokens, dollars or both; where it shows (`/budget`, the pane, a status line); how often it updates (reading it costs nothing, so every turn is possible); whether players see it or only the owner in admin mode (R1).
+
 ## Not now, and not doing
 
 ### Not yet
