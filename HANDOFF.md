@@ -56,25 +56,26 @@ Commits that change only this file (`HANDOFF.md: …`) are left out.
 
 ## NEXT-PLAN 3.1–3.2 playtest checklist (what should happen)
 - **Restart Claude Code** in the game folder, wide (184×46 is the mock's size), so the pane docks.
-- **The page:** narration as plain text, about 72 columns wide, indented, no box; paragraphs appear one after another, each dim for a moment (any key shows the whole turn). No `~ ✦ ~` after a turn.
+- **The page:** narration as plain text, about 72 columns wide, centered beside the pane, no box; paragraphs appear one after another, each dim for a moment (any key shows the whole turn). No `~ ✦ ~` after a turn.
 - **Your line:** `› go west`, dim and italic; under a curse your words as they came out, with a dim red ✶.
 - **Arriving:** a thin rule with the place in the accent color and the time of day: `──── The Lighthouse · dusk ────`. No block letters, no wipe.
 - **Speech:** a character's paragraph beside a colored bar, under their name, the `Name:` tag gone. Generated people get their own colors from a set of six.
 - **Change line:** under a turn that changed something, one dim line: `✧ −2 ♥ · +3 coins · gained … · ✓ … · the world grows · …`. No toast for those. Toasts still come for the resource running low or out, a curse taking hold, and a new world ready; someone's plan close by is only a chime now.
 - **Band:** beside the pane, `♥ 10 │ ✧ <the latest change>`, health red or cyan for the turn it changed, and `◌ <what's happening>` while Claude works. In a narrow window (no pane): `◆ Place · ♥ · ◎ · resource · ⧗ · time · ▸ objective`.
-- **Hint:** under the prompt, `⏎ act · ooc: speak to the builder · ctrl+x tab to the margin · /guide help`; no "auto mode on" in play. While a turn runs, Claude Code's own (Esc interrupts). `/guide` shows how to play.
+- **Hint:** under the prompt, `⏎ act · ooc: speak to the builder · ctrl+x tab to the margin · /guide help` ("esc to interrupt" while a turn runs). Claude Code's "⏵⏵ auto mode on" stays in front of it: no mod can hide it. `/guide` shows how to play.
 - **Title and ending cards:** between thin rules, centered in the text column.
 - **Watch for:** a paragraph wrongly taken for speech, or speech drawn plain; a missing or wrong change-line entry; the keyline a row short or long; text wider than the column; any machinery on screen.
 
 ## NEXT-PLAN 3.1–3.2 notes (as built, 2026-10-23)
 - **Engine:** `add_signal(state, text, kind)`, `kind` `plan` or `world` (install), in `view.signals` (old saves read as `plan`); `speaker_colors` in `rules/look.default.json`, checked by `validate`. No save version change.
 - **Mod, the page** (`story.ts`, `page.tsx`, `feedback.ts`, `register.tsx`): `measureOf` (72, or the column less 6); `arrivalRow`; `ruleRow` around title and ending cards; `speakerCards` (card, else `speaker_colors` in met order, skipping colors cards use); `speechTag`/`blocksOf` (tag, else `speakerOf`); `rowsOf` counts wrapped rows for the keyline; `page.tsx` reveals paragraphs (`STEP_MS` 150, dim then full), each block `delay`ed after the ones before it and after a title card; `prompt.edit` sets `revealSkip`; `changesOf` makes the change line, written on the last narration block at `turn.complete`; `feedback` keeps toasts only for the meter, a curse taking hold and `world` signals. Removed: `font.ts` (block letters), the wipe mode, `bannerRows`, `~ ✦ ~`, `»`. `isGmNote` never takes a tagged speech paragraph for a note (`looksTagged`).
-- **Mod, 3.2:** the band's two modes (`bandParts`, `bandHpColor`, the `latest` atom set at each play turn's end); `PLAY_HINT` and `WORKING_HINT` replace Claude Code's hint line in play (its line names the permission mode while working); `SessionMode` labels hidden in play; `/guide` (`guideText`).
+- **Mod, 3.2:** the band's two modes (`bandParts`, `bandHpColor`, the `latest` atom set at each play turn's end); `PLAY_HINT` and `WORKING_HINT` replace Claude Code's hint line in play (its line names the permission mode while working); `SessionMode` labels hidden in play; `/guide` (`guideText`). The page and band are centered in the transcript's column (`indentOf`).
 - **Learned:**
   - **A render's `viewport.columns` is the transcript's column, not the terminal's** (beside a docked pane it's narrower). The old `columns >= 144` test never saw a wide terminal. Whether the pane is docked comes from `$.ui.panes()` (placed and shown). Claude Code docks it from 144 columns unasked, or from 110 once the player has opened it.
   - **Render hooks may not write state** ("drawing is pure"); a value one draw needs from another must come from an event or an engine read.
   - **The game master sometimes `Read`s `.claude/skills/gm-turn/SKILL.md`** instead of loading the skill. That Read wasn't plumbing, so Claude Code drew the whole call group ("Read 1 file, ran 2 shell commands", and the running `rpg.py` command). Earlier captures missed it because the grep wanted `Ran \d` with a capital. Reads of `.claude/skills|agents/` are plumbing now; grep `shell command` in live checks.
-  - The capture collapses runs of spaces, so grep single-spaced pieces.
+  - The capture collapses runs of spaces, so grep single-spaced pieces. It is a stream of writes, so a row drawn once (the permission-mode label) shows only at startup: that's how "auto mode on" passed the live checks and was caught in JW's playtest.
+- **Playtest 1, note 1 (2026-10-23):** the text sat on the left with a wide gap to its right; now centered (`indentOf`), agreed with JW, reversing the spec (`27581ff`).
 - **Live checks** (Sonnet, scratch copies, `newgame 7`): 184×46: look, take the hilt, south with generation, `/newgame 7`, west; 120×40: west, `/guide`; then both widths again after the fixes above. Seen: the arrival rule with the time, keylines with names (Ysolde), the change line (`✧ gained Boarding Cutlass`), the title card between rules, the hint line, `◌` while working, `/guide`; no `ROOM TEXT`, no `rpg.py` after the fix.
 
 ## NEXT-PLAN parts 1–2 playtest checklist (what should happen)
