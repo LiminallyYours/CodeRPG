@@ -12,4 +12,4 @@ The player typed `/game $ARGUMENTS`.
 2. **An argument:** run `python3 rules/rpg.py game switch <id>`, taking the id from the list if the player gave a title.
    - `REFUSED:` tell the player which games there are.
    - `No game yet`: welcome them to the new game's title in one line, and suggest `/newgame` to begin.
-   - `The saved game continues`: in two or three sentences of story, remind the player where they are, from the `look` output it printed and the room (`rpg.py show rooms <id>`). From here on, every player message goes through `gm-turn`.
+   - `The saved game continues`: in two or three sentences of story, remind the player where they are, from the `look` output it printed, which ends with the room's text (`ROOM TEXT:`). From here on, every player message goes through `gm-turn`.

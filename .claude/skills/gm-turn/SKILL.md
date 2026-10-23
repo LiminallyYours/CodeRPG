@@ -9,12 +9,13 @@ user-invocable: false
 Follow these steps in order, every turn. If the player's message is out-of-character (it starts with `ooc:` or is about building the game), don't use this procedure.
 
 ## 1. Read state
-Run `python3 rules/rpg.py look`. It reports your status, location, open and blocked exits, the items and characters here, your inventory, and flags. It has already applied flag conditions. If the status is `defeated`, tell the player the game is over and suggest `/newgame`. Then stop.
+Run `python3 rules/rpg.py look`. It reports your status, location, open and blocked exits, the items and characters here, your inventory and flags, and ends with `ROOM TEXT:`, the room as it reads now. It has already applied flag conditions. If the status is `defeated`, tell the player the game is over and suggest `/newgame`. Then stop.
+- **A plain move skips the `look`:** when the player's words clearly match one open exit in the last `look` or `move` output you have from this conversation, run `move <direction>` as the turn's first command. It refuses if the way isn't open, and on success prints the full `look` of the new room, its `ROOM TEXT:` included. With no such output to go by (the first turn of a session, or after a `/clear`), or for any other kind of action, start with `look`.
 
 ## 2. Read the content involved
-Read the current room every turn, and each character, item or quest the action touches, with `python3 rules/rpg.py show <rooms|characters|items|quests> <id>`. Never open content files by path.
+The current room's text is the `ROOM TEXT:` that `look` or `move` printed: don't `show` it again. Read each character, item or quest the action touches, and any other room, with `python3 rules/rpg.py show <rooms|characters|items|quests> <id>`. Never open content files by path.
 - `show` reads authored content and content generated earlier this run (marked `[generated]` by `look`) alike. Once generated, things are as real as authored content for the rest of the run.
-- `show` already leaves out the `## If <condition>` sections that don't hold now. Deeper `### If` headings, such as a quest's endings, are still yours to match against the flags. Conditions can use the automatic names `look` lists under ALSO TRUE: `has_<item>` while carrying an item, and `met_<character>` once the player has seen that character. You never set these with `flag set`.
+- `show` and `ROOM TEXT:` already leave out the `## If <condition>` sections that don't hold now. Deeper `### If` headings, such as a quest's endings, are still yours to match against the flags. Conditions can use the automatic names `look` lists under ALSO TRUE: `has_<item>` while carrying an item, and `met_<character>` once the player has seen that character. You never set these with `flag set`.
 - The game names its own stats and money: `look` prints them as e.g. `Grit (might)` and `Credits`. Use the game's names in narration, and the mechanical name (`might`) in commands.
 - Authored and generated content together are everything you know about the world. You never make up anything that matters to the game yourself, such as an item, exit, character, clue or price. When the player reaches a gap, follow **Filling gaps** below: either the world agent creates it through `rpg.py`, or it doesn't exist.
 - `ESTABLISHED HERE` lines in `look` are small details already narrated in this room. Keep them true.
@@ -52,7 +53,7 @@ Work out what the player is trying to do, then use the matching command:
 - When someone speaks, give them their own paragraph and name them outside the quotation marks ("Pell looks up. 'Well now…'"), not only inside it. The interface draws that paragraph under the speaker's name.
 - Narrate the rolls truthfully, as fiction: "your blade glances off his hide" for a miss. Mention the numbers only if the player asks.
 - For a `REFUSED:` result, explain in the fiction why the action didn't happen.
-- After moving, describe the new room from its file, including the open exits. Mention blocked exits only as the content describes them. A `may grow` direction is a way that hasn't been explored. Mention it only as the room's prose does; when the prose says nothing about it, don't point it out, but if the player heads that way and going there is plausible, a new place can be found there.
+- After moving, describe the new room from the `ROOM TEXT:` that `move` printed, including the open exits. Mention blocked exits only as the content describes them. A `may grow` direction is a way that hasn't been explored. Mention it only as the room's prose does; when the prose says nothing about it, don't point it out, but if the player heads that way and going there is plausible, a new place can be found there.
 - `move` can report more than the move itself. Weave each of these into the narration:
   - **`ENCOUNTER:`** something happened on arrival, and its effect has already been applied. Narrate exactly that.
   - **`CLOCK:`** time is running out, or the clocked event has just happened. Say so, from the content's `## If` sections for the clock's flag.

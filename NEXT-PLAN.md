@@ -55,7 +55,7 @@ Session totals alone serve neither job, because they depend on how long you play
 - **Tests:** accumulation by role, weighting, play vs dev turns, carry-over across clear, history capped at 10, `/budget` text with and without rate-limit data.
 - **Live check:** a short scratch play (Sonnet) with one NPC exchange and one generation. Confirm that subagent steps arrive with `agentId` and that the totals roughly match `/cost`'s token figures. **This run is the "before" baseline for part 2.** Record its figures in `HANDOFF.md`.
 
-## 2. One-step moves and looks
+## 2. One-step moves and looks: built 2026-10-23 (see `HANDOFF.md`, *NEXT-PLAN part 2 notes*)
 
 **Decided:** always print the room's text, with no "ROOM: unchanged" shortcut. That shortcut would break after a compaction, a `/clear` or a resume, when the GM is told "unchanged" about a room it no longer remembers.
 

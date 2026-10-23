@@ -7,7 +7,7 @@ As of 2026-10-23. The state of the kit build for whoever picks it up next, human
 - **Requirements:** `IMPLEMENTATION-PLAN.md` (JW's game-owner requirements, Stages 1–8).
 - **Technical plan:** `~/.claude/plans/please-read-implementation-plan-md-in-sunny-cake.md` (approved). The decisions below override it where they differ.
 - **Done:** Stages 1–5: kit split, second game and seeds; the meter and switches; look and feel; curses; the player leaves a mark (crafting, building, the library, promotion). Stage 7: people with plans, side scenes (playtested, no notes). Stage 8: new worlds, built (8.1, 8.2, 8.3) and live-tested. Everything is committed on `main`; `sh tools/check.sh` passes (63 engine tests, 63 mod tests, both games validate).
-- **Now:** `NEXT-PLAN.md` part 1 (the real-spend meter) is built and live-checked (see *NEXT-PLAN part 1 notes*); next is part 2, one-step moves. The Stage 8 playtest had no further notes; the forge's cost is decided: new worlds don't use the meter (see *Stage 8 cost, measured*).
+- **Now:** `NEXT-PLAN.md` parts 1 (the real-spend meter) and 2 (one-step moves) are built and live-checked (see *NEXT-PLAN part 1 notes* and *part 2 notes*). **Waiting for the user's playtest** of both; then part 3, the interface redesign. The Stage 8 playtest had no further notes; the forge's cost is decided: new worlds don't use the meter (see *Stage 8 cost, measured*).
 - **Stage 6 (puzzles) is no longer next (2026-10-23, JW):** it will be rethought from scratch later, and its earlier decisions (*Stage 6 decisions so far*, the code-blocks note under *Decisions made with the user*, *Later stages*) don't carry over. They're kept below only as a record.
 - **Stage order (changed 2026-10-22, superseded 2026-10-23):** Stage 7, then Stage 8, then Stage 6; now `NEXT-PLAN.md`, with puzzles to be redesigned later. Forged worlds have no puzzles, and `validate --kit-complete` asks for none.
 
@@ -46,6 +46,33 @@ As of 2026-10-23. The state of the kit build for whoever picks it up next, human
 | `6fb8d50` | NEXT-PLAN part 1: the real-spend meter in `/budget` (`mod/hooks/spend.ts`) |
 
 Commits that change only this file (`HANDOFF.md: …`) are left out.
+
+## NEXT-PLAN part 2 notes (as built, 2026-10-23)
+- **Engine:** `look` (so `move` and `newgame` too) ends with `ROOM TEXT:` and the room's body through `applicable` (`room_text`), authored or generated; no front matter. `LOCATION:` keeps `[generated]` but no longer says to `show` the room.
+- **GM procedure** (`gm-turn` steps 1, 2 and 4):
+  - a plain move runs `move` first when the player's words match an open exit in the last output the GM has;
+  - otherwise `look` first;
+  - the room isn't `show`n again.
+- **Also updated:** the reminder hook, `/newgame` and `/game`, and the README.
+- **Tray:** `statusPart` cuts the output at `ROOM TEXT:`, for both `trayLines` and `combatOf`.
+- **Tests:** a test that watched `move`'s output for a flag name now reads the save, because room text names flags in its `## If` headings. Watch for that in new tests.
+- **Measured** (same script and seed as part 1's baseline; Sonnet):
+
+  | | s/turn | requests/turn | weighted/turn |
+  |---|---|---|---|
+  | before | 19.9 | 4.0 | 38.7k |
+  | after | 16.4 | 3.6 | 35.1k |
+
+  That's about 18% faster, 10% fewer requests and 9% fewer tokens. By turn:
+  - look: 53k/3 requests → 42k/2;
+  - move west: 29k/4 → 22k/3 (the `look` and the `show rooms` are gone; it still `show`s Ysolde, as it should);
+  - move east: 16k/2 → 16k/2 (it had already chained `look && move`);
+  - Ysolde: 34k/4, the same;
+  - south with generation: 51k/5 → 50k/5.
+
+  A point really cost about 13k, inside 10–15k.
+- **Live check:** narration followed the room text; no plumbing and no `ROOM TEXT` in any frame.
+- **Seen:** for "head south" (a `may grow` way, not an open exit) the GM went straight to `world-brief room` without a `look`, using the previous turn's output. Harmless here, since `generate` and `move` print everything after, but strictly it's not what step 1 says. Watch in the playtest; if it causes a wrong turn, either tighten step 1 or allow it explicitly.
 
 ## NEXT-PLAN part 1 notes (as built, 2026-10-23)
 - **The mod counts** (`mod/hooks/spend.ts`, pure; wired in `register.tsx`):

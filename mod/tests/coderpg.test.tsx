@@ -1002,3 +1002,12 @@ test('real use: the hooks count a play turn, a helper by its type, and keep the 
   expect(now.current.play.tokens.requests).toBe(2)
   expect(byRole(now.current)).toEqual({ gm: 150, npc: 150, world: 0, worldsmith: 0, other: 0 })
 })
+
+test('room prose after ROOM TEXT never reads as a roll, however its lines happen to look', () => {
+  const out = ['MOVED east.', 'ENCOUNTER: A gull steals your bread.', 'STATUS: playing | HP 9/11', 'ROOM TEXT:',
+    'A cobbled square opens onto a stone quay.', 'ROLL 2d6: the dice are carved on the tavern sign',
+    'damage done long ago = 3 -> the quay wall', 'effect: GAINED: lantern', 'COINS +5 -> 8', 'PLAYER ATTACKS grukk with words: d20 1 +0 = 1 vs defense 9 -> MISS'].join('\n')
+  expect(trayLines(out)).toEqual([{ icon: '⚑', text: 'A gull steals your bread.', tone: 'neutral' }])
+  expect(trayFor('Bash', { command: 'python3 rules/rpg.py move east' }, { stdout: out })).toHaveLength(1)
+  expect(combatOf(out, SAVE)).toBeUndefined()
+})

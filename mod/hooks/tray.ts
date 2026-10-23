@@ -24,10 +24,17 @@ function title(id: string): string {
   return id.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
 }
 
+/** The rules script's status lines: what `look` (and so `move`) prints before the room's own prose, which
+ *  follows a `ROOM TEXT:` line and is story, never a roll, however its lines happen to read. */
+export function statusPart(stdout: string): string {
+  const at = /^ROOM TEXT:\s*$/m.exec(stdout)
+  return at ? stdout.slice(0, at.index) : stdout
+}
+
 /** Parse rpg.py output into tray lines; empty when there's nothing to show (a refusal, an unknown line). */
 export function trayLines(stdout: string, look: CoderpgLook = DEFAULT_LOOK): TrayLine[] {
   const out: TrayLine[] = []
-  for (const raw of stdout.split('\n')) {
+  for (const raw of statusPart(stdout).split('\n')) {
     const line = raw.trim().replace(/^effect: /, '')
     let m: RegExpExecArray | null
     if ((m = /^ENCOUNTER: (.+)$/.exec(line))) {
@@ -101,7 +108,8 @@ export type CombatSide = { name: string; was: number; hp: number; max: number; d
  * Both sides of one `attack` exchange, from the rules script's output and the save written right after
  * it: each side's health before and after, and the damage each took. Undefined for anything but an attack.
  */
-export function combatOf(stdout: string, s: CoderpgSave | null): { you?: CombatSide; foe?: CombatSide } | undefined {
+export function combatOf(full: string, s: CoderpgSave | null): { you?: CombatSide; foe?: CombatSide } | undefined {
+  const stdout = statusPart(full)
   const foeId = /^PLAYER ATTACKS (\w+)/m.exec(stdout)?.[1]
   if (!foeId || !s) return undefined
   let foeDmg = 0, youDmg = 0, foeHp: number | undefined, foeMax: number | undefined

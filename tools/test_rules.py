@@ -151,6 +151,40 @@ class Engine(unittest.TestCase):
         self.assertIn("## Opening", self.rpg("show", "world"))
         self.assertIn("kind must be one of", self.rpg("show", "nonsense", "x", ok=False))
 
+    def test_look_and_move_print_the_room_as_it_reads_now(self):
+        self.rpg("game", "switch", "dark_lighthouse")
+        out = self.rpg("newgame", seed=7)
+        room = out[out.index("ROOM TEXT:"):]
+        self.assertIn("A cobbled square opens onto a stone quay.", room)
+        self.assertIn("## If not lamp_lit and not fleet_arrived", room)
+        self.assertNotIn("## If lamp_lit\n", room)
+        self.assertIn("## Details", room)
+        self.assertNotIn("exits:", room)  # the front matter is look's own lines, not repeated
+        self.assertNotIn("show rooms", out)
+        self.rpg("flag", "set", "lamp_lit")
+        room = self.rpg("look").split("ROOM TEXT:")[1]
+        self.assertIn("## If lamp_lit\n", room)
+        self.assertNotIn("## If not lamp_lit and not fleet_arrived", room)
+        self.rpg("flag", "unset", "lamp_lit")
+        out = self.rpg("move", "west")
+        self.assertLess(out.index("MOVED west."), out.index("ROOM TEXT:"))
+        self.assertIn("The base of the lighthouse is a round stone room", out.split("ROOM TEXT:")[1])
+        self.assertFalse(out.split("ROOM TEXT:")[1].lstrip().startswith(("STATUS", "FLAGS", "INVENTORY")))  # prose only
+        # a generated room's text comes the same way
+        self.rpg("move", "east")
+        room = {"id": "mooring_steps", "name": "The Mooring Steps", "direction": "south", "description": "Slick stone steps run down to the boats."}
+        self.write("proposals/r.json", json.dumps(room))
+        self.rpg("generate", "room", "proposals/r.json")
+        out = self.rpg("move", "south")
+        self.assertIn("LOCATION: The Mooring Steps (mooring_steps) [generated]", out)
+        self.assertIn("Slick stone steps run down to the boats.", out.split("ROOM TEXT:")[1])
+        # and in the other game
+        self.rpg("game", "switch", "flooded_station")
+        out = self.rpg("newgame", seed=31)
+        start = self.save()["location"]
+        body = (self.dir / "games" / "flooded_station" / "rooms" / ("%s.md" % start)).read_text().split("\n---", 1)[1].strip()
+        self.assertIn(body.split("\n")[0], out.split("ROOM TEXT:")[1])
+
     def test_quests_finish_and_fail_by_their_flags(self):
         self.rpg("game", "switch", "flooded_station")
         self.rpg("newgame", seed=8)
@@ -160,8 +194,8 @@ class Engine(unittest.TestCase):
         # a fresh game where the tide wins: walk back and forth until the clock runs out
         self.rpg("newgame", seed=9)
         for i in range(40):
-            out = self.rpg("move", "north" if i % 2 == 0 else "south")
-            if "station_lost" in out:
+            self.rpg("move", "north" if i % 2 == 0 else "south")
+            if "station_lost" in self.save()["flags"]:  # not the output: room text names the flag in its headings
                 break
         quest = self.save()["view"]["quests"][0]
         self.assertTrue(quest["failed"])

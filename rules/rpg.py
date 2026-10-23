@@ -1195,8 +1195,7 @@ def cmd_look(args):
     flags = condition_flags(state)
     print("STATUS: %s | %s | %s | %s %d" % (state["status"], hp_line(state), " ".join(
         "%s %+d" % (stat_label(k), state["stats"][k]) for k in STATS), currency().capitalize(), state["stats"]["coins"]))
-    print("LOCATION: %s (%s)%s" % (room.get("name", room["id"]), room["id"],
-                                   " [generated: read it with `rpg.py show rooms %s`]" % room["id"] if room.get("generated") else ""))
+    print("LOCATION: %s (%s)%s" % (room.get("name", room["id"]), room["id"], " [generated]" if room.get("generated") else ""))
     texture = [x for x in (time_of_day(state), run.get("weather")) if x]
     if texture:
         print("TIME AND WEATHER: %s" % ", ".join(texture))
@@ -1269,6 +1268,15 @@ def cmd_look(args):
     for d in drafts():
         if draft_status(d) == "ready":
             print("NEW WORLD READY: %s: run `rpg.py forge install %s`, then tell the player in one line (see gm-turn)." % (d, d))
+    # Last, so a move or a look is one command: the room as it reads now (the `## If` sections that hold), as
+    # `show rooms` prints its body. Nothing after this line is a status line.
+    print("ROOM TEXT:")
+    print(room_text(state, room))
+
+
+def room_text(state, room):
+    """A room's prose as it reads now, authored or generated alike."""
+    return applicable((room.get("body") or "").strip(), condition_flags(state)) or "(no description)"
 
 
 def cmd_move(args):
