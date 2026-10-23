@@ -35,7 +35,7 @@ As of 2026-10-22. The state of the kit build for whoever picks it up next, human
 | `ea79ba6` | 7.1 People with plans: `## Plan:` sections, world-turn `plans`, `SIGNAL`/`NOW HERE`, `view.signals` toast and chime, `world_turns.plans`; Ysolde, Grukk, Halloran, Bucket (now `minor: no`) |
 | `3002c5d` | 7.2 Side scenes: `scenes/`, `rpg.py scene start\|end`, scene part and reply count in `npc-brief`, `side_scenes`, price 2; The Shiniest Thing, The Mopping Dispute; `onlyRecords` and a note-filter case in the mod |
 | `26ce9d8` | Validate: a plan step may not leave a character nowhere; the gm-turn signal example names no game |
-| `55aae02` | Playtest bug: the pane's exit and look buttons fill the prompt box instead of submitting (a plugin-submitted prompt is labelled "Prompt from the coderpg plugin" and can't be restyled); footer "1–9 then ⏎ go" |
+| `66a582b` | Playtest bug: the pane's exit and look buttons fill the prompt box instead of submitting (a plugin-submitted prompt is labelled "Prompt from the coderpg plugin" and can't be restyled); footer "1–9 then ⏎ go" |
 
 Handoff-only commits (`2ac55a1`, `b6b523d`, `a2280fe`, `ab4dea9`, `7057684`, `6a2a586`) are left out.
 
