@@ -45,6 +45,7 @@ As of 2026-10-23. The state of the kit build for whoever picks it up next, human
 | `be3574e` | `NEXT-PLAN.md`; Stage 6 no longer next |
 | `6fb8d50` | NEXT-PLAN part 1: the real-spend meter in `/budget` (`mod/hooks/spend.ts`) |
 | `074e5d3` | NEXT-PLAN part 2: one-step moves and looks (`ROOM TEXT:` in `look`/`move`; gm-turn moves first) |
+| `90ccbba` | Playtest bug: real use was lost after `/newgame` (`$.state` resets on `/clear`); `ensureSpend` restores it from the store |
 
 Commits that change only this file (`HANDOFF.md: …`) are left out.
 
@@ -98,6 +99,7 @@ Commits that change only this file (`HANDOFF.md: …`) are left out.
   - **From the transcript, per turn** (GM only): look 53k/3 requests (the first turn also loads the skill), move west 29k/4 (`look`; `move`; `show rooms`), Ysolde 34k/4, move east 16k/2 (the GM chained `look && move`), south with generation 51k/5.
   - **A point therefore cost about 11.5k**, inside the 10–15k the prices assume. One sample: measure again over longer play.
   - The plan windows didn't move a whole point in this run.
+- **Playtest bug (fixed, `90ccbba`):** `/budget` showed no real-use section after `/newgame`. `$.state` belongs to a Claude Code session, and the `/clear` that `/newgame` and `/game` run starts a new one in the same process, so the atom came back empty (the save atom recovers by re-reading the file; this one didn't). `ensureSpend` now restores it from the store's `current` whenever it's empty. Tested by a mod test that empties the state between two turns, and live (`/newgame 7`, a turn, `/budget`: 2 turns and the earlier sessions shown). **Any new `$.state` value that must outlive a turn needs the same care.**
 - **Checked live:** subagent steps arrive with `agentId`, and their spawns name the type; the store is written each turn; `/budget` draws; no plumbing in any frame (the capture's one `rpg.py` is Claude Code's trust prompt for the scratch folder).
 
 ## Stage 7 decisions (agreed 2026-10-22)
