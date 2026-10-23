@@ -51,6 +51,7 @@ As of 2026-10-23 (end of the session that built `NEXT-PLAN.md` 3.3, the margin, 
 | `5715017` | NEXT-PLAN 3.1 and 3.2: the page (measure, arrival rule, keylines, change line, paragraph reveal), the band's two modes, the play hint, `/guide`, signal kinds, `speaker_colors`; skill reads are plumbing |
 | `27581ff` | Playtest 1: the page centered beside the pane; the permission-mode label can't be hidden (docs) |
 | `18f378a` | NEXT-PLAN 3.3: the margin (six sections, `margin.ts`, screens behind m/j/g, one-turn marks, `look.sections`, tab-key checks) |
+| `129f6c8` | NEXT-PLAN 3.4: room pictures (`rules/png.py`, `view.picture`, the chain, `tools/pictures.py`, 30 pictures, half-block Raster, crop steps, picture checks) |
 
 Commits that change only this file (`HANDOFF.md: …`) are left out.
 
