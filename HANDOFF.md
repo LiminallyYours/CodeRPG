@@ -42,6 +42,8 @@ As of 2026-10-23. The state of the kit build for whoever picks it up next, human
 | `e4f9701` | 8.1 New worlds, engine: soundness checks for every game, `validate --dir`/`--kit-complete`, `state/worlds/`, `forge quote\|start\|resume\|status\|install\|discard`, `new_world` 15 / `new_world_resume` 5, switch `new_worlds`, `NEW WORLD READY` in `look`, `/budget` line |
 | `c86b720` | 8.2 New worlds: the worldsmith (Opus) and its guard hook, `rules/WORLD-GUIDE.md`, `/newworld`, gm-turn *New worlds*, the install toast, the mod hiding its rows |
 | `b840d0d` | 8.3 `tools/worlds.py list\|keep\|forget` |
+| `be3574e` | `NEXT-PLAN.md`; Stage 6 no longer next |
+| `6fb8d50` | NEXT-PLAN part 1: the real-spend meter in `/budget` (`mod/hooks/spend.ts`) |
 
 Commits that change only this file (`HANDOFF.md: …`) are left out.
 
