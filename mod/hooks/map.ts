@@ -157,8 +157,8 @@ export function drawMap(map: RoomMap, here: string, columns: number): Seg[][] {
         const c = a[0] - minX
         put(colX[c]! + Math.floor(boxW[c]! / 2), (Math.min(a[1], b[1]) - minY) * 4 + 3, dir === 'up' || dir === 'down' ? '┊' : '│', 'link')
       } else {
-        const c = Math.min(a[0], b[0]) - minX
-        const x = colX[c]! + boxW[c]! + Math.floor((pick.gap - 1) / 2), y = (Math.min(a[1], b[1]) - minY) * 4 + 3
+        const c: number = Math.min(a[0], b[0]) - minX
+        const x: number = colX[c]! + boxW[c]! + Math.floor((pick.gap - 1) / 2), y: number = (Math.min(a[1], b[1]) - minY) * 4 + 3
         put(x, y, diagonalLink(a, b, canvas[y]?.[x]?.ch), 'link')
       }
     }
