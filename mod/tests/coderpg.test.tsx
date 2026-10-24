@@ -542,6 +542,26 @@ test('ordinary story is never taken for a game-master note (QA finding 1)', () =
   expect(isGmNote("Note: I'll narrate after the brief.")).toBe(true)
 })
 
+test('a note about the content and its flags never shows as story, however it opens (bug 2026-10-23)', () => {
+  const leak = 'She agreed the player will help, so the content says to set the quest flag.' // the screenshot session
+  expect(isGmNote(leak)).toBe(true)
+  expect(stripPreamble(`${leak}\n\nYsolde nods slowly.`)).toBe('Ysolde nods slowly.')
+  for (const note of [
+    'The player has the lens now.',
+    'Grukk backs off, so grukk_cowed is set.',
+    'Setting the flag now that the door is open.',
+    'He steps aside; flag set.',
+    'The content says the bridge opens.',
+  ]) expect(isGmNote(note)).toBe(true)
+  for (const story of [
+    'The flag over the harbor snaps in the wind.',
+    'A tattered flag hangs from the mast, its colors long gone.',
+    'You set the lantern down on the flagstones.',
+    'The contents of the chest smell of tar.',
+    'The card player at the corner table folds.',
+  ]) expect(isGmNote(story)).toBe(false)
+})
+
 test('story keys tell apart narrations that open the same way (QA finding 10)', () => {
   const opening = 'You look around the square. ' + 'Gulls wheel overhead. '.repeat(20)
   expect(storyKey(opening + 'A boat bumps the quay.')).not.toBe(storyKey(opening + 'A bell rings far out.'))

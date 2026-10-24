@@ -117,11 +117,14 @@ const GM_MAYBE = /^(I\b|Now\b|Next\b|First\b|Saving|Running|Checking|Placing|Rol
 const GM_WORDS = /(narrat|generat|rpg\.py|world turn|world agent|subagent|npc agent|\bagent\b|\bthe brief\b|proposal|\bspawn|\bflags?\b|\bthe save\b|procedure|tool calls?|\brecord(ing)?\b|next thing you see|you'?ll see|\b(her|his|their|the) reply\b)/i
 // Anywhere in a note-shaped paragraph, these give it away however it opens: the machinery by name, the game
 // master speaking as "I" (narration is in the second person and dialogue is in quotes), or figures (narration
-// spells numbers out; a status line like "priced at 5 credits, not paid for yet" doesn't).
+// spells numbers out; a status line like "priced at 5 credits, not paid for yet" doesn't), the player in the third
+// person or the content the game master reads ("She agreed the player will help, so the content says to set the
+// quest flag."), a flag being set (a flag on its own is story: "The flag over the harbor snaps in the wind."), or a
+// content id (story has no snake_case).
 // A progress line answering Claude Code's mid-turn nudge ("Settling in beside Old Hob now.", "Bringing the
 // fisherman into being…"): one short sentence that trails off or says it's happening now.
 const GM_PROGRESS = /^[^.!?…]{1,90}(…|\.\.\.|\bnow\.)$/
-const GM_ANYWHERE = /(narrating|\bnarration\b|rpg\.py|world agent|subagent|world update|\bworld turn\b|off-screen|proposal|tool calls?|\b(start(ing)?|end(ing)?) the (side )?scene\b|\bI('ve|'m|'ll|'d)?\b|\d)/
+const GM_ANYWHERE = /(narrating|\bnarration\b|rpg\.py|world agent|subagent|world update|\bworld turn\b|off-screen|proposal|tool calls?|\b(start(ing)?|end(ing)?) the (side )?scene\b|\bI('ve|'m|'ll|'d)?\b|\d|\b[Tt]he (player|content)\b|\bquest flags?\b|\b[Ss]et(s|ting)? (the |a )?flags?\b|\bflags? (is |was )?(un)?set\b|\w_\w)/
 
 /**
  * A short line the game master wrote about what it's doing ("Recording what Ysolde noticed. Her reply is the
