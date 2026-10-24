@@ -73,6 +73,9 @@
   figure { margin: 8px 0 24px; }
   figure svg { display: block; width: 100%; height: auto; }
   figcaption { font-size: 14px; color: var(--muted); margin-top: 8px; }
+  figure.shot img { display: block; width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--rule); }
+  figure.shot a { display: block; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
   .diagram text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; }
   .tag { fill: var(--muted); font-size: 11.5px; }
   footer { margin-top: 64px; padding-top: 22px; border-top: 1px solid var(--rule); font-size: 14px; color: var(--muted); }
@@ -97,6 +100,11 @@
   <p class="meta">October 2026 &middot; <a href="https://github.com/LiminallyYours/CodeRPG">Source on GitHub</a></p>
   <p class="lead">CodeRPG turns Claude Code into a platform for text adventures. Claude is the game master, a Python script is the referee, and a mod redraws the terminal as a game. A world is a folder of Markdown files: two ship with the kit, you can write your own, or type one sentence and an agent writes a new one while you play. You type what you do in plain English at the normal prompt. Everything in the design follows one rule: <strong>Claude proposes, code decides.</strong></p>
 </header>
+
+<figure class="shot">
+<a href="images/hero.png"><img src="images/hero.png" alt="CodeRPG running in Claude Code: the story on the left, the margin on the right" width="1600" height="1069" loading="lazy"></a>
+<figcaption>The Dark Lighthouse in Claude Code. Story on the left, with Pell the innkeeper's lines beside his colored bar; the margin on the right, with the room's picture, health, lamp oil, the fleet's countdown and the ways out. Claude Code's own prompt is still at the bottom.</figcaption>
+</figure>
 
 <h2><span class="num">1</span>The idea</h2>
 <p>I wanted a game that an AI generates and manages on the fly, and that still plays fair. Not a chatbot improvising a story, but a real game: rules, a save file, consequences, and an AI that fills in what the author didn't write without being able to fudge what the author did.</p>
@@ -139,6 +147,13 @@
   </tbody>
 </table>
 </div>
+<figure class="shot">
+<div class="pair">
+<a href="images/margin-lighthouse.png"><img src="images/margin-lighthouse.png" alt="The Lighthouse margin" width="927" height="1698" loading="lazy"></a>
+<a href="images/margin-station.png"><img src="images/margin-station.png" alt="The Flooded Station margin" width="927" height="1698" loading="lazy"></a>
+</div>
+<figcaption>The same kit, two worlds. Everything that differs between these two margins (section names, stat names, currency, the meter, the clock, the accent color, the picture) comes from each world's own files, with no code changed.</figcaption>
+</figure>
 <p>Three ways to get more worlds:</p>
 <ul>
   <li><strong>Write one.</strong> Add a folder under <code>games/</code> with a <code>world.md</code> and its rooms, characters, items and quests, following <code>rules/WORLD-GUIDE.md</code>. Run the checker, then <code>/game &lt;id&gt;</code> and <code>/newgame</code>.</li>
@@ -209,6 +224,15 @@
   <li><strong>Record.</strong> Small facts the narration established (<code>rpg.py note</code>), one line for anything significant (<code>chronicle</code>), the character's memory (<code>remember</code>), flags only when content says so.</li>
   <li><strong>Narrate, last.</strong> Two to four paragraphs, second person, present tense, each speaker's line starting with their name. The mod draws that as story, builds a change line from the save (health, coins, items, objectives), and updates the pane.</li>
 </ol>
+<p>One real turn, both sides. The player typed "I draw the cutlass, plant my feet in the road and roar at the troll to get out of my way." This is what they saw:</p>
+<figure class="shot">
+<a href="images/turn-player.png"><img src="images/turn-player.png" alt="The turn as the player saw it" width="1480" height="782" loading="lazy"></a>
+</figure>
+<p>And this is every rules command the game master ran during that turn, with what each printed:</p>
+<figure class="shot">
+<a href="images/turn-commands.png"><img src="images/turn-commands.png" alt="The rules commands behind the turn" width="1600" height="713" loading="lazy"></a>
+<figcaption>The d20 decided that the troll backed off (14 + 2 = 16 against DC 14), and a flag, not the prose, records it. The REFUSED line is the referee turning down a request the game master made in the wrong order: it asked for Grukk's brief after setting the flag that sent him away.</figcaption>
+</figure>
 
 <h2><span class="num">4</span>Why it can't cheat</h2>
 <p>An LLM game master will, left to itself, roll a 17 when the story needs one and remember the troll as dead when he isn't. CodeRPG takes those choices away from it. Claude keeps everything that needs judgment or words; code keeps everything that must be fair or consistent.</p>
@@ -249,6 +273,13 @@
   <li><strong>The library.</strong> Everything generated or made (side quests excepted) outlives the run. A new game brings back the places you built and the people you befriended, each remembering one line about you, and the world agent may reuse a fitting old entry instead of inventing one.</li>
   <li><strong>New worlds.</strong> <code>/newworld &lt;a sentence&gt;</code> spawns the Opus worldsmith in the background while you keep playing. It writes a complete game folder, runs the checker on it until it passes, and you hear when it's ready. If a world is interrupted partway, <code>/newworld</code> offers to finish it, start a new one instead, or throw it away. A <code>PreToolUse</code> hook lets it write only inside its draft and run only the checker, denying everything else silently so no permission prompt ever lands in the player's game.</li>
 </ul>
+<figure class="shot">
+<div class="pair">
+<a href="images/map-before.png"><img src="images/map-before.png" alt="The map before the shed was built" width="927" height="650" loading="lazy"></a>
+<a href="images/map-after.png"><img src="images/map-after.png" alt="The map after: Lookout Shed southwest of Harbor Square" width="927" height="650" loading="lazy"></a>
+</div>
+<figcaption>Makers and builders (above), before and after: the player described a lookout shed to Morwen the net-mender, paid, and three moves later a place no author wrote is on the map, southwest of Harbor Square. (The coins for it were added for the screenshot; everything else is real play.)</figcaption>
+</figure>
 
 <h2><span class="num">6</span>What it costs</h2>
 <p>A living world is extra model calls, and on a subscription those are a shared budget. So playing the game as written is free: every game master turn, every rules command, and the authored characters speaking through their agents. Only the extras have a price, and the price is an in-game resource: lamp oil in the Lighthouse, power on the station. It sits in the status band and the pane, warns when low, and refills each time Claude Code is opened or resumed in the folder. When it's empty, the extras stop and the game as written plays on.</p>
@@ -295,6 +326,10 @@
   </tbody>
 </table>
 </div>
+<figure class="shot">
+<a href="images/dice-tray.png"><img src="images/dice-tray.png" alt="A turn with the dice tray line above the story" width="1490" height="770" loading="lazy"></a>
+<figcaption>The dice tray: the roll shows as one line above the story, and the change line sits under it.</figcaption>
+</figure>
 <p>The rest of what it adds:</p>
 <ul>
   <li><strong>The change line.</strong> Under any turn that changed anything, one dim line: <code>&#10023; &minus;2 &#9829; &middot; +5 coins &middot; gained Brass Lens &middot; &#10003; objective</code>. It's built from the save as the turn found it and left it, not from the prose, so it's the record you can trust.</li>
