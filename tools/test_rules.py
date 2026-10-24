@@ -170,6 +170,8 @@ class Engine(unittest.TestCase):
         self.assertLess(out.index("MOVED west."), out.index("ROOM TEXT:"))
         self.assertIn("The base of the lighthouse is a round stone room", out.split("ROOM TEXT:")[1])
         self.assertFalse(out.split("ROOM TEXT:")[1].lstrip().startswith(("STATUS", "FLAGS", "INVENTORY")))  # prose only
+        # the room text says where it ends, so a command chained after a move can be told from the prose
+        self.assertTrue(out.rstrip().endswith("\nEND OF ROOM TEXT"))
         # a generated room's text comes the same way
         self.rpg("move", "east")
         room = {"id": "mooring_steps", "name": "The Mooring Steps", "direction": "south", "description": "Slick stone steps run down to the boats."}

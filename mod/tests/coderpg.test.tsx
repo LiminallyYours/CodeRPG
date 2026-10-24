@@ -6,7 +6,7 @@ import { exitsOf, keyText, mapText } from '../hooks/map'
 import { changesOf, feedback, isReset, marksOf } from '../hooks/feedback'
 import { accentOf, DEFAULT_LOOK, lookOf, money, phasePhrase, sectionsOf, soundFor, tabsOf } from '../hooks/look'
 import { barCells, BAR_CELLS, carried, clockSegments, conditions, fitMargin, statusRow } from '../hooks/margin'
-import { commandPhrase, idlePhrase, npcPhrase, phaseOf } from '../hooks/phrases'
+import { commandPhrase, idlePhrase, mainCall, npcPhrase, phaseOf } from '../hooks/phrases'
 import { pageFrame, pageMs, STEP_MS } from '../hooks/page'
 import { revealFrame } from '../hooks/reveal'
 import { arrivalRow, blocksOf, endingRows, indentOf, measureOf, paragraphsOf, rowsOf, speakerCards, speakerOf, speechTag } from '../hooks/story'
@@ -1324,6 +1324,26 @@ test('room prose after ROOM TEXT never reads as a roll, however its lines happen
   expect(trayLines(out)).toEqual([{ icon: '⚑', text: 'A gull steals your bread.', tone: 'neutral' }])
   expect(trayFor('Bash', { command: 'python3 rules/rpg.py move east' }, { stdout: out })).toHaveLength(1)
   expect(combatOf(out, SAVE)).toBeUndefined()
+})
+
+test('a roll chained after other rules-script calls still gets its dice line (bug 2026-10-23)', () => {
+  // the screenshot session's call, with its stdout: the look and equip lines are no rolls
+  const command = 'python3 rules/rpg.py look | grep -E "FLAGS|CHARACTERS" && python3 rules/rpg.py equip boarding_cutlass && python3 rules/rpg.py check might 14'
+  const stdout = ['CHARACTERS HERE: grukk [agent]', 'FLAGS: craves_fish, tonic_in_hollow', 'EQUIPPED: boarding_cutlass (damage 1d6)',
+    'CHECK might vs DC 14: d20 14 +2 = 16 -> SUCCESS'].join('\n')
+  expect(trayFor('Bash', { command }, { stdout }).map(l => l.text)).toEqual(['Might check: d20 14 +2 = 16 vs DC 14'])
+  // a move's room text ends at its end marker, so a roll after it still counts, and the prose still doesn't
+  const moved = ['MOVED east.', 'STATUS: playing | HP 9/11', 'ROOM TEXT:', 'The coast road runs along the cliffs.',
+    'PLAYER ATTACKS grukk with words: d20 1 +0 = 1 vs defense 9 -> MISS', 'END OF ROOM TEXT', 'CHECK agility vs DC 10: d20 3 +1 = 4 -> FAILURE'].join('\n')
+  expect(trayFor('Bash', { command: 'python3 rules/rpg.py move east && python3 rules/rpg.py check agility 10' }, { stdout: moved })
+    .map(l => l.text)).toEqual(['Agility check: d20 3 +1 = 4 vs DC 10'])
+  expect(combatOf(moved, SAVE)).toBeUndefined()
+  // the waiting line follows the most telling call: a roll over a look, a character over a flag
+  expect(mainCall(command)).toEqual({ sub: 'check', args: 'might 14' })
+  expect(mainCall('python3 rules/rpg.py flag set grukk_cowed && python3 rules/rpg.py npc-brief grukk')).toEqual({ sub: 'npc-brief', args: 'grukk' })
+  expect(mainCall('python3 rules/rpg.py look; python3 rules/rpg.py world-brief turn')).toEqual({ sub: 'world-brief', args: 'turn' })
+  expect(mainCall('python3 rules/rpg.py chronicle "x"')).toEqual({ sub: 'chronicle', args: '"x"' })
+  expect(mainCall('ls')).toEqual({ sub: undefined, args: '' })
 })
 
 test("real use: a /clear (as /newgame runs) empties the mod's state, and the figures come back from the store", async ($, on) => {

@@ -22,6 +22,20 @@ export function npcPhrase(prompt: string): string {
   return name ? `${name} considers your words` : 'Someone considers your words'
 }
 
+// When one shell call chains several rules-script calls, the one that says most about the turn: a roll over a
+// look, a character's brief over a flag.
+const TELLING: (CoderpgPhase | undefined)[] = ['resolving', 'shaping', 'stirring', 'considering', 'reading', undefined]
+
+/** The most telling rules-script call in a shell command ("look | grep … && check might 14" is a roll), with its
+ *  arguments: the first call when none says more, nothing when there's no call at all. */
+export function mainCall(command: string): { sub: string | undefined; args: string } {
+  const calls = [...command.matchAll(/rules\/rpg\.py\s+([a-z-]+)[ \t]*([^;&|\n]*)/g)].map(m => ({ sub: m[1]!, args: m[2]!.trim() }))
+  const rank = (c: { sub: string; args: string }) => TELLING.indexOf(phaseOf('Bash', c.sub, c.args, ''))
+  let best: { sub: string; args: string } | undefined
+  for (const c of calls) if (!best || rank(c) < rank(best)) best = c
+  return best ?? { sub: undefined, args: '' }
+}
+
 /** Rules-script commands that only record what happened: they don't change the waiting phase. */
 const QUIET = ['chronicle', 'remember', 'note', 'flag', 'coins', 'gain', 'lose', 'equip', 'meter', 'settings', 'library']
 

@@ -10,11 +10,6 @@ export type TrayLine = { icon: string; text: string; result?: string; tone: Tray
 /** The rpg.py subcommands whose results are shown as a dice tray rather than hidden. */
 export const TRAY_COMMANDS = ['check', 'attack', 'roll', 'hurt', 'heal', 'use', 'move', 'generate', 'pay']
 
-/** Which rpg.py subcommand a shell command runs, if any. */
-export function rpgCommand(command: string): string | undefined {
-  return /rules\/rpg\.py\s+([a-z-]+)/.exec(command)?.[1]
-}
-
 /** Every rpg.py subcommand a shell command runs, in order (the game master sometimes chains several). */
 export function rpgCommands(command: string): string[] {
   return [...command.matchAll(/rules\/rpg\.py\s+([a-z-]+)/g)].map(m => m[1]!)
@@ -24,11 +19,11 @@ function title(id: string): string {
   return id.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
 }
 
-/** The rules script's status lines: what `look` (and so `move`) prints before the room's own prose, which
- *  follows a `ROOM TEXT:` line and is story, never a roll, however its lines happen to read. */
+/** The rules script's status lines: what `look` (and so `move`) prints, less the room's own prose, which runs from
+ *  a `ROOM TEXT:` line to `END OF ROOM TEXT` and is story, never a roll, however its lines happen to read. A
+ *  command chained after the look prints after the end line. */
 export function statusPart(stdout: string): string {
-  const at = /^ROOM TEXT:\s*$/m.exec(stdout)
-  return at ? stdout.slice(0, at.index) : stdout
+  return stdout.replace(/^ROOM TEXT:\s*$[\s\S]*?(^END OF ROOM TEXT\s*$|(?![\s\S]))/gm, '')
 }
 
 /** Parse rpg.py output into tray lines; empty when there's nothing to show (a refusal, an unknown line). */

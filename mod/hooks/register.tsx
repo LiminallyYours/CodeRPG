@@ -22,13 +22,13 @@ import { accentOf, lookOf, money, phasePhrase, sectionsOf, soundFor, tabsOf } fr
 import { exitsOf, keyText, mapText, usesUpDown } from './map'
 import { barWidth, carried, changeColor, clockSegments, conditions, FAINT, fieldCells, fitMargin, healthColor, MARGIN_COLUMNS, MARGIN_PAD, meterTint, MUTED_ACCENT, openObjectives, PICTURE_COLUMNS, PICTURE_STEPS, pictureCells, ruleCells, statusRow } from './margin'
 import type { Cell } from './margin'
-import { commandPhrase, idlePhrase, npcPhrase, phaseOf } from './phrases'
+import { commandPhrase, idlePhrase, mainCall, npcPhrase, phaseOf } from './phrases'
 import { drawBlocks, pageMs, STEP_MS } from './page'
 import type { Seg } from './reveal'
 import { arrivalRow, blocksOf, endingRows, indentOf, looksTagged, measureOf, paragraphsOf, ruleRow, spaced, speakerCards, titleRows } from './story'
 import { addUsage, endTurn, helperStep, isSpend, looseStep, measured, newSpend, roleOf, spawned, spendText, withRow, ZERO } from './spend'
 import type { Spend, SpendRow, Tokens } from './spend'
-import { combatOf, rpgCommand, rpgCommands, TRAY_COMMANDS, trayLines, traySound } from './tray'
+import { combatOf, rpgCommands, TRAY_COMMANDS, trayLines, traySound } from './tray'
 import type { CombatSide, TrayLine } from './tray'
 import { stripAt, FX_MS } from './trayfx'
 import { runsOf, tileGrid } from './tiles'
@@ -167,8 +167,8 @@ export function onlyRecords(command: string): boolean {
 export function trayFor(tool: string, input: unknown, output: unknown, look?: CoderpgLook): TrayLine[] {
   if (tool !== 'Bash' || output === undefined) return []
   const command = String((input as { command?: unknown } | null)?.command ?? '')
-  const sub = rpgCommand(command)
-  if (!sub || !TRAY_COMMANDS.includes(sub)) return []
+  // any call in a chain may be the roll ("look | grep … && check might 14"); only roll-shaped lines are drawn
+  if (!rpgCommands(command).some(sub => TRAY_COMMANDS.includes(sub))) return []
   return trayLines(String((output as { stdout?: unknown } | null)?.stdout ?? ''), look)
 }
 
@@ -594,16 +594,18 @@ export const register: Register = on => {
     if (!e.agentId && !isPlumbing(e.tool, e) && e.tool !== 'AskUserQuestion') usedOtherTools = true
     if (isPlay) {
       isGameTurn = true
-      const sub = e.tool === 'Bash' ? rpgCommand(String((e as { command?: unknown }).command)) : undefined
+      const command = e.tool === 'Bash' ? String((e as { command?: unknown }).command ?? '') : ''
+      // a chained call is judged by its most telling command, and its arguments are that command's
+      const { sub, args } = mainCall(command)
       // Text before this call wasn't the narration, unless this call only records what happened.
       if (!(e.tool === 'Bash' && onlyRecords(String((e as { command?: unknown }).command)))) narrationFrom = turnKeys.length
       await update($, hidden, ids => [...ids, e.tool_use_id].slice(-3000))
-      if (sub === 'newgame') isNewGame = true
+      const subs = rpgCommands(command)
+      if (subs.includes('newgame')) isNewGame = true
       const agentType = String((e as { subagent_type?: unknown }).subagent_type ?? '')
-      const command = String((e as { command?: unknown }).command ?? '')
-      const args = /rules\/rpg\.py\s+[a-z-]+\s*(.*)$/.exec(command)?.[1] ?? ''
       const now = phaseOf(e.tool, sub, args, agentType, lastBrief)
-      if (sub === 'world-brief') lastBrief = args.trim().split(/\s+/)[0] ?? ''
+      const brief = /rules\/rpg\.py\s+world-brief\s+([a-z-]+)/.exec(command)
+      if (brief) lastBrief = brief[1]!
       const look = lookOf(await read($, save))
       const name = /^(.+?) considers your words$/.exec(npcPhrase(String((e as { prompt?: unknown }).prompt ?? '')))?.[1]
       // the phase says which stage the turn is in, in the game's voice; a command's own phrase is more particular

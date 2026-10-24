@@ -1320,9 +1320,11 @@ def cmd_look(args):
         if draft_status(d) == "ready":
             print("NEW WORLD READY: %s: run `rpg.py forge install %s`, then tell the player in one line (see gm-turn)." % (d, d))
     # Last, so a move or a look is one command: the room as it reads now (the `## If` sections that hold), as
-    # `show rooms` prints its body. Nothing after this line is a status line.
+    # `show rooms` prints its body. Nothing between these two lines is a status line; the end line lets the mod
+    # tell a command chained after this one from the prose.
     print("ROOM TEXT:")
     print(room_text(state, room))
+    print("END OF ROOM TEXT")
 
 
 def room_text(state, room):
