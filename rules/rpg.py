@@ -766,6 +766,23 @@ def time_of_day(state):
     return times[min(len(times) - 1, state["run"]["moves"] * len(times) // max(1, clock["total"]))]
 
 
+def map_room(state, ident):
+    """Record a room on the map as it is now: its open exits, where they lead, and how its tile looks."""
+    room, flags = ent("rooms", ident), condition_flags(state)
+    exits = {}
+    for d, target in (room.get("exits") or {}).items():
+        dest, cond = content.split_condition(target)
+        if content.condition_holds(cond, flags):
+            exits[d] = dest
+    state.setdefault("map", {})[ident] = {
+        "name": room.get("name", ident), "exits": exits,
+        "terrain": room.get("terrain"), "color": room.get("color"),  # how the map tile looks
+        "made_by": made_by("rooms", ident),
+        # where those exits lead, by name: the player can see or has been told, even before visiting
+        "neighbors": {dest: ent("rooms", dest).get("name", dest) for dest in exits.values() if ent_exists("rooms", dest)},
+    }
+
+
 def refresh_view(state):
     """Derived fields for interfaces (the mod's pane, /map, /inventory), so they never read content.
     `map` and `met` are history: rooms visited (with the exits open when last there) and characters seen.
@@ -775,18 +792,7 @@ def refresh_view(state):
     met = state.setdefault("met", [])
     met.extend(c for c in here if c not in met)
     flags = condition_flags(state)
-    exits = {}
-    for d, target in (room.get("exits") or {}).items():
-        dest, cond = content.split_condition(target)
-        if content.condition_holds(cond, flags):
-            exits[d] = dest
-    state.setdefault("map", {})[room["id"]] = {
-        "name": room.get("name", room["id"]), "exits": exits,
-        "terrain": room.get("terrain"), "color": room.get("color"),  # how the map tile looks
-        "made_by": made_by("rooms", room["id"]),
-        # where those exits lead, by name: the player can see or has been told, even before visiting
-        "neighbors": {dest: ent("rooms", dest).get("name", dest) for dest in exits.values() if ent_exists("rooms", dest)},
-    }
+    map_room(state, room["id"])
     for entry in state["map"].values():  # rooms visited before neighbors were recorded
         if "neighbors" not in entry:
             entry["neighbors"] = {d: ent("rooms", d).get("name", d) for d in entry["exits"].values() if ent_exists("rooms", d)}
@@ -1158,6 +1164,8 @@ def finish_building(state, ident, com):
     run["rooms"][ident] = dict(record, made_at_move=run["moves"])
     run["exits"].setdefault(com["room"], {})[com["direction"]] = ident
     com["status"] = "done"
+    if com["room"] in state.get("map", {}):
+        map_room(state, com["room"])  # the player had it built, so it's on their map at once, wherever they are
     name, where = record["meta"]["name"], ent("rooms", com["room"]).get("name", com["room"])
     run["rumors"].append("%s is finished, %s of %s, and folk are curious to see it." % (name, com["direction"], where))
     del run["rumors"][:-BALANCE["world"]["rumors_kept"]]

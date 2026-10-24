@@ -788,6 +788,10 @@ class Engine(unittest.TestCase):
         outs = [self.rpg("move", d) for d in ("north", "south", "north")]
         self.assertNotIn("is finished", outs[0] + outs[1])
         self.assertIn("BUILT: The Net-Loft (net_loft) is finished, southwest of Harbor Square, built for the player by Morwen", outs[2])
+        # the map shows it at once, though the player is in the Gull: Harbor Square's entry is redrawn (bug 2026-10-23)
+        square = self.save()["map"]["harbor_square"]
+        self.assertEqual(square["exits"].get("southwest"), "net_loft")
+        self.assertEqual(square["neighbors"].get("net_loft"), "The Net-Loft")
         self.assertIn("exit southwest -> The Net-Loft", self.rpg("move", "south"))
         self.rpg("move", "southwest")
         s = self.save()
