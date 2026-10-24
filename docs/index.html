@@ -65,6 +65,8 @@
     font: 0.86em/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     background: var(--code-bg); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere;
   }
+  pre { background: var(--code-bg); border-radius: 6px; padding: 12px 14px; margin: 0 0 16px; overflow-x: auto; }
+  pre code { background: none; padding: 0; font-size: 0.86em; overflow-wrap: normal; }
   .table-wrap { overflow-x: auto; margin: 4px 0 24px; }
   table { border-collapse: collapse; width: 100%; font-size: 15px; line-height: 1.5; }
   th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--rule); }
@@ -106,6 +108,16 @@
 <figcaption>The Dark Lighthouse in Claude Code. Story on the left, with Pell the innkeeper's lines beside his colored bar; the margin on the right, with the room's picture, health, lamp oil, the fleet's countdown and the ways out. Claude Code's own prompt is still at the bottom.</figcaption>
 </figure>
 
+<h2>Getting started</h2>
+<p>You need a Claude subscription, Claude Code (a release with plugin interface support; built and tested on 2.1.310), and Python 3. Nothing else is installed: the rules script uses only Python's standard library, and Claude Code runs the mod itself.</p>
+<pre><code>git clone https://github.com/LiminallyYours/CodeRPG
+cd CodeRPG
+claude --plugin-dir ./mod</code></pre>
+<p>The first time, Claude Code asks whether you trust the folder, and lists what the project's settings allow without asking: running the one rules script (<code>python3 rules/rpg.py &hellip;</code>), reading the game, rules and save folders, and writing only where proposals and new worlds are drafted. Nothing else is pre-approved.</p>
+<p>Then type <code>/newgame</code> to start The Dark Lighthouse (<code>/game</code> lists the worlds, <code>/game flooded_station</code> switches), and <code>/guide</code> at any time for the controls. Play by typing what you do.</p>
+<p>The side panel docks by itself when the terminal is at least 144 columns wide (110 once you've opened it); in a narrower window, <code>/sheet</code> opens it. It was built in macOS Terminal.app; any terminal Claude Code supports should work. Plain <code>claude</code> without <code>--plugin-dir ./mod</code> also plays, just without the game's look.</p>
+<p>The project explores three things: an AI managing a game while it's played (sections 3 and 4), an AI expanding the game as it goes (sections 5 and 6), and Claude Code as both the agent harness and the player's screen (sections 1 and 7). Section 2 is how it plays, and section 8 what carries over.</p>
+
 <h2><span class="num">1</span>The idea</h2>
 <p>I wanted a game that an AI generates and manages on the fly, and that still plays fair. Not a chatbot improvising a story, but a real game: rules, a save file, consequences, and an AI that fills in what the author didn't write without being able to fudge what the author did.</p>
 <p>Claude Code was already the harness I needed. It runs a model in a loop with tools, subagents, skills and hooks, and its new mod support lets a plugin redraw the interface. So there was nothing to build and nothing to host: the whole game runs on a Claude subscription, with Python 3 from the standard library and no other dependencies.</p>
@@ -131,7 +143,7 @@
   <li><strong>Combat.</strong> One exchange per attack: you swing, the foe swings back if still standing. Wounds persist. Fleeing is an Agility check, and failing it costs a free hit.</li>
   <li><strong>Carrying.</strong> Items have weight; you carry 8 plus twice your Might (6 plus twice your Grit on the station).</li>
   <li><strong>The clock.</strong> Every move is a tick. When it runs out, the quest's deadline flag is set and the ending follows.</li>
-  <li><strong><code>ooc:</code></strong> in front of a message talks to Claude as a developer instead of the game master.</li>
+  <li><strong><code>ooc:</code></strong> in front of a message talks to Claude as a developer instead of the game master: the game's screen steps aside so you see its work, and it can change the game you're playing. <code>DEVELOPING.md</code> in the repository is where to start, and experiments belong in a copy of the folder, not your own save.</li>
   <li><strong>Instant commands.</strong> <code>/inventory</code>, <code>/map</code>, <code>/sheet</code>, <code>/budget</code>, <code>/sound</code>, <code>/guide</code>: no Claude turn, no cost.</li>
 </ul>
 <p>The two shipped worlds are deliberately different, to prove the kit doesn't care:</p>
@@ -226,12 +238,12 @@
 </ol>
 <p>One real turn, both sides. The player typed "I draw the cutlass, plant my feet in the road and roar at the troll to get out of my way." This is what they saw:</p>
 <figure class="shot">
-<a href="images/turn-player.png"><img src="images/turn-player.png" alt="The turn as the player saw it" width="1480" height="782" loading="lazy"></a>
+<a href="images/turn-player.png"><img src="images/turn-player.png" alt="The turn as the player saw it" width="1490" height="770" loading="lazy"></a>
 </figure>
 <p>And this is every rules command the game master ran during that turn, with what each printed:</p>
 <figure class="shot">
-<a href="images/turn-commands.png"><img src="images/turn-commands.png" alt="The rules commands behind the turn" width="1600" height="713" loading="lazy"></a>
-<figcaption>The d20 decided that the troll backed off (14 + 2 = 16 against DC 14), and a flag, not the prose, records it. The REFUSED line is the referee turning down a request the game master made in the wrong order: it asked for Grukk's brief after setting the flag that sent him away.</figcaption>
+<a href="images/turn-commands.png"><img src="images/turn-commands.png" alt="The rules commands behind the turn" width="1600" height="1028" loading="lazy"></a>
+<figcaption>Grukk's file tells the game master what intimidating him takes, in a section only it can see: <code>check might 14</code>, and on success <code>flag set grukk_cowed</code>. The d20 decided (18 + 2 = 20 against DC 14), and a flag, not the prose, records that he backed off. His line came from his own agent, whose brief leaves the hidden rules out.</figcaption>
 </figure>
 
 <h2><span class="num">4</span>Why it can't cheat</h2>
@@ -243,7 +255,7 @@
   <li><strong>Flags are the story's facts.</strong> Branching lives in the content as conditions: <code>exits: down: trolls_hollow (if grukk_friend or grukk_cowed)</code>, <code>## If grukk_defeated</code>. The game master sets a flag only when a content file says to. Defeating someone sets <code>&lt;id&gt;_defeated</code> automatically; <code>has_&lt;item&gt;</code> and <code>met_&lt;character&gt;</code> are computed.</li>
   <li><strong>Characters are contained.</strong> An NPC agent sees only its brief: its file minus the <code>## GM only</code> section, plus the <code>## If</code> sections that hold now and its memory of the player (at most 6 short lines). It has no tools and doesn't load <code>CLAUDE.md</code>. It proposes; the game master checks the proposal against the hidden rules and applies it with the script, or doesn't. If an NPC contradicts the save, the save wins.</li>
   <li><strong>Numbers never come from a model.</strong> Anything a subagent invents gets its stats from fixed tiers: a <code>weapon</code> does 1d6, a <code>tough</code> foe has 12 HP, prices run 1 to 6 coins.</li>
-  <li><strong>A checker refuses broken worlds.</strong> <code>rpg.py validate</code> checks every reference, that every flag a condition uses can actually be set by something, that every command written into content is real, and that every curse has a cure. A <code>--kit-complete</code> mode lists what a full world needs (5 to 8 reachable rooms, agent characters, a maker, a build spot, two ways through the quest, a curse, a side scene), and worlds the worldsmith forges must pass it before they're installed.</li>
+  <li><strong>A checker refuses broken worlds.</strong> <code>rpg.py validate</code> checks every reference, that every flag a condition uses can actually be set by something, that every command written into content is real, and that every curse has a cure somewhere in the world (a rough check: it looks for the cure's flag in the world's other files). A <code>--kit-complete</code> mode lists what a full world needs (5 to 8 reachable rooms, agent characters, a maker, a build spot, two ways through the quest, a curse, a side scene), and worlds the worldsmith forges must pass it before they're installed.</li>
 </ul>
 
 <h2><span class="num">5</span>A world that changes</h2>
@@ -262,13 +274,13 @@
   <li><strong>Extras:</strong> the dockhand the story only mentioned becomes a minor person with a name.</li>
   <li><strong>Rooms:</strong> a free direction off any room can grow a new place, onto a free map square, at most 2 generated rooms deep.</li>
   <li><strong>Items and side quests</strong>, with stats from tiers. A side quest may touch only its own <code>side_</code> flags, so it can't shortcut the main story.</li>
-  <li><strong>World turns:</strong> every 5 moves (normal preset) the agent spreads rumors and moves generated people. Major characters act on their <strong>plans</strong>: Ysolde walks down to the quay or bars her door; Grukk goes foraging and rolls a boulder over the path. Close by, you notice; far off, you hear it as a rumor.</li>
-  <li>A run allows 16 generated things in all (normal preset).</li>
+  <li><strong>World turns:</strong> every few moves the agent spreads rumors and moves generated people. Major characters act on their <strong>plans</strong>: Ysolde walks down to the quay or bars her door; Grukk goes foraging and rolls a boulder over the path. Close by, you notice; far off, you hear it as a rumor.</li>
+  <li>Each run has a cap on how many things can be generated, set by the owner's preset.</li>
 </ul>
 <h3>What the player grows</h3>
 <ul>
   <li><strong>Makers and builders.</strong> Describe an order to Morwen the net-mender or Bucket the scrap drone; the agent shapes it within their trade, the tier sets its stats, you pay, it's yours. A builder at a build spot builds a place you describe; it joins the map 3 moves later and a rumor spreads so people start using it.</li>
-  <li><strong>Promotion.</strong> A generated person you talk to 3 times is promoted to their own agent with their own memory of you, for this run and later ones. The journal marks them &#9733;.</li>
+  <li><strong>Promotion.</strong> A generated person you keep talking to (3 times, on the default setting) is promoted to their own agent with their own memory of you, for this run and later ones. The journal marks them &#9733;.</li>
   <li><strong>Side scenes.</strong> Two agent characters in the same place can play a short scene with each other (Grukk begging Ysolde to let him hold the lens) if you take it up. It sets no flags.</li>
   <li><strong>The library.</strong> Everything generated or made (side quests excepted) outlives the run. A new game brings back the places you built and the people you befriended, each remembering one line about you, and the world agent may reuse a fitting old entry instead of inventing one.</li>
   <li><strong>New worlds.</strong> <code>/newworld &lt;a sentence&gt;</code> spawns the Opus worldsmith in the background while you keep playing. It writes a complete game folder, runs the checker on it until it passes, and you hear when it's ready. If a world is interrupted partway, <code>/newworld</code> offers to finish it, start a new one instead, or throw it away. A <code>PreToolUse</code> hook lets it write only inside its draft and run only the checker, denying everything else silently so no permission prompt ever lands in the player's game.</li>
@@ -282,34 +294,10 @@
 </figure>
 
 <h2><span class="num">6</span>What it costs</h2>
-<p>A living world is extra model calls, and on a subscription those are a shared budget. So playing the game as written is free: every game master turn, every rules command, and the authored characters speaking through their agents. Only the extras have a price, and the price is an in-game resource: lamp oil in the Lighthouse, power on the station. It sits in the status band and the pane, warns when low, and refills each time Claude Code is opened or resumed in the folder. When it's empty, the extras stop and the game as written plays on.</p>
-<div class="table-wrap">
-<table>
-  <thead><tr><th>Extra</th><th>Points</th></tr></thead>
-  <tbody>
-    <tr><td>Generating something new (person, place, item, side quest)</td><td>2</td></tr>
-    <tr><td>A world turn</td><td>2</td></tr>
-    <tr><td>Something made to order</td><td>2</td></tr>
-    <tr><td>Something built to order</td><td>3</td></tr>
-    <tr><td>Bringing something back from the library</td><td>1</td></tr>
-    <tr><td>A generated person getting their own agent</td><td>2</td></tr>
-    <tr><td>A side scene</td><td>2</td></tr>
-    <tr><td>A whole new world</td><td>Not on the meter: it costs more than a whole meter, so only the owner's switch and the player's confirmation gate it</td></tr>
-  </tbody>
-</table>
-</div>
-<p>One point is roughly one extra round of game master work. The script charges when it writes the brief, after every check that could refuse, so a refused extra costs nothing. The owner picks a preset per game and can override any switch with <code>tools/settings.py</code>, which the game master can't run:</p>
-<div class="table-wrap">
-<table>
-  <thead><tr><th>Preset</th><th>Meter</th><th>Character agents</th><th>World turns</th><th>Generated things per run</th></tr></thead>
-  <tbody>
-    <tr><td>thrifty</td><td>10</td><td>Off; the game master voices everyone</td><td>Off</td><td>6, extras, rooms and items only</td></tr>
-    <tr><td>normal</td><td>30</td><td>On</td><td>Every 5 moves, with plans</td><td>16</td></tr>
-    <tr><td>rich</td><td>60</td><td>On</td><td>Every 4 moves, with plans</td><td>24</td></tr>
-  </tbody>
-</table>
-</div>
-<p>The prices are estimates, so <code>/budget</code> also shows what the session really used: tokens per play turn, weighted as the API prices them, split by the storyteller, the characters, the world agent and the worldsmith, with <code>ooc:</code> development turns kept separate. It also shows how far the session moved the subscription's 5-hour and weekly usage limits, and keeps the last 10 sessions so a change can be compared before and after. That's the figure for checking a price, or a speed change, against reality.</p>
+<p>A living world is extra model calls, and on a subscription those come out of a shared budget. So the game as written costs nothing from the game's own budget: every game master turn, every rules command, and the authored characters speaking through their agents. Only the extras have a price, and the price is paid in an in-game resource: lamp oil in the Lighthouse, power on the station. It sits in the status band and the side panel, warns when low, and refills each time Claude Code is opened or resumed in the folder. When it's empty, the extras stop and the game as written plays on.</p>
+<p>Each kind of extra has its own price: generating a person, place, item or side quest; a world turn; something made or built to order; bringing something back from the library; giving a generated person their own agent; a side scene. The script charges when it writes the agent's brief, after every check that could refuse, so a refused extra costs nothing. A whole new world is too expensive for the meter, so it isn't on it: the owner's switch and the player's confirmation gate it instead.</p>
+<p>The owner picks a preset per game, from thrifty (the game master voices everyone, the world doesn't move on its own, little is generated) to rich, and can override any switch with <code>tools/settings.py</code>, which the game master can't run.</p>
+<p>The prices are estimates, so <code>/budget</code> also shows what the session really used: tokens per play turn, weighted as the API prices them, split between the storyteller, the characters, the world agent and the worldsmith, with <code>ooc:</code> development turns kept separate. It also shows how far the session moved the subscription's usage limits, and keeps recent sessions so a change can be compared before and after. That's what a price, or a speed change, is checked against.</p>
 
 <h2><span class="num">7</span>The skin</h2>
 <p>The mod is a Claude Code plugin of TypeScript hooks that Claude Code runs itself, so there's nothing to install. Each hook steps in where Claude Code is about to draw something (a reply, a tool call, the spinner, the prompt hint) and draws the game's version instead, or nothing. It only ever reads: the save, the referee's printed output, and its own per-session store. Start a message with <code>ooc:</code> and it stands aside; Claude Code looks like itself again.</p>
@@ -318,18 +306,14 @@
   <thead><tr><th>Claude Code shows</th><th>In play it becomes</th></tr></thead>
   <tbody>
     <tr><td>Claude's reply</td><td>The story: plain prose, 72 columns, centered beside the pane, revealed a paragraph at a time; speakers set beside a keyline in their color under their name; a thin rule with the place name on arrival; a title card at the start and an ending card at the finish</td></tr>
-    <tr><td>Tool calls, file reads, agent spawns</td><td>Hidden, except what the referee reports as rolls, encounters and new things, one line each in a dice tray: <code>&#127922; Might check: d20 16 +1 = 17 vs DC 14 SUCCESS</code></td></tr>
-    <tr><td>Spinner and turn timer</td><td>A waiting line in the game's voice, naming the stage of the turn ("Grukk considers your words"), with a chime; no timer</td></tr>
+    <tr><td>Tool calls, file reads, agent spawns</td><td>Hidden, except what the referee reports as rolls, encounters and new things, one line each in a dice tray, as in the turn in section 3: <code>&#127922; Might check: d20 18 +2 = 20 vs DC 14 SUCCESS</code></td></tr>
+    <tr><td>Spinner and turn timer</td><td>A waiting line in the game's voice, naming the stage of the turn ("Grukk considers your words"), with a chime; no timer or token count. Beside the side pane it sits in the status band</td></tr>
     <tr><td>Your message</td><td>Dim, after a quiet <code>&rsaquo;</code></td></tr>
-    <tr><td>Prompt hint and mode labels</td><td>The game's hint; labels hidden</td></tr>
+    <tr><td>Prompt hint and mode labels</td><td>The game's hint, and the mode labels on the right hidden. The permission-mode label in front of the hint ("auto mode on") stays: no mod can hide it</td></tr>
     <tr><td>Nothing</td><td>A status band, a side pane, instant commands, sound</td></tr>
   </tbody>
 </table>
 </div>
-<figure class="shot">
-<a href="images/dice-tray.png"><img src="images/dice-tray.png" alt="A turn with the dice tray line above the story" width="1490" height="770" loading="lazy"></a>
-<figcaption>The dice tray: the roll shows as one line above the story, and the change line sits under it.</figcaption>
-</figure>
 <p>The rest of what it adds:</p>
 <ul>
   <li><strong>The change line.</strong> Under any turn that changed anything, one dim line: <code>&#10023; &minus;2 &#9829; &middot; +5 coins &middot; gained Brass Lens &middot; &#10003; objective</code>. It's built from the save as the turn found it and left it, not from the prose, so it's the record you can trust.</li>
@@ -339,10 +323,10 @@
   <li><strong>Animation</strong> on the terminal's frame clock: the title card types itself out, dice tumble, health bars drain and flash, damage rises and fades, water ripples on the map, the accent color shifts with the time of day.</li>
   <li><strong>Curses on screen.</strong> Your message is redrawn as it came out (reversed, mirrored, cut short, or with a phrase tacked on) and the cast reacts to those words; the game master still knows what you meant.</li>
   <li><strong>A clean start.</strong> <code>/newgame</code> and a game switch run <code>/clear</code> first, so each game starts lean. The save holds everything that matters.</li>
-  <li><strong>Keeping the game master's notes off the page.</strong> Models like to narrate their own work: "Settling in beside Old Hob now." The mod holds each turn's text until the turn ends, shows only the narration, and strips stray progress notes from it with a set of patterns. Every new shape seen in play becomes a test, alongside story lines that must survive the filter.</li>
+  <li><strong>Keeping the game master's notes off the page.</strong> Models like to narrate their own work: "Settling in beside Old Hob now." The mod holds each turn's text until the turn ends, shows only the narration, and strips stray progress notes from it with a set of patterns, plus a rule for one structural case: a short note written just before the game master records what happened. Every new shape seen in play becomes a test, alongside story lines that must survive the filter.</li>
 </ul>
 <p>What a mod can't do today, for anyone building one: restyle the prompt's <code>&#10095;</code>, bind Esc, or hide the permission-mode label in front of the hint; submit a prompt on the player's behalf (pane buttons fill the box, the player presses Enter); keep story styling across a resumed session; or stream narration mid-turn (text is held until the turn ends so the game master's working notes can't leak, then revealed a paragraph at a time).</p>
-<p>Testing runs at two levels. One script runs 100 mod tests, 67 rules-engine tests and the content checker. Above that, <code>tools/play.py</code> drives a real Claude Code session in a simulated terminal: it types moves on a schedule, captures every frame the terminal draws, and searches them for anything that must never show, such as <code>rpg.py</code> leaking into the story. It runs in a scratch copy of the project, so test turns never touch a real save.</p>
+<p>Testing runs at two levels. One script runs the mod's tests, the rules engine's tests and the content checker. Above that, <code>tools/play.py</code> drives a real Claude Code session in a simulated terminal: it types moves on a schedule, captures every frame the terminal draws, and searches them for anything that must never show, such as <code>rpg.py</code> leaking into the story. It runs in a scratch copy of the project, so test turns never touch a real save.</p>
 
 <h2><span class="num">8</span>What carries over</h2>
 <p>The game is deliberately small; the framework is the point. These are the practices it settled, and they don't depend on the genre.</p>
