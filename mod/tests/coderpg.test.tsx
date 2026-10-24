@@ -12,7 +12,7 @@ import { revealFrame } from '../hooks/reveal'
 import { arrivalRow, blocksOf, endingRows, indentOf, measureOf, paragraphsOf, rowsOf, speakerCards, speakerOf, speechTag } from '../hooks/story'
 import { tileGrid, tilesAt } from '../hooks/tiles'
 import { FX_MS, hpAt, lineAt, numberAt, stripAt, TUMBLE_MS } from '../hooks/trayfx'
-import { bandHpColor, bandParts, budgetText, currentObjective, GUIDE_KEY, guideText, PLAY_HINT, WORKING_HINT, fitCells, startsAfresh, isGmNote, isPendingPlumbing, isPlumbing, onlyRecords, spaced, storyKey, stripPreamble, trayFor } from '../hooks/register'
+import { bandHpColor, bandParts, budgetText, currentObjective, GUIDE_KEY, guideText, PLAY_HINT, WORKING_HINT, fitCells, startsAfresh, isGmNote, isPendingPlumbing, isPlumbing, isProgressNote, narrationOf, onlyRecords, spaced, storyKey, stripPreamble, trayFor } from '../hooks/register'
 import { combatOf, trayLines, traySound } from '../hooks/tray'
 import { applyCurse, cursedWords } from '../hooks/curse'
 import { addUsage, allTokens, byRole, count, endTurn, helperStep, HISTORY_SIZE, looseStep, measured, newSpend, perPoint, roleOf, rowOf, spawned, spendText, weighted, withRow, ZERO } from '../hooks/spend'
@@ -560,6 +560,24 @@ test('a note about the content and its flags never shows as story, however it op
     'The contents of the chest smell of tar.',
     'The card player at the corner table folds.',
   ]) expect(isGmNote(story)).toBe(false)
+})
+
+test('a short note written just before recording-only calls, with the story after them, is no story (shot 04 retake)', () => {
+  // the turn as the GM wrote it: a note, then `flag set … && remember … && chronicle …`, then the story
+  const note = 'Content allows the cowed flag on success. Apply it, remember, chronicle.'
+  const story = 'The cutlass comes free of its scabbard with a rasp of steel.\n\nThe troll\'s glinting eyes go wide.'
+  const text: Record<string, string> = { a: 'Success: Grukk\'s parting line comes before the flag is set.', n: note, s: story }
+  const short = (k: string) => isProgressNote(text[k]!)
+  const no = () => false
+  // keys a (before npc-brief), n (before the records), s (after them); the brief and agent were the last other calls
+  expect(narrationOf(['a', 'n', 's'], 1, [2], short, no)).toEqual(['s'])
+  // narrate, then record, then nothing: the story before the records is the narration, as before
+  expect(narrationOf(['a', 's'], 1, [2], short, no)).toEqual(['s'])
+  // a long story before the records stays, even with a closing line after them
+  expect(narrationOf(['s', 'q'], 0, [1], k => k === 'q', no)).toEqual(['s', 'q'])
+  // blocks the note filter caught are dropped, unless nothing else is left
+  expect(narrationOf(['n', 's'], 0, [], short, k => k === 'n')).toEqual(['s'])
+  expect(narrationOf(['n'], 0, [], short, () => true)).toEqual(['n'])
 })
 
 test('story keys tell apart narrations that open the same way (QA finding 10)', () => {

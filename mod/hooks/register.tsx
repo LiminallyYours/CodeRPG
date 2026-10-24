@@ -140,6 +140,18 @@ export function isGmNote(text: string): boolean {
   return GM_ALWAYS.test(t) || GM_ANYWHERE.test(t) || GM_PROGRESS.test(t) || (GM_MAYBE.test(t) && GM_WORDS.test(t))
 }
 
+/** Which of a turn's text blocks (by key) are the narration: those from `from` on, the text after the turn's last
+ *  tool call other than recording-only ones, less the blocks the note filter caught (unless that leaves nothing).
+ *  `recordsAt` holds where each later recording-only call came. A game master may narrate and then record, so text
+ *  before those calls can be story; but when more text follows them, a short one-paragraph block before them was a
+ *  note about what was being recorded ("Content allows the cowed flag on success. Apply it, remember, chronicle."). */
+export function narrationOf(keys: string[], from: number, recordsAt: number[], short: (key: string) => boolean,
+  note: (key: string) => boolean): string[] {
+  const records = Math.max(from, ...recordsAt)
+  const candidates = keys.slice(from).filter((k, i) => !(from + i < records && records < keys.length && short(k)))
+  return candidates.some(k => !note(k)) ? candidates.filter(k => !note(k)) : candidates
+}
+
 /** Narration with a game-master note removed from its start, when story follows it. */
 export function stripPreamble(text: string): string {
   const parts = text.trim().split(/\n\s*\n/)
@@ -436,6 +448,8 @@ export const register: Register = on => {
   let turnStart: CoderpgSave | null = null
   let turnKeys: string[] = []
   let narrationFrom = 0 // turnKeys index where the text after the turn's last tool call begins
+  let recordsAt: number[] = [] // turnKeys indexes where recording-only calls came after that one
+  const shortKeys = new Set<string>() // this turn's text blocks that are one short paragraph
   let usedOtherTools = false // the turn used tools that aren't the game's (real development work)
   let turnActive = false // a game-master turn is running; a prompt typed meanwhile doesn't reset it
   let phase: CoderpgPhase | undefined // the stage the turn is in, for the waiting line and its chime
@@ -488,6 +502,8 @@ export const register: Register = on => {
     isNewGame = false
     turnKeys = []
     narrationFrom = 0
+    recordsAt = []
+    shortKeys.clear()
     usedOtherTools = false
     phase = undefined
     if (isGame) {
@@ -540,8 +556,7 @@ export const register: Register = on => {
       const was = turnStart
       const list = await read($, story)
       const isNote = (k: string) => list.find(x => x.key === k)?.note === true
-      const candidates = turnKeys.slice(narrationFrom)
-      const narration = candidates.some(k => !isNote(k)) ? candidates.filter(k => !isNote(k)) : candidates
+      const narration = narrationOf(turnKeys, narrationFrom, recordsAt, k => shortKeys.has(k), isNote)
       const asides = new Set(turnKeys.filter(k => !narration.includes(k)))
       const first = narration[0]
       const banner = !isNewGame && now && was && now.location !== was.location ? now.view?.location_name ?? now.location : undefined
@@ -600,8 +615,9 @@ export const register: Register = on => {
       const command = e.tool === 'Bash' ? String((e as { command?: unknown }).command ?? '') : ''
       // a chained call is judged by its most telling command, and its arguments are that command's
       const { sub, args } = mainCall(command)
-      // Text before this call wasn't the narration, unless this call only records what happened.
-      if (!(e.tool === 'Bash' && onlyRecords(String((e as { command?: unknown }).command)))) narrationFrom = turnKeys.length
+      // Text before this call wasn't the narration, unless this call only records what happened (see narrationOf).
+      if (e.tool === 'Bash' && onlyRecords(command)) recordsAt.push(turnKeys.length)
+      else { narrationFrom = turnKeys.length; recordsAt = [] }
       await update($, hidden, ids => [...ids, e.tool_use_id].slice(-3000))
       const subs = rpgCommands(command)
       if (subs.includes('newgame')) isNewGame = true
@@ -688,6 +704,10 @@ export const register: Register = on => {
         .map(b => ({ key: storyKey(b.text), pending: true, note: isGmNote(b.text), paras: paragraphsOf(stripPreamble(b.text)).length }))
       if (blocks.length) {
         turnKeys.push(...blocks.map(b => b.key))
+        for (const b of e.message.content) {
+          const t = (b as { type?: string; text?: string })
+          if (t.type === 'text' && t.text?.trim() && isProgressNote(t.text)) shortKeys.add(storyKey(t.text))
+        }
         await update($, story, list => [...list, ...blocks].slice(-2000))
       }
     }
