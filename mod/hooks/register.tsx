@@ -813,14 +813,21 @@ export const register: Register = on => {
 
   // ---- Claude's chrome, in-world
 
+  // The line that animates while a turn runs. Claude Code adds the elapsed time and tokens to its own drawing,
+  // which no prop carries, so in play the mod draws the line itself: beside the pane the band already says what
+  // the game master is doing, so nothing; without it, that phrase at the page's column.
   on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
     if (!isGame || isOoc) return next(e)
     // Routine status messages ("Running Agent…") give the game away; ones the player must see don't.
-    const message = e.props.message && /permission|approv|compact|retry|rate|limit|overload|error|context|interrupt|wait/i.test(e.props.message)
-      ? e.props.message : null
-    if (message) return next(e)
-    const phrase = await read($, activity)
-    return next({ ...e, props: { ...e.props, message: null, word: phrase ?? e.props.word } })
+    if (e.props.message && /permission|approv|compact|retry|rate|limit|overload|error|context|interrupt|wait/i.test(e.props.message)) return next(e)
+    const { Box, Text } = $.ui.resolve(e)
+    if (await paneShown($)) return <Box display="none" />
+    const phrase = (await read($, activity)) ?? e.props.word
+    return (
+      <Box paddingLeft={indentOf(e.viewport?.columns ?? 80)}>
+        <Text dimColor italic wrap="truncate">◌ {phrase}…</Text>
+      </Box>
+    )
   })
 
   on('ui.render', { component: 'ToolProgress' }, async ($, e, next) => {
@@ -860,8 +867,9 @@ export const register: Register = on => {
     )
   })
 
-  // The band above the prompt. Beside the docked pane it carries only health and the latest change (or, while
-  // the game master works, what it's doing); without the pane, the essentials in one dim line.
+  // The band above the prompt. Beside the docked pane it carries only health and, while the game master works,
+  // what it's doing (the turn's changes are in the change line under the story); without the pane, the
+  // essentials in one dim line.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (!isGame || e.props.hasSurvey) return next(e)
     const s = await read($, save)
@@ -875,10 +883,8 @@ export const register: Register = on => {
       return (
         <Box flexDirection="row" paddingLeft={indent}>
           <Text color={bandHpColor(s, last?.hp, look)}>♥ {s.stats.hp}</Text>
-          <Text dimColor>{'  │  '}</Text>
-          {waiting
-            ? <Text dimColor italic wrap="truncate">◌ {waiting}</Text>
-            : last?.changes.length ? <Text dimColor wrap="truncate">✧ {last.changes.join(' · ')}</Text> : null}
+          {waiting ? <Text dimColor>{'  │  '}</Text> : null}
+          {waiting ? <Text dimColor italic wrap="truncate">◌ {waiting}</Text> : null}
         </Box>
       )
     }

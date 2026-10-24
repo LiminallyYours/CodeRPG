@@ -1522,7 +1522,7 @@ const startSession = ($: Parameters<TestBody>[0]) => $.session.start({ source: '
 
 const BAND_PROPS = { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 100, scroll: { offset: 0, bodyRows: 10 }, view: {} }
 
-test('beside the pane the band is health and the latest change, or what the game master is doing', async ($, on) => {
+test('beside the pane the band is health, and what the game master is doing; the change line stays under the story', async ($, on) => {
   const save: CoderpgSave = { ...SAVE, stats: { ...SAVE.stats, hp: 10, max_hp: 12 } }
   gameFolder(on, save)
   on('state.get', { plugin: 'coderpg', key: 'latest' }, () => ({ value: { value: { changes: ['−2 ♥', 'the world grows · Gorse Thicket'], hp: 'hurt' }, version: 1 } }))
@@ -1533,17 +1533,43 @@ test('beside the pane the band is health and the latest change, or what the game
     props: { ...BAND_PROPS, isWorking }, viewport: { columns: 133, rows: 46 } }) // the column beside the pane
   const ui = await band(false, 'b1')
   expect((await ui.find({ type: 'Text', text: '♥ 10' }))?.props.color).toBe('red') // hurt this turn
-  expect(await ui.find({ type: 'Text', text: '✧ −2 ♥ · the world grows · Gorse Thicket' })).toBeDefined()
+  expect(await ui.find({ text: /✧|│/ })).toBeUndefined() // the change line is under the story already; no empty divider
   expect(await ui.find({ text: /Greywater|◎/ })).toBeUndefined() // the pane has the rest
   await ui.unmount()
   const busy = await band(true, 'b2')
   expect((await busy.find({ type: 'Text', text: '◌ Reading the room' }))?.props.italic).toBe(true)
+  expect(await busy.find({ text: /│/ })).toBeDefined()
   expect(await busy.find({ text: /✧/ })).toBeUndefined()
   await busy.unmount()
   const look = lookOf(save)
   expect(bandHpColor(save, 'heal', look)).toBe('cyan')
   expect(bandHpColor(save, undefined, look)).toBeUndefined() // quiet when nothing changed
   expect(bandHpColor({ ...save, stats: { ...save.stats, hp: 3 } }, undefined, look)).toBe('red') // a quarter or less
+})
+
+test('in play the waiting line has no timer or token count: the band carries it beside the pane, our own line without it', async ($, on) => {
+  gameFolder(on, SAVE)
+  on('state.get', { plugin: 'coderpg', key: 'activity' }, () => ({ value: { value: 'Reading the room', version: 1 } }))
+  let placed = true
+  on('ui.panes', () => ({ value: [{ id: 'coderpg-sheet', title: 'Character', isShown: placed, isFocused: false, isPlaced: placed }] }) as never)
+  // Claude Code's own line, which adds the elapsed time and tokens no prop carries
+  on('ui.render', { component: 'Spinner' }, (_, e) => ({ type: 'Text', props: {}, children: [`${e.props.message ?? e.props.word}… (5s · ↓ 183 tokens)`] }))
+  await startSession($)
+  let n = 0
+  const spinner = async (message: string | null) => {
+    const ui = await $.ui.mount({ plugin: 'coderpg', surface: 'terminal', component: 'Spinner', requestId: `s${n++}`,
+      props: { word: 'Sauteing', message, suffix: '…', mode: 'tool-use' }, viewport: { columns: 133, rows: 46 } })
+    const texts = (await ui.findAll({ type: 'Text' })).map(t => t.children.join(''))
+    const hidden = (await ui.find({ type: 'Box' }))?.props.display === 'none'
+    await ui.unmount()
+    return { text: texts.join(''), hidden }
+  }
+  expect(await spinner(null)).toEqual({ text: '', hidden: true }) // beside the pane: the band says it
+  expect(await spinner('Running Agent')).toEqual({ text: '', hidden: true }) // a routine status gives the game away
+  expect((await spinner('Waiting for permission')).text).toContain('Waiting for permission') // the player must see this one
+  placed = false
+  const own = await spinner(null)
+  expect(own.text).toBe('◌ Reading the room…') // no pane: the game's own line, and no "(5s · ↓ 183 tokens)"
 })
 
 test('without the pane the band carries place, health, money, resource, clock, time and objective', async ($, on) => {
