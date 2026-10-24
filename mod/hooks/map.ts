@@ -58,6 +58,13 @@ export function exitsOf(map: RoomMap, here: string): Exit[] {
   return exits.map(([dir, dest]) => ({ dir, name: knownName(map, dest) ?? 'unexplored', isExplored: map[dest] !== undefined }))
 }
 
+/** The connector for a diagonal link, drawn in the gap between two rows and two columns: ╲ or ╱, or ╳ where
+ *  it crosses the other diagonal already drawn in that gap (`was`). */
+export function diagonalLink(a: [number, number], b: [number, number], was?: string): string {
+  const ch = (b[0] - a[0]) * (b[1] - a[1]) > 0 ? '╲' : '╱'
+  return was === '╳' || (was !== undefined && was !== ch && (was === '╲' || was === '╱')) ? '╳' : ch
+}
+
 function trimName(name: string): string {
   return name.replace(/^The /, '')
 }
@@ -149,6 +156,10 @@ export function drawMap(map: RoomMap, here: string, columns: number): Seg[][] {
       } else if (a[0] === b[0]) {
         const c = a[0] - minX
         put(colX[c]! + Math.floor(boxW[c]! / 2), (Math.min(a[1], b[1]) - minY) * 4 + 3, dir === 'up' || dir === 'down' ? '┊' : '│', 'link')
+      } else {
+        const c = Math.min(a[0], b[0]) - minX
+        const x = colX[c]! + boxW[c]! + Math.floor((pick.gap - 1) / 2), y = (Math.min(a[1], b[1]) - minY) * 4 + 3
+        put(x, y, diagonalLink(a, b, canvas[y]?.[x]?.ch), 'link')
       }
     }
   }

@@ -1185,6 +1185,31 @@ test('paying a maker shows what was made, and how it was paid for', () => {
   expect(trayLines('COMMISSIONED: Gaff Hook (gaff_hook), light weapon, from Morwen')).toEqual([])
 })
 
+test('a diagonal exit draws a connector on both maps, and two that cross draw ╳ (bug 2026-10-23)', () => {
+  const look = lookOf(null)
+  // the screenshot session: the shed southwest of Harbor Square, under the Lighthouse, floated unconnected
+  const map: NonNullable<CoderpgSave['map']> = {
+    harbor_square: { name: 'Harbor Square', exits: { west: 'lighthouse', southwest: 'lookout_shed' } },
+    lighthouse: { name: 'The Lighthouse', exits: { east: 'harbor_square' } },
+    lookout_shed: { name: 'Lookout Shed', exits: { northeast: 'harbor_square' }, made_by: 'player' },
+  }
+  const lines = mapText(map, 'harbor_square', 80)
+  const gapRow = lines[3]!
+  expect(gapRow.trim()).toBe('╱')
+  // it sits in the gap between the two columns, under the Lighthouse's right edge and before Harbor Square's left
+  expect(gapRow.indexOf('╱')).toBeGreaterThan(lines[2]!.indexOf('╯'))
+  expect(gapRow.indexOf('╱')).toBeLessThan(lines[2]!.indexOf('╚'))
+  const tiles = tileGrid(map, 'harbor_square', 80, look)
+  expect(tiles[3]!.filter(c => c.k === 'link').map(c => c.ch)).toEqual(['╱'])
+  // both diagonals across one gap
+  const cross: NonNullable<CoderpgSave['map']> = {
+    a: { name: 'A', exits: { southeast: 'd', east: 'b' } }, b: { name: 'B', exits: { southwest: 'c' } },
+    c: { name: 'C', exits: {} }, d: { name: 'D', exits: {} },
+  }
+  expect(mapText(cross, 'a', 80)[3]!.trim()).toBe('╳')
+  expect(tileGrid(cross, 'a', 80, look)[3]!.filter(c => c.k === 'link').map(c => c.ch)).toEqual(['╳'])
+})
+
 test('a place the player had built is marked on the map, and its building shows in the tray', () => {
   const look = lookOf(null)
   const map = { ...MAP, gull_tavern: { ...MAP.gull_tavern!, made_by: 'player' } }

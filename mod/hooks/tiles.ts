@@ -3,7 +3,7 @@
 // marked ⌂, rooms heard of but not visited drawn dim. Pure: the save's map in, a grid of cells out. tilemap.tsx animates it.
 
 import type { CoderpgLook, CoderpgSave } from '../types'
-import { fit, labelOf, layout, STEP } from './map'
+import { diagonalLink, fit, labelOf, layout, STEP } from './map'
 
 type RoomMap = NonNullable<CoderpgSave['map']>
 /** What a cell is: the player's marker, a moving tile (water), a still tile, a link, or nothing. */
@@ -70,6 +70,10 @@ export function tileGrid(map: RoomMap, here: string, columns: number, look: Code
       } else if (a[0] === b[0]) {
         const x = (a[0] - minX) * (tileW + GAP_X) + Math.floor(tileW / 2)
         put(x, (Math.min(a[1], b[1]) - minY) * 4 + 3, { ch: dir === 'up' || dir === 'down' ? '┊' : '│', k: 'link', d: true })
+      } else {
+        const x = (Math.min(a[0], b[0]) - minX) * (tileW + GAP_X) + tileW + Math.floor((GAP_X - 1) / 2)
+        const y = (Math.min(a[1], b[1]) - minY) * 4 + 3
+        put(x, y, { ch: diagonalLink(a, b, grid[y]?.[x]?.ch), k: 'link', d: true })
       }
     }
   }
