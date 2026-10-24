@@ -16,6 +16,8 @@ export type CoderpgSave = {
     id?: string; moves?: number
     /** What this run generated or the player had made, by id: `made_by` "world" or "player" (version 7+). */
     rooms?: Record<string, CoderpgRunRecord>; characters?: Record<string, CoderpgRunRecord>; items?: Record<string, CoderpgRunRecord>
+    /** Who was in the scene as of the last look or move (version 9+). */
+    present?: { room: string; characters: string[] } | null
   }
   /** Rooms visited, with the exits open when last there (save version 3+). */
   map?: Record<string, {

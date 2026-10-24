@@ -86,6 +86,8 @@ Each time the character needs to respond, spawn a **fresh** `npc` subagent with 
 
 If `npc-brief` refuses because the character speaks through you right now, voice them yourself as for `[minor]` and spawn nothing.
 
+When the turn's outcome sets a flag that takes the character out of the scene (cowed, gone, defeated), run their `npc-brief` and spawn them before the `flag set`, so their last line is theirs. If the flag is already set, `npc-brief` still works for someone who was here at the turn's `look` or `move`, and says it's their parting line. If it refuses that a character is not in this scene, they say nothing: never voice an `[agent]` yourself.
+
 Its prompt has exactly these three parts:
 1. **Brief:** the verbatim output of `python3 rules/rpg.py npc-brief <id>`. Run it again for every spawn, since flags may have changed. Never add facts of your own to it.
 2. **The scene so far:** the last few lines of this scene, at most about 8, written as `Player: …` / `<Name>: …` / `(action)`. Write "(the scene just began)" if there are none. A scene ends when the player leaves the room.

@@ -40,7 +40,7 @@ METER = ROOT / "state" / "meter.json"
 FORGE = ROOT / "state" / "forge"  # drafts of new worlds, each written by a worldsmith agent (Stage 8)
 BALANCE = {}  # the active game's rule numbers; set by choose_game()
 SETTINGS = {}  # the owner's switches for the active game (preset + overrides); set by choose_game()
-STATE_VERSION = 8
+STATE_VERSION = 9
 OLDEST_VERSION = 7  # older saves are from before the game kit and aren't upgraded
 STATS = ("might", "agility", "wits")
 GEN_KINDS = ("extras", "rooms", "items", "characters", "side_quests")
@@ -56,7 +56,7 @@ def empty_run():
             "rooms": {}, "characters": {}, "items": {}, "quests": {},
             "exits": {}, "placements": {}, "notes": {}, "chronicle": [], "rumors": [],
             "used_encounters": [], "world_turn_due": False, "generated": 0,
-            "commissions": {}, "ordering": None}
+            "commissions": {}, "ordering": None, "present": None}
 
 
 def _v7_to_v8(state):
@@ -66,8 +66,14 @@ def _v7_to_v8(state):
     return state
 
 
+def _v8_to_v9(state):
+    """Version 9: who was in the scene as of the last look or move (`run.present`)."""
+    state["run"].setdefault("present", None)
+    return state
+
+
 # Each entry upgrades a save from version N to N+1.
-MIGRATIONS = {7: _v7_to_v8}
+MIGRATIONS = {7: _v7_to_v8, 8: _v8_to_v9}
 
 
 class Refused(Exception):
@@ -1275,6 +1281,12 @@ def cmd_look(args):
     here = state["room_items"].get(room["id"], [])
     print("ITEMS HERE: %s" % (", ".join(i + (" [generated]" if is_generated("items", i) else "") for i in here) or "none"))
     here = characters_here(state)
+    # A turn begins with a look or a move: who is here now may still speak this turn, even after a flag takes them
+    # out of the scene (npc-brief).
+    present = {"room": room["id"], "characters": here}
+    if run.get("present") != present:
+        run["present"] = present
+        save_state(state)
     voice = {c: "minor" if is_minor(c) else "minor, agent resting" if agents_resting(c) else "agent" for c in here}
     chars = ["%s [%s%s]" % (c, voice[c], ", generated" if is_generated("characters", c) else "") for c in here]
     print("CHARACTERS HERE: %s" % (", ".join(chars) or "none"))
@@ -1577,7 +1589,11 @@ def cmd_npc_brief(args):
     """Everything an NPC agent is allowed to know, built from its character file and state."""
     state = load_state()
     ident = args[0]
-    if ident not in characters_here(state):
+    present = state["run"].get("present") or {}
+    # someone a flag has just taken out of the scene still has their parting line, this turn and in this room
+    leaving = (ident not in characters_here(state) and present.get("room") == state["location"]
+               and ident in present.get("characters", []))
+    if ident not in characters_here(state) and not leaving:
         raise Refused("%s is not in this scene" % ident)
     if is_minor(ident):
         raise Refused("%s is a minor character; the game master plays them directly" % ident)
@@ -1605,6 +1621,8 @@ def cmd_npc_brief(args):
               for c in characters_here(state) if c != ident]
     lines += ["## The scene", "You are at %s. Present: the player%s." % (
         room.get("name", room["id"]), "".join(", " + o for o in others)), ""]
+    if leaving:
+        lines += ["This is your parting line: what just happened takes you out of this scene.", ""]
     playing, rec = scene_playing(state)
     cap = int(SETTINGS["side_scenes"]["replies"])
     again = playing and rec.get("last") == ident  # the two take turns, so a second brief in a row is the same reply

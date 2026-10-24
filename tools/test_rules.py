@@ -85,7 +85,7 @@ class Engine(unittest.TestCase):
             self.rpg("game", "switch", g)
             self.rpg("newgame", seed=1)
             s = self.save()
-            self.assertEqual(s["version"], 8)
+            self.assertEqual(s["version"], 9)
             self.assertEqual(s["game"], g)
             self.assertEqual(s["view"]["game"]["id"], g)
             look = s["view"]["look"]
@@ -114,7 +114,7 @@ class Engine(unittest.TestCase):
         self.assertIn("older version", self.rpg("look", ok=False))
         self.assertIn("an old save", self.rpg("game", "list"))
         self.rpg("newgame", seed=4)
-        self.assertEqual(self.save()["version"], 8)
+        self.assertEqual(self.save()["version"], 9)
 
     def test_switching_games_keeps_each_ones_save(self):
         first, second = GAMES[0], GAMES[1]
@@ -304,6 +304,26 @@ class Engine(unittest.TestCase):
         self.assertEqual(self.meter(), 1, "a refused extra costs nothing")
         self.rpg("meter", "refill")
         self.assertEqual(self.meter(), 30)
+
+    def test_a_flag_that_ends_someones_scene_still_lets_them_speak_this_turn(self):
+        # bug 2026-10-23: `flag set grukk_cowed && npc-brief grukk` was refused, and the GM voiced Grukk itself
+        self.rpg("game", "switch", "dark_lighthouse")
+        self.rpg("newgame", seed=5)
+        self.rpg("move", "east")
+        self.assertIn("grukk [agent]", self.rpg("move", "east"))
+        self.rpg("flag", "set", "grukk_cowed")
+        brief = self.rpg("npc-brief", "grukk")
+        self.assertIn("You are Grukk", brief)
+        self.assertIn("parting", brief)
+        # the next look starts a new turn: he's gone from the bridge now
+        self.assertNotIn("grukk", self.rpg("look").split("CHARACTERS HERE:")[1].split("\n")[0])
+        self.assertIn("not in this scene", self.rpg("npc-brief", "grukk", ok=False))
+        # and leaving the room never carries anyone along
+        self.rpg("flag", "unset", "grukk_cowed")
+        self.rpg("look")
+        self.rpg("move", "west")
+        self.assertIn("not in this scene", self.rpg("npc-brief", "grukk", ok=False))
+        self.assertEqual(self.save()["version"], 9)
 
     def test_a_spent_meter_stops_the_extras_and_play_goes_on(self):
         self.at_the_lighthouse()
@@ -717,13 +737,14 @@ class Engine(unittest.TestCase):
         self.rpg("newgame", seed=43)
         s = self.save()
         s["version"] = 7
-        del s["run"]["commissions"], s["run"]["ordering"]
+        del s["run"]["commissions"], s["run"]["ordering"], s["run"]["present"]
         self.write("state/save.json", json.dumps(s))
         self.assertIn("MAKERS HERE", self.rpg("look"))
         self.rpg("note", "The crate Morwen sits on is stamped HARKER.")
         s = self.save()
-        self.assertEqual(s["version"], 8)
+        self.assertEqual(s["version"], 9)
         self.assertEqual(s["run"]["commissions"], {})
+        self.assertEqual(s["run"]["present"], {"room": "harbor_square", "characters": ["morwen"]})  # v9, then the look
 
     def test_validate_checks_makers(self):
         d = "games/dark_lighthouse/characters/morwen.md"
